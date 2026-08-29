@@ -1,0 +1,22 @@
+{
+  "name": "@issac/pi-pt",
+  "version": "0.1.0",
+  "description": "Pt (Polyglot Transpiler) — Pi extension that transpiles multi-source business knowledge (OXN Assets) into Pi systemPrompt",
+  "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0"
+  }
+}

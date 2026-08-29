@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# pi session cache
+.pt/
+
+# TypeScript compiled output (pi runs .ts directly via tsx)
+*.js
+*.js.map
+*.d.ts
+*.tsbuildinfo
+
+# build output
+dist/
+
+# OS / editor
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# logs
+*.log
