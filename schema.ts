@@ -1,11 +1,14 @@
 // schema.ts — Pt IR 契约，与任何来源格式无关
 //
-// 设计原则（见 docs/pt-asset-layering.md §6.3、§11）：
+// 设计原则（见 docs/pt-asset-layering.md §0、§6.3、§11）：
 // 1. Schema 是语义化的，不带任何格式痕迹（无 Section/Item/raw/heading）
 // 2. Pt 定义契约，来源（OXN/YAML/...）实现 SourceAdapter
-// 3. 这是三段式编译架构的 IR，前端输出 → 中端变换 → 后端消费
+// 3. 这是三段式编译架构的 IR：前端（adapter）→ 后端（renderer）。中端已于 Phase 5.5 退出。
+//
+// Phase 5.5：移除 v3 legacy 字段，
+//           SchemaBundle 只含 v6 canonical 字段（domains/structs/activeScene）。
 
-// ==================== 静态知识库 · 语义层 ====================
+// ==================== 语义层原子 ====================
 
 /** 业务术语原子 */
 export interface Term {
@@ -34,29 +37,16 @@ export interface Rule {
   items?: string[];
 }
 
-// ==================== 静态知识库 · 模块层 ====================
+// ==================== 结构层原子 ====================
 
-/** 业务领域模块。一个 OXN domain asset 直接映射一个 DomainModule。 */
-export interface DomainModule {
-  /** 业务领域名 = domain asset name（一个 Domain 一个模块，不二次切分） */
-  name: string;
-  terms: Term[];
-  rules: Rule[];
-  externals: ExternalRef[];
-}
-
-// ==================== 静态知识库 · 结构层 ====================
-
-/** 编排策略。compiler 读 mode 决定段落拼接顺序。 */
+/** 编排策略。Scene 的 layout 字段决定段落拼接顺序。 */
 export interface StructureLayout {
   mode: "byDomain" | "byType" | "hybrid";
   /** byDomain / hybrid 时的模块顺序；未指定则原序 */
   domainOrder?: string[];
 }
 
-// ==================== 静态知识库 · identity ====================
-
-/** 流程节点（Blueprint Boundaries 的语义化形态） */
+/** 流程节点（Scene.boundaries 的语义化形态） */
 export interface BoundaryNode {
   /** 步骤名 */
   slot: string;
@@ -66,14 +56,14 @@ export interface BoundaryNode {
   desc: string;
 }
 
-/** 工具引用（Stack Tools 的语义化形态） */
+/** 工具引用（stack-Domain.## Scene 段的语义化形态） */
 export interface ToolRef {
   name: string;
   role?: string;
   operations?: string[];
 }
 
-// ==================== 动态手册（FlowTemplate 是静态知识的一部分） ====================
+// ==================== 动态手册 ====================
 
 /** 手册步骤 */
 export interface FlowStep {
@@ -87,7 +77,7 @@ export interface FlowStep {
   output?: string;
 }
 
-/** 手册模板（静态声明在知识库里，实例化后进 user message） */
+/** 手册模板（声明在 workflow-Domain.## Blueprint，实例化后进 Manual） */
 export interface FlowTemplate {
   /** /name 触发 */
   name: string;
@@ -101,49 +91,13 @@ export interface FlowTemplate {
   externals: ExternalRef[];
 }
 
-// ==================== 静态知识库整体 ====================
-
-/** 静态知识库（进 systemPrompt）。identity + modules + flows + layout 四件套。 */
-export interface KnowledgeBase {
-  identity: {
-    /** 触发条件 */
-    trigger: string;
-    /** 流程节点（步骤 DAG） */
-    boundaries: BoundaryNode[];
-    /** 可用工具 */
-    tools: ToolRef[];
-  };
-  modules: DomainModule[];
-  /** 手册模板（类 OXN Workflow，静态声明在知识库里），MVP-Static 可为空 */
-  flows: FlowTemplate[];
-  layout: StructureLayout;
-}
-
-// ==================== SchemaBundle：前端输出的 IR 包 ====================
-
-/** 一个来源 adapter 应提供的完整 Schema 包。
- *  动态手册不是独立部分，是 knowledgeBase.flows 被实例化后的产物。 */
-export interface SchemaBundle {
-  knowledgeBase: KnowledgeBase;
-}
-
-// ==================== Source Adapter 接口（依赖反转后） ====================
-
-/** 反转后的 SourceAdapter：load() 返回 SchemaBundle 而非 string。
- *  Pt 核心只认 SchemaBundle，不认任何来源格式。 */
-export interface SourceAdapter {
-  name: string;
-  load(cwd: string, blueprintName: string): Promise<SchemaBundle>;
-}
-
 // ==================== v6：Domain 即 Module ====================
 
 /**
  * v6: Domain 是 Pt 唯一的模块类型（Module 即 Domain）。
  * Domain 通过 type 标签区分承载内容的性质（term/workflow/stack/未来扩展）。
- * Scene 和 Blueprint 两段的实际形状由 type 决定（term→Term[]/Rule[]、workflow→FlowTemplate[]、stack→ToolRef[]/...）。
- *
- * Phase 5：scene/blueprint 使用泛型参数，未泛型化场景下记为 unknown。后期可按 type 生成联合型。
+ * Scene 读 Domain.## Scene 段，Blueprint 读 Domain.## Blueprint 段。
+ * 实际 scene/blueprint 形状由 type 决定（term→Term[]/Rule[]、workflow→{externals}/FlowTemplate[]、stack→ToolRef[]/...）。
  */
 export interface Domain<TScene = unknown, TBlueprint = unknown> {
   name: string;
@@ -159,7 +113,7 @@ export interface Domain<TScene = unknown, TBlueprint = unknown> {
  *   - Scene (kind="scene")：静态结构，产出 System Prompt，读 Domain[].## Scene。
  *   - Blueprint (kind="blueprint")：动态结构，产出 Manual，读 Domain[].## Blueprint。
  *
- * Phase 5: Scene 侧 trigger/boundaries/layout 填齐；Blueprint 侧 refs + manualLayout(暂不细化) 即可。
+ * Phase 5.5：Scene 侧 trigger/boundaries/layout 填齐；Blueprint 侧 refs + manualLayout(暂不细化) 即可。
  */
 export interface Struct {
   name: string;
@@ -178,24 +132,30 @@ export interface Struct {
   manualLayout?: "basic";
 }
 
-// ==================== v6 SchemaBundle 扩展 ====================
+// ==================== SchemaBundle：v6 唯一形态 ====================
 
 /**
- * Phase 5 扩展后的 SchemaBundle：
- *   - knowledgeBase：v3 legacy 字段，由 adapter 从新 fields 派生，供 midend/layout.ts 消费（**中端零改动**）。
- *   - domains/structs/activeScene：v6 canonical 字段，供 backend prompt.ts/message.ts 消费。
+ * SchemaBundle：v6 canonical 形态。
+ *   - domains：所有 Domain（按 type 区分承载内容）。
+ *   - structs：所有 Struct（Scene + Blueprint 平级）。
+ *   - activeScene：当前激活的 Scene 名，决定 System Prompt 走哪个 Struct 的 refs。
  *
- * 架构判据：
- *   - midend 仍然读 knowledgeBase（无 diff）。
- *   - backend 读 domains/structs/activeScene。
- *   - adapter 同时填两者，保证两者语义一致。
+ * Phase 5.5：移除 v3 legacy knowledgeBase 字段（midend 已退出，不再需要派生）。
  */
 export interface SchemaBundle {
-  knowledgeBase: KnowledgeBase;
   domains: Domain[];
   structs: Struct[];
   /** 当前激活的 Scene 名。System Prompt 按其 refs 拼装。 */
   activeScene: string;
+}
+
+// ==================== Source Adapter 接口（依赖反转后） ====================
+
+/** 反转后的 SourceAdapter：load() 返回 SchemaBundle 而非 string。
+ *  Pt 核心只认 SchemaBundle，不认任何来源格式。 */
+export interface SourceAdapter {
+  name: string;
+  load(cwd: string, blueprintName: string): Promise<SchemaBundle>;
 }
 
 // ==================== v6：Struct 名解析辅助 ====================

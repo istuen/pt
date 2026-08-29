@@ -1,10 +1,8 @@
 // frontend/oxn/adapter.ts — OXN MD → SchemaBundle (v6)
 //
-// Phase 5 重写：按 v6 语义读 OXN asset。
+// Phase 5 重写 + Phase 5.5 清理：按 v6 语义读 OXN asset，SchemaBundle 只含 v6 canonical 字段。
 //   - 每个 Domain 一个 md，type 决定 scene/blueprint 形状（term/workflow/stack）
 //   - Scene struct / Blueprint struct 各独立 md，frontmatter.kind 区分
-//   - SchemaBundle 同时填充 v6 新字段（domains/structs/activeScene）
-//     与 v3 legacy 字段（knowledgeBase）—— 后者供 midend/layout.ts 消费（**中端零改动**）。
 //
 // OXN 内部类型（Asset/Item/Section）保留，仅其映射路径换了。
 
@@ -12,11 +10,9 @@ import { join } from "node:path";
 import type {
   BoundaryNode,
   Domain,
-  DomainModule,
   ExternalRef,
   FlowStep,
   FlowTemplate,
-  KnowledgeBase,
   Rule,
   SchemaBundle,
   SourceAdapter,
@@ -163,8 +159,15 @@ async function loadDomain(cwd: string, fileName: string): Promise<Domain> {
         blueprint: [],
       };
     default:
-      // 未知 type 仍返回 Domain，scene/blueprint 用空。
-      return { name: asset.name, type, scene: undefined, blueprint: undefined };
+      // 未知 type 走通用 fallback：H3 items → Term[] / Rule[]。
+      // 扩展性体现：新 type = 在 backend 注册 renderer，不动 adapter / schema / 主循环。
+      // term/workflow/stack 走特化分支，保留语义类型价值。
+      return {
+        name: asset.name,
+        type,
+        scene: toTerms(asset.sections["Scene"]),
+        blueprint: toRules(asset.sections["Blueprint"]),
+      };
   }
 }
 
@@ -230,60 +233,6 @@ function parseLayout(raw: unknown): StructureLayout | undefined {
   return undefined;
 }
 
-// ==================== 派生 legacy knowledgeBase ====================
-
-/** 从 Scene struct + 其引用的 Domains 派生 v3-shape KnowledgeBase，供 midend 消费。
- *  语义：modules 来自 scene.refs 中 type=term 的 Domain；flows 来自 type=workflow 的 Domain。
- *  identity.tools 来自 type=stack 的 Domain。 */
-function deriveKnowledgeBase(scene: Struct, domains: Domain[]): KnowledgeBase {
-  const domainByName = new Map(domains.map((d) => [d.name, d]));
-  const refsDomains = scene.refs.map((r) => domainByName.get(r)).filter((d): d is Domain => !!d);
-
-  // modules: 从 term-Domain 派生 DomainModule（v3 形态：terms + rules + externals）
-  //   - externals: 取自同一 Scene refs 中的 workflow-Domain（关联的"数据源"）
-  const allExts: ExternalRef[] = [];
-  for (const d of refsDomains) {
-    if (d.type === "workflow" && d.scene && typeof d.scene === "object" && "externals" in d.scene) {
-      for (const e of (d.scene as { externals: ExternalRef[] }).externals) allExts.push(e);
-    }
-  }
-  const modules: DomainModule[] = refsDomains
-    .filter((d) => d.type === "term")
-    .map((d) => ({
-      name: d.name,
-      terms: (d.scene as Term[]) ?? [],
-      rules: (d.blueprint as Rule[]) ?? [],
-      externals: allExts,  // term-Domain 在 v6 不持 externals；归到 scene 范围内
-    }));
-
-  // flows: 从 workflow-Domain 派生
-  const flows: (FlowTemplate & { _vars?: string[] })[] = [];
-  for (const d of refsDomains) {
-    if (d.type === "workflow" && Array.isArray(d.blueprint)) {
-      for (const tpl of d.blueprint as FlowTemplate[]) flows.push(tpl as FlowTemplate & { _vars?: string[] });
-    }
-  }
-
-  // tools: 从 stack-Domain 派生
-  const tools: ToolRef[] = [];
-  for (const d of refsDomains) {
-    if (d.type === "stack" && Array.isArray(d.scene)) {
-      for (const t of d.scene as ToolRef[]) tools.push(t);
-    }
-  }
-
-  return {
-    identity: {
-      trigger: scene.trigger ?? "",
-      boundaries: scene.boundaries ?? [],
-      tools,
-    },
-    modules,
-    flows,
-    layout: scene.layout ?? { mode: "hybrid" },
-  };
-}
-
 // ==================== OXN Adapter 入口 ====================
 
 export const oxnAdapter: SourceAdapter = {
@@ -303,7 +252,6 @@ export const oxnAdapter: SourceAdapter = {
         throw new Error(`Pt: 未找到 Scene struct "${sceneName}"（blueprints/*.scene.md）`);
       }
       return {
-        knowledgeBase: deriveKnowledgeBase(fallback, domains),
         domains,
         structs,
         activeScene: fallback.name,
@@ -311,7 +259,6 @@ export const oxnAdapter: SourceAdapter = {
     }
 
     return {
-      knowledgeBase: deriveKnowledgeBase(activeScene, domains),
       domains,
       structs,
       activeScene: activeScene.name,

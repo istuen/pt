@@ -1,9 +1,12 @@
 // backend/prompt.ts — SchemaBundle → System Prompt 段（v6 渲染器注册制）
 //
-// Phase 5 重写：从 LayoutedBundle 切换到 SchemaBundle，按 Domain Type 注册 scene/blueprint renderer。
-// 加新 Domain Type = 在 sceneRenderers/blueprintRenderers 表加一行，中端/Schema 不动。
+// Phase 5.5: 按 Domain Type 注册 scene renderer，mode-based 拼装已从 midend 并入此处。
+// 加新 Domain Type = 在 sceneRenderers 表加一行，不动主循环。
 //
-// v3 路径（generatePrompt(LayoutedBundle)）保留在文件底部作 legacy 参考，不再被 transpile.ts 调用。
+// 中端 midend/layout.ts 已退出（Phase 5.5），layout 逻辑并入此处。
+// Blueprint 侧（Manual 渲染）走 backend/message.ts 的 FlowTemplate 展开，
+//   无 blueprintRenderers 注册表（Manual 语义只展开 workflow-Domain 的 steps，term/stack 的 ## Blueprint
+//   段进 Manual 的语义未定义，强行渲染是过度设计——见 Phase 5.5.3 设计判据）。
 
 import type {
   BoundaryNode,
@@ -20,10 +23,9 @@ import type {
 const CIRCLED = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
 const DEFAULT_TRIGGER = "当用户请求相关任务时按以下流程执行；其余对话正常响应，勿套用本流程。";
 
-// ==================== v6：Renderer 注册表 ====================
+// ==================== v6：Renderer 注册表（Scene 侧） ====================
 
 type DomainSceneRenderer = (d: Domain, mode: "byDomain" | "byType" | "hybrid") => DomainSection;
-type DomainBlueprintRenderer = (d: Domain) => string;
 
 /** Domain scene 渲染结果：分离 section / rules / externals，便于 mode-based 拼装 */
 interface DomainSection {
@@ -47,19 +49,8 @@ const sceneRenderers: Record<string, DomainSceneRenderer> = {
   stack: renderStackScene,
 };
 
-/** 域类型 → blueprint renderer。Manual 渲染时按 type 分发。
- *  本期 message.ts 单独处理 workflow 的 FlowTemplate 展开，blueprintRenderers 暂只占位。 */
-const blueprintRenderers: Record<string, DomainBlueprintRenderer> = {
-  term: renderTermBlueprint,
-  workflow: renderWorkflowBlueprint,
-  stack: renderStackBlueprint,
-};
-
 export function registerSceneRenderer(type: string, fn: DomainSceneRenderer): void {
   sceneRenderers[type] = fn;
-}
-export function registerBlueprintRenderer(type: string, fn: DomainBlueprintRenderer): void {
-  blueprintRenderers[type] = fn;
 }
 
 // ==================== Scene Renderers ====================
@@ -107,12 +98,6 @@ function renderStackScene(d: Domain, _mode: "byDomain" | "byType" | "hybrid"): D
   const tools = (d.scene as ToolRef[] | undefined) ?? [];
   return { section: "", rules: [], externals: [], tools, templates: [] };
 }
-
-// ==================== Blueprint Renderers（Manual 用，本期暂占位） ====================
-
-function renderTermBlueprint(_d: Domain): string { return ""; }
-function renderWorkflowBlueprint(_d: Domain): string { return ""; }
-function renderStackBlueprint(_d: Domain): string { return ""; }
 
 // ==================== 主入口：v6 SchemaBundle → System Prompt ====================
 
@@ -297,15 +282,4 @@ function renderFlowsCatalog(rendered: DomainSection[]): string {
   return lines.join("\n");
 }
 
-// ==================== Legacy：v3 generatePrompt（保留作参考，不被调用） ====================
-//
-// 原 v3 后端消费 LayoutedBundle，本 Phase 5 不删，仅注释标记。transpile.ts 已切到 v6 路径。
-// 如需 fallback，可解开注释启用。
-
-/*
-import type { DomainModule, LayoutedBundle } from "../midend/layout.js";
-
-export function generatePrompt(b: LayoutedBundle): string {
-  // ...（v3 实现原样保留）
-}
-*/
+// （Phase 5.5 清理完成，文件底部无 legacy 占位）

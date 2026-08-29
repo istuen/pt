@@ -1,12 +1,12 @@
 // transpile.ts — Source Adapter 注册表 + 调度
 //
-// Phase 5 链路：adapter.load() → SchemaBundle[] → generateV6Prompt(bundle) → string → 注入 systemPrompt
+// Phase 5.5 链路：adapter.load() → SchemaBundle → generateV6Prompt(bundle) → string → 注入 systemPrompt
 //
 // loadAndTranspile 同时返回 segment 和 bundles——segment 注入 systemPrompt，
 // bundles（含 domains/structs/flows）给 input handler 用（dynamic manual 拦截需要）。
 //
-// 注：midend/layout.ts 的 layoutTransform + v3 generatePrompt 链路已切到 v6 后端。
-//      midend/layout.ts 本身**零改动**，作为 legacy 实现保留，供 Phase 6 自举复用。
+// 注：Phase 5.5 起中端 midend/layout.ts 已退出（layout 逻辑并入 backend/prompt.ts）。
+//      backend/prompt.ts 消费 v6 SchemaBundle，按 mode（byDomain/byType/hybrid）+ type 分发。
 
 import { oxnAdapter } from "./frontend/oxn/adapter.js";
 import { generateV6Prompt } from "./backend/prompt.js";
