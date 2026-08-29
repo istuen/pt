@@ -41,12 +41,13 @@ interface DomainSection {
   templates: FlowTemplate[];
 }
 
-/** 域类型 → scene renderer。已注册：term / workflow / stack。
+/** 域类型 → scene renderer。已注册：term / workflow / stack / glossary。
  *  扩展 type：调 registerSceneRenderer("xxx", fn) 即可，不动遍历逻辑。 */
 const sceneRenderers: Record<string, DomainSceneRenderer> = {
   term: renderTermScene,
   workflow: renderWorkflowScene,
   stack: renderStackScene,
+  glossary: renderGlossaryScene,
 };
 
 export function registerSceneRenderer(type: string, fn: DomainSceneRenderer): void {
@@ -97,6 +98,19 @@ function renderWorkflowScene(d: Domain, _mode: "byDomain" | "byType" | "hybrid")
 function renderStackScene(d: Domain, _mode: "byDomain" | "byType" | "hybrid"): DomainSection {
   const tools = (d.scene as ToolRef[] | undefined) ?? [];
   return { section: "", rules: [], externals: [], tools, templates: [] };
+}
+
+/** glossary-Domain（扩展 type 示例，Phase 5.5 扩展性实测）。
+ *  ## Scene = Term[] 词表；## Blueprint = Rule[]（本期不渲染 rules）。 */
+function renderGlossaryScene(d: Domain, _mode: "byDomain" | "byType" | "hybrid"): DomainSection {
+  const terms = (d.scene as Term[] | undefined) ?? [];
+  const rules = (d.blueprint as Rule[] | undefined) ?? [];
+  const lines: string[] = [`### 术语表「${d.name}」`];
+  for (const t of terms) {
+    if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
+    else lines.push(`- **${t.name}**`);
+  }
+  return { section: lines.join("\n").trimEnd(), rules, externals: [], tools: [], templates: [] };
 }
 
 // ==================== 主入口：v6 SchemaBundle → System Prompt ====================
