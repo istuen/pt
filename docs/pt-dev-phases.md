@@ -11,33 +11,34 @@
 
 ### 当前在哪
 
-- **Phase 0-4 已完成并验证**：Schema 契约、前端反转、中端+静态后端、动态手册、收尾验证全部通过。
-- **代码处于 v3 语义状态**：`modules/flows/tools` 三字段硬编码，blueprint.asset 含 `## Templates` 段，3 种平级 Module。
-- **设计文档已演进到 v6**：`pt-asset-layering.md` §0 是当前语义基准，代码尚未对齐。
+- **Phase 0-6 已落地**，baseline commit `ffa721e`（`git log` 可查）。
+- **Phase 5 是双写中间态**，不是完成态——详见「Phase 5-6 验收记录」段（本文件后部）。v6 字段与 v3 legacy 并存，中端靠 legacy 字段零改动。
+- **Phase 6 自举已跑通**，但压力测试偏弱。
+- **git 已初始化**，可随时 `git revert` 回 baseline。
 
 ### 待办（按顺序）
 
-1. **Phase 5：模型对齐**（本文档 §Phase 5）——把代码从 v3 对齐到 v6 语义。模型重构，不改功能，验收重点是**无回归 + 中端零改动 + 扩展性验证**。
-2. **Phase 6：自举**（本文档 §Phase 6）——用 Pt 的 asset 描述 Pt 自身，跑通转译链路。最终验收：语义模型能表达真实非平凡系统。
+1. **Phase 5.5：legacy 清理 + 扩展性验证**（本文档 §Phase 5.5）——拆 `knowledgeBase` legacy 字段、midend 去留决策、blueprintRenderers 转正或移除、扩展性实测、清死代码。完成后才算 Phase 5 真正完成。
+2. **Phase 6 加压（可选）**——给 pt-* 资产加跨 Domain 引用 + 1:N workflow + hybrid 全局约束，验 harder case。
 
 ### 必读（只读这些就够开工）
 
 | 文档 | 读哪段 | 为什么 |
 |---|---|---|
+| `pt-dev-phases.md` | **「Phase 5-6 验收记录」** + **Phase 5.5 步骤** | 先看实际状态（哪些属实/需澄清/缺失），再看要做什么 |
 | `pt-asset-layering.md` | **§0（全部 0.1-0.8）** | v6 语义基准：Domain=Module、`## Scene`/`## Blueprint` 两段、Scene/Blueprint/Manual 命名 |
-| `pt-dev-phases.md` | **Phase 5 步骤 5.1-5.5** + 验收标准 + 风险 | 要执行的改动面和验证判据 |
-| 代码 | `schema.ts` / `frontend/oxn/adapter.ts` / `backend/prompt.ts` | 当前 v3 实现，改动的起点 |
+| 代码 | `schema.ts` / `frontend/oxn/adapter.ts` / `backend/prompt.ts` / `midend/layout.ts` | 当前双写实现，改动的起点 |
 
 ### 可跳过（背景，不影响执行）
 
 - `pt-asset-layering.md` §1-§4（演进历史）、附录「模型演进对照」（v1-v5 是历史，v6 才是当前）。
-- `pt-dev-phases.md` Phase 0-4 步骤（已完成，仅作背景）。
-- `pt-prompt-optimization.md`（已落地，Phase 5/6 不涉及）。
+- `pt-dev-phases.md` Phase 0-4 步骤（已完成，仅作背景）、Phase 5 步骤 5.1-5.5（已执行，看验收记录即可）。
+- `pt-prompt-optimization.md`（已落地，Phase 5.5 不涉及）。
 - 文档里的 ⚠️ 注释和「待改」标记——那是给设计者看的，执行者按 §0 v6 语义为准即可。
 
 ### 遇到设计没覆盖的情况
 
-**不要自行发挥**。记录问题交验收者决策（设计者会回补 §0 或Phase 步骤）。自作主张改语义是 Phase 5 最大风险。
+**不要自行发挥**。记录问题交验收者决策（设计者会回补 §0 或 Phase 步骤）。自作主张改语义是最大风险。
 
 ---
 
@@ -771,6 +772,148 @@ yml: type: stack
 
 ---
 
+## Phase 5-6 验收记录（实测，非报告）
+
+> 本节是 2026-08-29 实测验收记录，区分**属实**、**需澄清**、**缺失** 三档。执行者和验收者都以本节为准判断当前状态，不要看阶段 checklist 的打勾。
+
+### 实测属实 ✅
+
+| 项 | 证据 |
+|---|---|
+| `tsc --noEmit` 通过 | 实测 exit 0 |
+| 3 Domain + Scene + Manual 资产存在 | `domains/pt-{concepts,transpile,capabilities}.md` + `blueprints/pt.{scene,manual}.md` |
+| **中端零改动** | `midend/layout.ts` mtime = Phase 2 时期（08:05），Phase 5 文件全在 21:47+ |
+| **renderer 注册制落地（Scene 侧）** | `sceneRenderers: Record<type, fn>` + `registerSceneRenderer` 导出 |
+| v6 主链路完整 | `generateV6Prompt` 按 `Scene.refs` 遍历 + 按 type 分发；`generateManual` 按 Blueprint refs 摊平 workflow-Domain |
+| 自举资产非空话 | pt-concepts 5 公理都是真 Pt 知识（三段式/Schema反转/Domain即Module/两通道），pt-transpile 6 步骤是真实转译流程 |
+| 自举跑通 | `/pt full` 产出 1791 chars（hybrid），三 mode 兼容 |
+| 回归通过 | article(461) / risk-check(480) Scene 不受影响 |
+
+### 需澄清 ⚠️
+
+**1. “Phase 5 落地”实为双写中间态，非完成态**
+
+`schema.ts` 有**两个同名 `SchemaBundle` interface 合并声明**：
+- 旧：`{ knowledgeBase: KnowledgeBase }`（v3，喂 midend）
+- 新：`{ knowledgeBase, domains, structs, activeScene }`（v6，喂 backend）
+
+`adapter.ts` 用 `deriveKnowledgeBase(scene, domains)` **从 v6 字段反向派生 v3 字段**喂 midend。注释明说：
+> knowledgeBase：v3 legacy 字段，由 adapter 从新 fields 派生，供 midend/layout.ts 消费（中端零改动）
+
+“中端零改动”成立的原因是 **legacy 字段还在喂它**，不是 midend 真的迁移到了 v6。这是 Phase 5 风险 #1 缓解策略（“先加新接口并标注弃用旧字段，逐文件迁移”），是合理的中间里程碑，但**不该称为“完成”**。真正完成 = 拆 `knowledgeBase` + 决定 midend 读 v6 还是退出。→ **Phase 5.5**。
+
+**2. blueprintRenderers 是空壳**
+
+```typescript
+function renderTermBlueprint(_d: Domain): string { return ""; }
+function renderWorkflowBlueprint(_d: Domain): string { return ""; }
+```
+
+Manual 实际只走 `message.ts` 的 `bindFlowTemplate` 展开 FlowTemplate，`blueprintRenderers` 注册表对 term/stack 返空串。注册制对 Blueprint 侧**结构在但没真正工作**——workflow 侧靠 message.ts 特殊处理绕过了注册表。“加新 type 只加 renderer”的扩展性承诺，目前**只在 Scene 侧验证了，Blueprint 侧未验证**。
+
+**3. 扩展性验证证据不足**
+
+Phase 5 checklist 的“手动添加 glossary 假 type”未实测。注册机制结构上支持，但没跑过就不算验证通过。→ **Phase 5.5 补**。
+
+### 缺失/风险 ❌
+
+**1. 非 git 仓库（本验收时）** — 全局验收清单“失败可回退 git revert”无法满足。**验收后已补**：`git init` + baseline commit `ffa721e`（Phase 0-6 双写状态）。后续改动均可回退到此点。
+
+**2. 死代码累积** — `backend/prompt.ts` 底部 `generatePrompt(LayoutedBundle)` 标注“保留作参考，不被调用”；`KnowledgeBase`/`DomainModule` 接口在 schema.ts 仍 export。双写期保留可理解，但需明确清理计划，否则永久驻留。→ **Phase 5.5**。
+
+### 总评
+
+| 维度 | 状态 |
+|---|---|
+| v6 路径可用性 | ✅ 真通（双写 + 派生 + renderer 注册 + 自举产物） |
+| 设计判据“中端零改动” | ✅ 成立（但靠 legacy 字段维持，非 midend 迁移） |
+| Phase 5 完成度 | ⚠️ **双写里程碑达成，非完成**——legacy 清理未做 |
+| Phase 6 完成度 | ✅ 自举通过，但压力测试偏弱（未 exercised 跨 Domain/1:N/hybrid harder case） |
+| 回退能力 | ✅ 验收后补齐（baseline `ffa721e`） |
+| 扩展性验证 | ⚠️ Scene 侧结构支持，Blueprint 侧空壳，未实测假 type |
+
+---
+
+## Phase 5.5：legacy 清理 + 扩展性验证（Phase 5 收尾）
+
+> Phase 5 达成双写里程碑，但遗留三件事：legacy 字段未拆、blueprintRenderers 空壳、扩展性未实测。Phase 5.5 收尾这三件，**才算 Phase 5 真正完成**。
+
+### 目标
+
+1. **拆 `knowledgeBase` legacy 字段**：SchemaBundle 只留 v6 字段（`domains/structs/activeScene`）。
+2. **决定 midend 去留**：midend 读 v6 字段，或退出（layout 逻辑并入 backend）。
+3. **blueprintRenderers 转正或移除**：Manual 渲染统一走注册表，或明说 Manual 只展开 FlowTemplate 不走注册表。
+4. **扩展性实测**：加一个 `glossary` 假 Domain Type，跑 Scene + Blueprint 两侧注册。
+5. **清死代码**：删 `KnowledgeBase`/`DomainModule` interface、旧 `generatePrompt(LayoutedBundle)`。
+
+### 前置依赖
+
+- Phase 5 双写里程碑（baseline `ffa721e`）。
+
+### 设计判据
+
+**Phase 5.5 完成后，schema.ts 不再 export 任何 v3 名词（`KnowledgeBase`/`DomainModule`/旧 `SchemaBundle`），midend 要么读 v6 要么消失。** 这是“v6 语义对齐完成”的硬指标。
+
+### 步骤
+
+#### 5.5.1 midend 去留决策（先定设计再改代码）
+
+两个选项：
+
+- **选项 A：midend 读 v6**——`layoutTransform(SchemaBundle)` 改读 `domains/structs`，`LayoutedBundle` 重定义为 v6 形态。改动 midend，但保留中端这一层。
+- **选项 B：midend 退出**——layout 三模式的逻辑（byDomain/byType/hybrid 段落拼装）并入 `backend/prompt.ts` 的 `generateV6Prompt`。midend 目录删。**这才是“中端零改动”的终局验证：不是没改，是不需要了。**
+
+决策依据：
+- 若 layout 逻辑与 prompt 渲染强耦合（本就是“段落拼装”），选 B——中端是冗余抽象。
+- 若未来 layout 要做更复杂变换（重排序、过滤、跨 scene 合并），选 A——中端有价值。
+- **推荐 B**：当前 layout.ts 只做按 mode 拼装，与 renderer 职责重叠；v6 的 Struct.layout 字段已把 mode 信息带到 backend，中端无独立价值。
+
+#### 5.5.2 拆 knowledgeBase 字段（依赖 5.5.1 决策）
+
+- 若选 A：midend 改读 `domains/structs`，`deriveKnowledgeBase` 删，`SchemaBundle.knowledgeBase` 字段删。
+- 若选 B：midend 删，`LayoutedBundle` 删，`deriveKnowledgeBase` 删，`SchemaBundle.knowledgeBase` 字段删，`transpile.ts` 的 `layoutTransform` 调用删。
+
+#### 5.5.3 blueprintRenderers 转正或移除
+
+- **转正**：`renderTermBlueprint`/`renderStackBlueprint`/`renderWorkflowBlueprint` 实现真实渲染，`generateManual` 改为遍历 Blueprint.refs + 按 type 分发 `blueprintRenderers`。
+- **移除**：明说 Manual 只展开 workflow-Domain 的 FlowTemplate（term/stack 的 `## Blueprint` 段不进 Manual），删 `blueprintRenderers` 注册表 + `render*Blueprint` 函数。
+- **推荐移除**：当前 Manual 语义就是“操作步骤手册”，只有 workflow-Domain 有 steps。term 的定理、stack 的 usage 进 Manual 的语义未定义，强行渲染是过度设计。移除更诚实。
+
+#### 5.5.4 扩展性实测
+
+- 加 `domains/glossary-test.md`（type=glossary），`## Scene` = 术语表，`## Blueprint` = 空。
+- 加 `renderGlossaryScene` 注册进 `sceneRenderers`。
+- 跑 `/pt full`，确认 glossary 段出现在 System Prompt，且**没改 schema.ts / midend / generateV6Prompt 主循环**。
+- 若 5.5.3 选“移除”，blueprintRenderers 不动；若选“转正”，同样加 glossary renderer 测两侧。
+
+#### 5.5.5 清死代码
+
+- 删 `schema.ts` 的 `KnowledgeBase`/`DomainModule` interface + 旧 `SchemaBundle` 声明。
+- 删 `backend/prompt.ts` 底部 `generatePrompt(LayoutedBundle)`。
+- 删 `midend/`（若选 B）或 `LayoutedBundle`（若选 A）。
+- `tsc --noEmit` 无 unused 报警。
+
+### 验收标准
+
+- [ ] `tsc --noEmit` 通过，无 unused 报警。
+- [ ] `schema.ts` grep 不到 `KnowledgeBase`/`DomainModule`。
+- [ ] `backend/prompt.ts` grep 不到 `generatePrompt(LayoutedBundle)`。
+- [ ] **三 mode 无回归**：hybrid/byDomain/byType 产物与 baseline `ffa721e` 对比，语义不变。
+- [ ] **binder 无回归**：`/risk-check 客户A 5000` Manual 正常。
+- [ ] **自举无回归**：`/pt full` 仍跑通。
+- [ ] **扩展性验证**：glossary 假 type 实测通过，只动前端解析 + renderer 注册，没动 schema/midend（若 midend 仍在）/主循环。
+- [ ] **midend 去留有明确结论**：读 v6 或删除，二选一，不留双写。
+
+### 风险
+
+1. **拆 legacy 可能暴露 midend 与 backend 的隐式耦合**。缓解：5.5.1 先定决策，5.5.2 再动。
+2. **移除 blueprintRenderers 可能影响 Manual 扩展性叙事**。缓解：在 §0 明说“Manual 只展开 workflow-Domain”，这是语义边界不是缺陷。
+3. **midend 删除是破坏性改动**。缓解：baseline `ffa721e` 可回退；先在分支验证。
+
+---
+
+---
+
 ## Phase 依赖图
 
 ```
@@ -784,15 +927,19 @@ Phase 3 (动态手册) ← 需先补 3 处文档模糊点
    ↓
 Phase 4 (收尾验证)
    ↓
-Phase 5 (模型对齐) ← v6 语义：Domain 即 Module + `## Scene`/`## Blueprint` 两段 + Scene/Blueprint 命名澄清 + Manual 正名
+Phase 5 (模型对齐 v6，双写里程碑) ← baseline ffa721e
    ↓
-Phase 6 (自举) ← 用 Pt 描述 Pt，验证语义模型表达力
+Phase 5.5 (legacy 清理 + 扩展性验证) ← Phase 5 真正完成
+   ↓
+Phase 6 (自举) ← 已跑通，压力测试可继续加
 ```
 
 - **Phase 0 → 1 → 2 串行**（后一个依赖前一个的产物）。
 - **Phase 3 前置文档工作可与 Phase 0/1/2 并行**（不阻塞代码推进）。
 - **Phase 4 必须在 3 之后**。
-- **Phase 5 是模型重构，不改功能**——验收重点是无回归 + 中端零改动 + 扩展性验证。
+- **Phase 5 双写里程碑**：v6 字段与 v3 legacy 并存，中端靠 legacy 字段零改动。验收看「Phase 5-6 验收记录」。
+- **Phase 5.5**：拆 legacy、midend 去留、blueprintRenderers 转正或移除、扩展性实测。完成后才算 Phase 5 真正完成。
+- **Phase 6**：自举已跑通，但压力测试偏弱（未 exercised 跨 Domain/1:N/hybrid harder case），可继续加资产加压。
 
 ---
 
