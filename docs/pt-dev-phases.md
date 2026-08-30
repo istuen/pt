@@ -11,16 +11,23 @@
 
 ### 当前在哪
 
-- **Phase 0-6 + Phase 5.5 全部完成**，v6 语义对齐到位。
-- git baseline：`ffa721e`（Phase 0-6 双写状态）→ `571b45d`（Phase 5.5 legacy 清理）→ `9fca537`（Phase 5.5.4 扩展性实测）。可随时 `git revert` 回退。
-- **v6 单一形态**：SchemaBundle 只含 `{domains, structs, activeScene}`，无 legacy 字段；midend 已退出（选项 B，layout 并入 backend）；blueprintRenderers 移除（Manual 只展开 workflow-Domain）；扩展性实测通过（glossary 假 type）。
-- **Phase 6 自举跑通**，但压力测试偏弱。
+- **Phase 0-6 + Phase 5.5 基本完成**，但复验发现 2 个问题（见下“待办”），未真完。
+- git baseline：`ffa721e`（Phase 0-6 双写）→ `571b45d`（Phase 5.5 legacy 清理）→ `9fca537`（5.5.4 扩展性）→ `be5d4c3`（文档回填）。可 `git revert` 回退。
+- **v6 单一形态**：SchemaBundle 只含 `{domains, structs, activeScene}`，无 legacy；midend 退出；blueprintRenderers 移除；扩展性实测通过。
+- **Phase 6 自举跑通**，压力测试偏弱。
 
-### 待办（可选，非阻塞）
+### 待办
 
-1. **三 mode 实测**——所有 scene asset 都是 `layout: { mode: hybrid }`，byDomain/byType 路径未真跑过（代码分支在，无 asset 触发）。建议加一个 byType 测试 scene 验证。
-2. **Phase 6 加压**——给 pt-* 资产加跨 Domain 引用 + 1:N workflow + hybrid 全局约束 harder case。
-3. **§0 补一句**：Manual 语义边界——“Manual 只展开 workflow-Domain 的 steps，term/stack 的 `## Blueprint` 段不进 Manual”（blueprintRenderers 移除的依据，需写进设计文档防误解）。
+**阻塞（复验发现，先处理）：**
+
+1. **修 `/blueprint` → `/scene`**（Phase 5.5 漏项）——`index.ts` 里 `blueprint` 出现 20 次，命令名/flag/settings 键都要改。纯漏改，详见「复验发现的新问题 §1」。
+2. **定架构叙事方向**——midend 退出后代码是两段式，文档还三段式。选 A（接受两段式，改文档）还是选 B（恢复 midend，回退 Phase 5.5 选项 B）？详见「复验发现的新问题 §2」。
+
+**非阻塞（可后续）：**
+
+3. 三 mode 实测（加 byType 测试 scene）
+4. Phase 6 加压（pt-* 资产加跨 Domain/1:N/hybrid）
+5. §0 补 Manual 语义边界（“Manual 只展开 workflow-Domain”）
 
 ### 必读（只读这些就够开工）
 
@@ -873,6 +880,45 @@ Phase 5 checklist 的“手动添加 glossary 假 type”未实测。注册机�
 
 `renderGlossaryScene` 走标准 `DomainSceneRenderer` 接口返回 `DomainSection`，主循环 `sceneRenderers[d.type]` 分发——和 term/workflow/stack 走同一条路。注册制扩展性承诺兑现。
 
+### 复验发现的新问题（2026-08-30）
+
+> Phase 5.5 实测结果报“真正完成”后，复验发现两个漏项。其中一个属纯漏改（应即修），另一个是 midend 退出后架构叙事未同步（待设计决策）。
+
+#### ❌ 1. `/blueprint` 命令未重命名为 `/scene`
+
+**性质**：Phase 5.5 步骤漏项（纯漏改）。
+
+`index.ts` 里 `blueprint` 仍出现 20 次，全量残留旧名：
+
+| 位置 | 当前 | 应改 |
+|---|---|---|
+| L70 `pi.registerFlag("blueprint", ...)` | blueprint | scene |
+| L79/82/82 `getFlag("blueprint")` / `readProjectSetting("au.blueprint")` | blueprint / au.blueprint | scene / au.scene |
+| L88-89 notify `"未找到 blueprint。用 /blueprint <name>"` | blueprint | scene |
+| L134 `pi.registerCommand("blueprint", ...)` | /blueprint | /scene |
+| L147 notify `"未找到任何 blueprint"` | blueprint | scene |
+
+**根因**：Phase 5.5 步骤计划里写了“index.ts 命令调整：`/blueprint` → `/scene`”，但 `571b45d` commit 没动 `index.ts`（commit message 的改动列表未提）。文档验收标准也漏了这一条。
+
+**影响**：命名不一致——asset 文件已是 `*.scene.md` / `*.manual.md`，schema 里 `Struct.kind = "scene" | "blueprint"`，但用户面命令还叫 `/blueprint`。功能能用，但语义错位（blueprint 在 v6 里是动态 Struct 产 Manual，不是切换 Scene 的命令名）。
+
+**修法**：`index.ts` 里 `blueprint` → `scene`，`au.blueprint` → `au.scene`，命令 `/blueprint` → `/scene`。注意 `.pi/settings.json` 里可能有 `au.blueprint` 键要一并迁。
+
+#### ⚠️ 2. midend 退出后，三段式叙事塌了
+
+**性质**：设计叙事未同步（非漏改，需决策）。
+
+**事实**：IR 没少——`schema.ts` 的 `SchemaBundle` 就是 IR（frontend 产出 / backend 消费 / transpile+index 也消费，证据齐全）。但 Phase 5.5 选项 B（midend 退出）后，代码只有 frontend + backend 两段，layout 逻辑塞在 `generateV6Prompt` 里，backend 同时干“编排”和“渲染”两件事。
+
+**问题**：设计文档还宣称“三段式编译架构”（§11.2 “为什么采用编译架构”、§0 对应代码阶段表里的 midend 行）——代码是两段式，文档三段式，叙事对不上。
+
+**两个选项**：
+
+- **选项 A：接受两段式叙事**——Pt 是两段式转译器（frontend parse → backend render）+ IR 契约。改 §11.2 论证降级，§0 midend 行删。诚实演进。
+- **选项 B：恢复 midend**——把 `generateV6Prompt` 里的 mode 分支抽回 `midend/layout.ts`，输出 `LayoutedBundle` 给 backend，恢复三段式。成本：回退 Phase 5.5 选项 B，但保架构叙事。
+
+**未决**：需设计者定。当前代码是两段式，文档三段式——以哪个为准待定。
+
 ### 仍未验证（非阻塞）
 
 - **三 mode 实测**：所有 scene asset 都是 `layout: { mode: hybrid }`，byDomain/byType 路径未真跑过（代码分支在，无 asset 触发）。建议加一个 byType 测试 scene。
@@ -885,8 +931,12 @@ Phase 5 checklist 的“手动添加 glossary 假 type”未实测。注册机�
 |---|---|
 | v6 路径可用性 | ✅ 单一 v6 形态，无 legacy |
 | 设计判据“中端零改动” | ✅ **终局达成**：midend 退出，不是没改是不需要了 |
-| Phase 5 完成度 | ✅ **真正完成**（双写 → 清理 → 扩展性实测全过） |
+| Phase 5.5 完成度 | ⚠️ **基本完成，复验发现 1 漏项 + 1 待决设计问题** |
 | 扩展性验证 | ✅ glossary 假 type 实测通过，核心未动 |
+| 命名一致性 | ❌ `/blueprint` 命令未重命名（漏改） |
+| 架构叙事 | ⚠️ midend 退出后两段式，文档仍三段式，未同步 |
+
+> **复验结论**：Phase 5.5 的 legacy 清理与扩展性实测部分仍成立，但标“真正完成”不准确。需先修 `/blueprint` 漏项 + 定架构叙事方向，才算真完。
 
 ### 目标
 
