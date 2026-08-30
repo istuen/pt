@@ -1,16 +1,19 @@
-// index.ts — Pt 扩展入口
+// index.ts — Pi 扩展入口
 // Pi ExtensionAPI 用法见 pt-plugin-design.md §0 与 §5。
+//
+// v6 user 面命令：--scene（flag）/ /scene（命令），对应"激活 Scene struct → 注入 System Prompt"。
+//   "blueprint" 在 v6 是 Struct.kind="blueprint"（动态结构，产 Manual），不是用户面入口名。
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { detectSingleBlueprint, listBlueprints, readProjectSetting } from "./config.js";
+import { detectSingleScene, listScenes, readProjectSetting } from "./config.js";
 import { loadAndTranspile } from "./transpile.js";
 import { bindFlowTemplate, findFlowInBundle } from "./backend/message.js";
 import type { SchemaBundle, Struct } from "./schema.js";
 
 // === per-session 内存态（每进程隔离 = 每会话隔离） ===
-let activeBlueprint: string | null = null;
+let activeScene: string | null = null;
 let cachedSegment: string | null = null;
 /** 缓存 SchemaBundle（含 domains/structs/flows），给 input handler 用 */
 let cachedBundles: SchemaBundle[] | null = null;
@@ -22,16 +25,16 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** 转译当前选定的 blueprint，结果写入 cachedSegment + cachedBundles；失败降级 */
-async function transpileActive(cwd: string, name: string): Promise<void> {
-  const result = await loadAndTranspile(cwd, name);
+/** 转译当前选定的 Scene，结果写入 cachedSegment + cachedBundles；失败降级 */
+async function transpileActive(cwd: string, sceneName: string): Promise<void> {
+  const result = await loadAndTranspile(cwd, sceneName);
   cachedSegment = result.segment;
   cachedBundles = result.bundles;
-  activeBlueprint = name;
+  activeScene = sceneName;
 }
 
-/** 切换 blueprint：重转译 + 通知 */
-async function switchBlueprint(
+/** 切换 Scene：重转译 + 通知 */
+async function switchScene(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   name: string,
@@ -67,26 +70,30 @@ function findManualStruct(sceneName: string): Struct | undefined {
 
 export default function (pi: ExtensionAPI): void {
   // 启动时 flag（CLI 优先）
-  pi.registerFlag("blueprint", {
-    description: "启动时激活的 OXN blueprint 名",
+  pi.registerFlag("scene", {
+    description: "启动时激活的 Scene struct 名（注入 System Prompt）",
     type: "string",
   });
 
-  // ========== session_start：读默认 blueprint + 转译 + footer 状态 ==========
+  // ========== session_start：读默认 scene + 转译 + footer 状态 ==========
   pi.on("session_start", async (_event, ctx) => {
     lastCwd = ctx.cwd;
     try {
-      const flag = pi.getFlag("blueprint");
+      const flag = pi.getFlag("scene");
       const flagVal = typeof flag === "string" && flag.trim() ? flag.trim() : undefined;
 
-      const fromSettings = await readProjectSetting<string>(ctx.cwd, "au.blueprint");
-      const auto = await detectSingleBlueprint(ctx.cwd);
+      // 兼容 v5 旧 setting key "au.blueprint"——v6 改用 "au.scene"。
+      // 读顺序：新 key 优先；旧 key 兜底。
+      const fromSettings =
+        await readProjectSetting<string>(ctx.cwd, "au.scene") ??
+        await readProjectSetting<string>(ctx.cwd, "au.blueprint");
+      const auto = await detectSingleScene(ctx.cwd);
 
       const picked = flagVal ?? fromSettings ?? auto;
 
       if (!picked) {
-        ctx.ui.setStatus("pt", "pt: 无 blueprint");
-        ctx.ui.notify("Pt：未找到 blueprint。用 /blueprint <name> 选择。", "info");
+        ctx.ui.setStatus("pt", "pt: 无 scene");
+        ctx.ui.notify("Pt：未找到 Scene struct。用 /scene <name> 选择，或在 .pi/settings.json 设 au.scene。", "info");
         return;
       }
 
@@ -126,15 +133,15 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_shutdown", async () => {
     cachedSegment = null;
     cachedBundles = null;
-    activeBlueprint = null;
+    activeScene = null;
     lastBuiltPrompt = null;
   });
 
-  // ========== /blueprint 命令：即时切换 ==========
-  pi.registerCommand("blueprint", {
-    description: "切换当前 blueprint，即时重转译（无参则弹出选择器）",
+  // ========== /scene 命令：即时切换 ==========
+  pi.registerCommand("scene", {
+    description: "切换当前 Scene（注入 System Prompt），即时重转译（无参则弹出选择器）",
     getArgumentCompletions: async (prefix) => {
-      const names = await listBlueprints(lastCwd);
+      const names = await listScenes(lastCwd);
       const items = names.map((n) => ({ value: n, label: n }));
       const hit = items.filter((i) => i.value.startsWith(prefix));
       return hit.length > 0 ? hit : null;
@@ -142,21 +149,21 @@ export default function (pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const name = args.trim();
       if (!name) {
-        const names = await listBlueprints(ctx.cwd);
+        const names = await listScenes(ctx.cwd);
         if (names.length === 0) {
-          ctx.ui.notify("未找到任何 blueprint（.openxenon/assets/blueprints/*.md）", "warning");
+          ctx.ui.notify("未找到任何 Scene struct（.openxenon/assets/blueprints/*.scene.md）", "warning");
           return;
         }
         if (!ctx.hasUI) {
-          ctx.ui.notify("/blueprint（无参）在非交互模式不可用，请指定名称", "warning");
+          ctx.ui.notify("/scene（无参）在非交互模式不可用，请指定名称", "warning");
           return;
         }
-        const picked = await ctx.ui.select("选择 blueprint", names);
+        const picked = await ctx.ui.select("选择 Scene struct", names);
         if (!picked) return;
-        await switchBlueprint(pi, ctx, picked);
+        await switchScene(pi, ctx, picked);
         return;
       }
-      await switchBlueprint(pi, ctx, name);
+      await switchScene(pi, ctx, name);
     },
   });
 
@@ -175,7 +182,7 @@ export default function (pi: ExtensionAPI): void {
         const domainCount = cachedBundles?.reduce((acc, b) => acc + b.domains.length, 0) ?? 0;
         const structCount = cachedBundles?.reduce((acc, b) => acc + b.structs.length, 0) ?? 0;
         const lines = [
-          `pt scene: ${activeBlueprint ?? "(未激活)"}`,
+          `pt scene: ${activeScene ?? "(未激活)"}`,
           `pt domains: ${domainCount}, structs: ${structCount}, flows: ${flowCount}`,
           `pt segment length: ${cachedSegment?.length ?? 0} chars`,
           `pt last built prompt: ${lastBuiltPrompt ? `${lastBuiltPrompt.length} chars` : "(未跑过 turn)"}`,
@@ -219,12 +226,12 @@ export default function (pi: ExtensionAPI): void {
   });
 }
 
-// 暴露 activeBlueprint 用于调试（未来可挂 /pt status）
-export function _debugActive(): { blueprint: string | null; segmentLen: number; flowCount: number } {
+// 暴露 activeScene 用于调试（未来可挂 /pt status）
+export function _debugActive(): { scene: string | null; segmentLen: number; flowCount: number } {
   const flowCount = cachedBundles?.reduce((acc, b) => {
     let n = 0;
     for (const d of b.domains) if (d.type === "workflow" && Array.isArray(d.blueprint)) n += d.blueprint.length;
     return acc + n;
   }, 0) ?? 0;
-  return { blueprint: activeBlueprint, segmentLen: cachedSegment?.length ?? 0, flowCount };
+  return { scene: activeScene, segmentLen: cachedSegment?.length ?? 0, flowCount };
 }

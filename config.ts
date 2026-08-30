@@ -1,5 +1,7 @@
-// config.ts — 读项目 settings + 探测 blueprint
+// config.ts — 读项目 settings + 探测 Scene struct
 // ExtensionAPI 无 getSettings，需自读 .pi/settings.json（用 CONFIG_DIR_NAME，不硬编码 .pi）。
+//
+// v6：user 选的是 Scene（静态结构，产 System Prompt）。"blueprint" 语义留给 Struct.kind="blueprint"（动态结构，产 Manual）。
 
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { readdir, readFile } from "node:fs/promises";
@@ -28,7 +30,7 @@ export async function readProjectSetting<T = unknown>(
 
 /** 列出 .openxenon/assets/blueprints/*.md 下的 Scene struct 名（v6：去 .scene/.manual 后缀）。
  *  Manual struct 不参与选择（同名成对绑定到 Scene）。 */
-export async function listBlueprints(cwd: string): Promise<string[]> {
+export async function listScenes(cwd: string): Promise<string[]> {
   const dir = join(cwd, ".openxenon", "assets", "blueprints");
   try {
     const files = await readdir(dir);
@@ -48,7 +50,7 @@ export async function listBlueprints(cwd: string): Promise<string[]> {
 }
 
 /** 自动探测：仅当 Scene 唯一时返回该名；否则 null */
-export async function detectSingleBlueprint(cwd: string): Promise<string | null> {
-  const all = await listBlueprints(cwd);
+export async function detectSingleScene(cwd: string): Promise<string | null> {
+  const all = await listScenes(cwd);
   return all.length === 1 ? all[0] : null;
 }
