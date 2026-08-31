@@ -1,42 +1,43 @@
-// src/index.ts — Pi 扩展入口
+// src/index.ts — Pi 扩展入口（v7）
 // Pi ExtensionAPI 用法见 pt-plugin-design.md §0 与 §5。
 //
-// v6 user 面命令：--scene（flag）/ /scene（命令），对应"激活 Scene struct → 注入 System Prompt"。
-//   "blueprint" 在 v6 是 Struct.kind="blueprint"（动态结构，产 Manual），不是用户面入口名。
-//
-// Phase 7.1：从顶层 index.ts 迁入，import 路径改为相对 src/。
+// v7 user 面命令：--blueprint（flag）/ /blueprint（命令），对应"激活 Blueprint → 编译 Context"。
+//   "blueprint" 在 v7 是配置层（Channel + Domains + trigger + boundaries）。
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { detectSingleScene, listScenes, readProjectSetting } from "./config.js";
 import { loadAndTranspile } from "./transpile.js";
-import { bindFlowTemplate, findFlowInBundle } from "./render/message.js";
-import type { SchemaBundle, Struct } from "./schema.js";
+import { bindFlowTemplate, findFlowInBundle } from "./render/index.js";
+import type { SchemaBundle } from "./schema.js";
 
 // === per-session 内存态（每进程隔离 = 每会话隔离） ===
-let activeScene: string | null = null;
+let activeBlueprint: string | null = null;
 let cachedSegment: string | null = null;
-/** 缓存 SchemaBundle（含 domains/structs/flows），给 input handler 用 */
+/** 缓存 SchemaBundle（含 domains/channels/blueprints），给 input handler 用 */
 let cachedBundles: SchemaBundle[] | null = null;
 let lastCwd: string = "";
 /** 缓存上一次 before_agent_start 后的最终 systemPrompt（供 /pt full 读取） */
 let lastBuiltPrompt: string | null = null;
+/** 上一次编译是否命中缓存 */
+let lastCacheHit: boolean = false;
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** 转译当前选定的 Scene，结果写入 cachedSegment + cachedBundles；失败降级 */
-async function transpileActive(cwd: string, sceneName: string): Promise<void> {
-  const result = await loadAndTranspile(cwd, sceneName);
+/** 转译当前选定的 Blueprint，结果写入 cachedSegment + cachedBundles；失败降级 */
+async function transpileActive(cwd: string, blueprintName: string): Promise<void> {
+  const result = await loadAndTranspile(cwd, blueprintName);
   cachedSegment = result.segment;
   cachedBundles = result.bundles;
-  activeScene = sceneName;
+  activeBlueprint = blueprintName;
+  lastCacheHit = result.cacheHit;
 }
 
-/** 切换 Scene：重转译 + 通知 */
-async function switchScene(
+/** 切换 Blueprint：重转译 + 通知 */
+async function switchBlueprint(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   name: string,
@@ -44,58 +45,47 @@ async function switchScene(
   try {
     await transpileActive(ctx.cwd, name);
     ctx.ui.setStatus("pt", `pt: ${name}`);
-    ctx.ui.notify(`已切换到 ${name}，下一轮生效`, "info");
+    const hint = lastCacheHit ? "（缓存命中）" : "（已重编译）";
+    ctx.ui.notify(`已切换到 ${name}，下一轮生效 ${hint}`, "info");
   } catch (e) {
     ctx.ui.notify(`切换失败：${errMsg(e)}`, "error");
   }
 }
 
-/** 在 cachedBundles 里找指定名的 FlowTemplate（跨 bundle 查找，v6：从 workflow-Domain ## Blueprint 找） */
+/** 在 cachedBundles 里找指定名的 FlowTemplate（跨 bundle 查找）。 */
 function findFlow(name: string) {
   if (!cachedBundles) return undefined;
   for (const b of cachedBundles) {
-    const f = findFlowInBundle(b, name);
-    if (f) return f;
-  }
-  return undefined;
-}
-
-/** 在 cachedBundles 里找指定 Scene 名对应的 Manual struct（同名成对约定） */
-function findManualStruct(sceneName: string): Struct | undefined {
-  if (!cachedBundles) return undefined;
-  for (const b of cachedBundles) {
-    const m = b.structs.find((s) => s.kind === "blueprint" && s.name === sceneName);
-    if (m) return m;
+    const bp = b.blueprints.find((x) => x.name === b.activeBlueprint);
+    if (!bp) continue;
+    const tpl = findFlowInBundle(bp, b.domains, name);
+    if (tpl) return tpl;
   }
   return undefined;
 }
 
 export default function (pi: ExtensionAPI): void {
   // 启动时 flag（CLI 优先）
-  pi.registerFlag("scene", {
-    description: "启动时激活的 Scene struct 名（注入 System Prompt）",
+  pi.registerFlag("blueprint", {
+    description: "启动时激活的 Blueprint 名（注入 System Prompt）",
     type: "string",
   });
 
-  // ========== session_start：读默认 scene + 转译 + footer 状态 ==========
+  // ========== session_start：读默认 blueprint + 转译 + footer 状态 ==========
   pi.on("session_start", async (_event, ctx) => {
     lastCwd = ctx.cwd;
     try {
-      const flag = pi.getFlag("scene");
+      const flag = pi.getFlag("blueprint");
       const flagVal = typeof flag === "string" && flag.trim() ? flag.trim() : undefined;
 
-      // 兼容 v5 旧 setting key "au.blueprint"——v6 改用 "au.scene"。
-      // 读顺序：新 key 优先；旧 key 兜底。
-      const fromSettings =
-        await readProjectSetting<string>(ctx.cwd, "au.scene") ??
-        await readProjectSetting<string>(ctx.cwd, "au.blueprint");
+      const fromSettings = await readProjectSetting<string>(ctx.cwd, "au.blueprint");
       const auto = await detectSingleScene(ctx.cwd);
 
       const picked = flagVal ?? fromSettings ?? auto;
 
       if (!picked) {
-        ctx.ui.setStatus("pt", "pt: 无 scene");
-        ctx.ui.notify("Pt：未找到 Scene struct。用 /scene <name> 选择，或在 .pi/settings.json 设 au.scene。", "info");
+        ctx.ui.setStatus("pt", "pt: 无 blueprint");
+        ctx.ui.notify("Pt：未找到 Blueprint。用 /blueprint <name> 选择，或在 .pi/settings.json 设 au.blueprint。", "info");
         return;
       }
 
@@ -117,7 +107,7 @@ export default function (pi: ExtensionAPI): void {
     return { systemPrompt: finalPrompt };
   });
 
-  // ========== input（Phase 5）：Pt 接管 FlowTemplate 展开 ==========
+  // ========== input（Phase 7）：Pt 接管 FlowTemplate 展开 ==========
   // Pt 只拦截 cachedBundles 里声明过的 /name，其余 /name 放行给 Pi 原生 $1 $2。
   pi.on("input", async (event) => {
     const match = event.text.match(/^\/(\S+)\s*(.*)$/);
@@ -135,13 +125,13 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_shutdown", async () => {
     cachedSegment = null;
     cachedBundles = null;
-    activeScene = null;
+    activeBlueprint = null;
     lastBuiltPrompt = null;
   });
 
-  // ========== /scene 命令：即时切换 ==========
-  pi.registerCommand("scene", {
-    description: "切换当前 Scene（注入 System Prompt），即时重转译（无参则弹出选择器）",
+  // ========== /blueprint 命令：即时切换 ==========
+  pi.registerCommand("blueprint", {
+    description: "切换当前 Blueprint（注入 System Prompt），即时重转译（无参则弹出选择器）",
     getArgumentCompletions: async (prefix) => {
       const names = await listScenes(lastCwd);
       const items = names.map((n) => ({ value: n, label: n }));
@@ -153,19 +143,19 @@ export default function (pi: ExtensionAPI): void {
       if (!name) {
         const names = await listScenes(ctx.cwd);
         if (names.length === 0) {
-          ctx.ui.notify("未找到任何 Scene struct（.openxenon/assets/blueprints/*.scene.md）", "warning");
+          ctx.ui.notify("未找到任何 Blueprint（.openxenon/assets/blueprints/*.blueprint.md）", "warning");
           return;
         }
         if (!ctx.hasUI) {
-          ctx.ui.notify("/scene（无参）在非交互模式不可用，请指定名称", "warning");
+          ctx.ui.notify("/blueprint（无参）在非交互模式不可用，请指定名称", "warning");
           return;
         }
-        const picked = await ctx.ui.select("选择 Scene struct", names);
+        const picked = await ctx.ui.select("选择 Blueprint", names);
         if (!picked) return;
-        await switchScene(pi, ctx, picked);
+        await switchBlueprint(pi, ctx, picked);
         return;
       }
-      await switchScene(pi, ctx, name);
+      await switchBlueprint(pi, ctx, name);
     },
   });
 
@@ -178,15 +168,20 @@ export default function (pi: ExtensionAPI): void {
       if (sub === "status" || sub === "") {
         const flowCount = cachedBundles?.reduce((acc, b) => {
           let n = 0;
-          for (const d of b.domains) if (d.type === "workflow" && Array.isArray(d.blueprint)) n += d.blueprint.length;
+          for (const d of b.domains) if (d.type === "workflow") {
+            const tpls = (d.modules["Manual"] as unknown[] | undefined) ?? [];
+            n += tpls.length;
+          }
           return acc + n;
         }, 0) ?? 0;
         const domainCount = cachedBundles?.reduce((acc, b) => acc + b.domains.length, 0) ?? 0;
-        const structCount = cachedBundles?.reduce((acc, b) => acc + b.structs.length, 0) ?? 0;
+        const channelCount = cachedBundles?.reduce((acc, b) => acc + b.channels.length, 0) ?? 0;
+        const bpCount = cachedBundles?.reduce((acc, b) => acc + b.blueprints.length, 0) ?? 0;
         const lines = [
-          `pt scene: ${activeScene ?? "(未激活)"}`,
-          `pt domains: ${domainCount}, structs: ${structCount}, flows: ${flowCount}`,
+          `pt blueprint: ${activeBlueprint ?? "(未激活)"}`,
+          `pt domains: ${domainCount}, channels: ${channelCount}, blueprints: ${bpCount}, flows: ${flowCount}`,
           `pt segment length: ${cachedSegment?.length ?? 0} chars`,
+          `pt cache hit: ${lastCacheHit ? "yes" : "no"}`,
           `pt last built prompt: ${lastBuiltPrompt ? `${lastBuiltPrompt.length} chars` : "(未跑过 turn)"}`,
           `pt cwd: ${lastCwd}`,
         ];
@@ -228,12 +223,15 @@ export default function (pi: ExtensionAPI): void {
   });
 }
 
-// 暴露 activeScene 用于调试（未来可挂 /pt status）
-export function _debugActive(): { scene: string | null; segmentLen: number; flowCount: number } {
+// 暴露 activeBlueprint 用于调试（未来可挂 /pt status）
+export function _debugActive(): { blueprint: string | null; segmentLen: number; flowCount: number; cacheHit: boolean } {
   const flowCount = cachedBundles?.reduce((acc, b) => {
     let n = 0;
-    for (const d of b.domains) if (d.type === "workflow" && Array.isArray(d.blueprint)) n += d.blueprint.length;
+    for (const d of b.domains) if (d.type === "workflow") {
+      const tpls = (d.modules["Manual"] as unknown[] | undefined) ?? [];
+      n += tpls.length;
+    }
     return acc + n;
   }, 0) ?? 0;
-  return { scene: activeScene, segmentLen: cachedSegment?.length ?? 0, flowCount };
+  return { blueprint: activeBlueprint, segmentLen: cachedSegment?.length ?? 0, flowCount, cacheHit: lastCacheHit };
 }

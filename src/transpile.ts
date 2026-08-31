@@ -1,21 +1,29 @@
-// src/transpile.ts — Source Adapter 注册表 + 调度
+// src/transpile.ts — v7 三段式链路：parse → compile → render + cache
 //
-// Phase 5.5 链路：adapter.load() → SchemaBundle → generateV6Prompt(bundle) → string → 注入 systemPrompt
-//
-// loadAndTranspile 同时返回 segment 和 bundles——segment 注入 systemPrompt，
-// bundles（含 domains/structs/flows）给 input handler 用（dynamic manual 拦截需要）。
-//
-// Phase 7.1：从顶层 transpile.ts 迁入，import 路径改为相对 src/。
+// Phase 7.6 链路：
+//   parse(blueprint, channel, domain md) → IR (SchemaBundle)
+//     ↓
+//   compile(blueprint + channel + domains) → Context IR
+//     ↓
+//   cache.load? 命中 → 用缓存 : cache.save(Context) → 重编译
+//     ↓
+//   render.systemPrompt(Context) → 注入 before_agent_start
+//   render.contextMessage(Context, args) → 注入 input 事件
 
 import { oxnAdapter } from "./parse/index.js";
-import { generateV6Prompt } from "./render/prompt.js";
+import { compileContext } from "./compile/context.js";
+import { renderSystemPrompt } from "./render/system-prompt.js";
+import { saveContext, loadContext } from "./render/cache.js";
+import { findBlueprint } from "./schema.js";
 import type { SchemaBundle, SourceAdapter } from "./schema.js";
 
 export interface TranspileResult {
-  /** 注入 systemPrompt 的字符串段 */
+  /** 注入 systemPrompt 的字符串段（Context.## Scene） */
   segment: string;
-  /** 各 adapter 返回的 SchemaBundle（含 domains/structs/flows，给 input handler 用） */
+  /** 各 adapter 返回的 SchemaBundle（保留给 input handler 找 FlowTemplate 用） */
   bundles: SchemaBundle[];
+  /** 缓存命中信息（用于 7.7 缓存验证） */
+  cacheHit: boolean;
 }
 
 /** ============== Source Adapter 注册表（MVP 只有 OXN） ============== */
@@ -24,20 +32,47 @@ const sourceAdapters: SourceAdapter[] = [
   // 未来：yamlAdapter, dbAdapter, ...
 ];
 
-/** 并行调所有 adapter，合并转译产物（失败降级为空串）。 */
-export async function loadAndTranspile(cwd: string, sceneName: string): Promise<TranspileResult> {
+/** 三段式转译：parse → compile → cache → render。 */
+export async function loadAndTranspile(cwd: string, blueprintName: string): Promise<TranspileResult> {
+  // 1. parse：并行调所有 adapter 拿 SchemaBundle
   const segs = await Promise.all(
     sourceAdapters.map((a) =>
-      a.load(cwd, sceneName).catch((e) => {
+      a.load(cwd, blueprintName).catch((e) => {
         console.error(`[pt] adapter ${a.name} failed:`, e);
         return null;
       }),
     ),
   );
   const bundles = segs.filter((b): b is SchemaBundle => b !== null);
-  const raw = bundles.map((b) => generateV6Prompt(b)).filter(Boolean).join("\n\n");
-  // 注入版剥 asset 分隔注释（`<!-- ===== xxx ===== -->`），
-  // 不误伤代码里其他用途的注释（如 TODO 占位）。
-  const segment = raw.replace(/<!-- =====[^\n]*-->\n?/g, "").trim();
-  return { segment, bundles };
+  if (bundles.length === 0) {
+    return { segment: "", bundles: [], cacheHit: false };
+  }
+
+  // 2. compile + cache + render：对每个 bundle 处理（取 activeBlueprint）
+  const segments: string[] = [];
+  let anyHit = false;
+  for (const bundle of bundles) {
+    const bp = findBlueprint(bundle.blueprints, bundle.activeBlueprint);
+    if (!bp) continue;
+    const ch = bundle.channels.find((c) => c.name === bp.channel);
+    if (!ch) {
+      console.warn(`[pt] Blueprint "${bp.name}" 引用未知 Channel "${bp.channel}"`);
+      continue;
+    }
+    const ctx = compileContext(bp, ch, bundle.domains);
+
+    // 3. cache：load 命中 → 用缓存（跳过写入），未命中 → save
+    const cached = await loadContext(cwd, ctx.name, ctx.sourceHash);
+    if (cached) {
+      anyHit = true;
+      segments.push(renderSystemPrompt(cached));
+    } else {
+      await saveContext(cwd, ctx);
+      segments.push(renderSystemPrompt(ctx));
+    }
+  }
+
+  // 4. 注入版剥 asset 分隔注释
+  const segment = segments.join("\n\n").replace(/<!-- =====[^\n]*-->\n?/g, "").trim();
+  return { segment, bundles, cacheHit: anyHit };
 }
