@@ -1,9 +1,11 @@
-// backend/message.ts — SchemaBundle + Blueprint struct → Manual 实例（v6）
+// src/render/message.ts — SchemaBundle + Blueprint struct → Manual 实例（v6）
 //
 // Phase 5 重写：Manual 渲染不再吃裸 FlowTemplate，而是按 Blueprint struct 的 refs 摊平
 // workflow-Domain.## Blueprint 的所有 FlowTemplate，逐个用 bindFlowTemplate 展开。
 //
 // v3 bindFlowTemplate 函数本体保留（变量绑定逻辑不变），仅 caller 改成 v6 形态。
+//
+// Phase 7.1: 从 backend/message.ts 迁入，import 路径改为相对 src/。
 
 import type {
   Domain,

@@ -1,15 +1,17 @@
-// index.ts — Pi 扩展入口
+// src/index.ts — Pi 扩展入口
 // Pi ExtensionAPI 用法见 pt-plugin-design.md §0 与 §5。
 //
 // v6 user 面命令：--scene（flag）/ /scene（命令），对应"激活 Scene struct → 注入 System Prompt"。
 //   "blueprint" 在 v6 是 Struct.kind="blueprint"（动态结构，产 Manual），不是用户面入口名。
+//
+// Phase 7.1：从顶层 index.ts 迁入，import 路径改为相对 src/。
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { detectSingleScene, listScenes, readProjectSetting } from "./config.js";
 import { loadAndTranspile } from "./transpile.js";
-import { bindFlowTemplate, findFlowInBundle } from "./backend/message.js";
+import { bindFlowTemplate, findFlowInBundle } from "./render/message.js";
 import type { SchemaBundle, Struct } from "./schema.js";
 
 // === per-session 内存态（每进程隔离 = 每会话隔离） ===

@@ -1,12 +1,14 @@
-// backend/prompt.ts — SchemaBundle → System Prompt 段（v6 渲染器注册制）
+// src/render/prompt.ts — SchemaBundle → System Prompt 段（v6 渲染器注册制）
 //
 // Phase 5.5: 按 Domain Type 注册 scene renderer，mode-based 拼装已从 midend 并入此处。
 // 加新 Domain Type = 在 sceneRenderers 表加一行，不动主循环。
 //
 // 中端 midend/layout.ts 已退出（Phase 5.5），layout 逻辑并入此处。
-// Blueprint 侧（Manual 渲染）走 backend/message.ts 的 FlowTemplate 展开，
+// Blueprint 侧（Manual 渲染）走 src/render/message.ts 的 FlowTemplate 展开，
 //   无 blueprintRenderers 注册表（Manual 语义只展开 workflow-Domain 的 steps，term/stack 的 ## Blueprint
 //   段进 Manual 的语义未定义，强行渲染是过度设计——见 Phase 5.5.3 设计判据）。
+//
+// Phase 7.1: 从 backend/prompt.ts 迁入，import 路径改为相对 src/。
 
 import type {
   BoundaryNode,

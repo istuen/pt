@@ -1,10 +1,10 @@
-// frontend/oxn/adapter.ts — OXN MD → SchemaBundle (v6)
+// src/parse/adapter.ts — OXN MD → SchemaBundle (v6)
 //
 // Phase 5 重写 + Phase 5.5 清理：按 v6 语义读 OXN asset，SchemaBundle 只含 v6 canonical 字段。
 //   - 每个 Domain 一个 md，type 决定 scene/blueprint 形状（term/workflow/stack）
 //   - Scene struct / Blueprint struct 各独立 md，frontmatter.kind 区分
 //
-// OXN 内部类型（Asset/Item/Section）保留，仅其映射路径换了。
+// Phase 7.1: 从 frontend/oxn/adapter.ts 迁入，import 路径改为相对 src/parse/。
 
 import { join } from "node:path";
 import type {
@@ -20,7 +20,7 @@ import type {
   StructureLayout,
   Term,
   ToolRef,
-} from "../../schema.js";
+} from "../schema.js";
 import { parseBoundaries, readAsset } from "./parser.js";
 import type { Asset, Item } from "./types.js";
 

@@ -1,8 +1,10 @@
-// frontend/oxn/types.ts — OXN adapter 内部类型
+// src/parse/types.ts — OXN adapter 内部类型
 //
 // 这些类型是 OXN MD 解析的中间表示，不进 Pt 核心。
 // Pt 核心只认 schema.ts 的 SchemaBundle。
 // 一个 asset (OXN MD) → 一个 Asset；一个段落 → 一个 Section；一个 H3 子项 → 一个 Item。
+//
+// Phase 7.1: 从 frontend/oxn/types.ts 迁入。
 
 /**
  * OXN 内部 asset kind（Phase 5 拓展）：

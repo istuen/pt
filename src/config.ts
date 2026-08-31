@@ -1,7 +1,9 @@
-// config.ts — 读项目 settings + 探测 Scene struct
+// src/config.ts — 读项目 settings + 探测 Scene struct
 // ExtensionAPI 无 getSettings，需自读 .pi/settings.json（用 CONFIG_DIR_NAME，不硬编码 .pi）。
 //
 // v6：user 选的是 Scene（静态结构，产 System Prompt）。"blueprint" 语义留给 Struct.kind="blueprint"（动态结构，产 Manual）。
+//
+// Phase 7.1：从顶层 config.ts 迁入，import 路径不变。
 
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { readdir, readFile } from "node:fs/promises";

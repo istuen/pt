@@ -1,4 +1,4 @@
-// schema.ts — Pt IR 契约，与任何来源格式无关
+// src/schema.ts — Pt IR 契约，与任何来源格式无关
 //
 // 设计原则（见 docs/pt-asset-layering.md §0、§6.3、§11）：
 // 1. Schema 是语义化的，不带任何格式痕迹（无 Section/Item/raw/heading）
@@ -7,6 +7,8 @@
 //
 // Phase 5.5：移除 v3 legacy 字段，
 //           SchemaBundle 只含 v6 canonical 字段（domains/structs/activeScene）。
+//
+// Phase 7.1：从顶层 schema.ts 迁入，路径不变。
 
 // ==================== 语义层原子 ====================
 

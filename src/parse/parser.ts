@@ -1,5 +1,7 @@
-// frontend/oxn/parser.ts — OXN asset markdown → Asset
+// src/parse/parser.ts — OXN asset markdown → Asset
 // 纯字符串处理，无依赖。OXN adapter 内部用，Pt 核心不见。
+//
+// Phase 7.1: 从 frontend/oxn/parser.ts 迁入，import 路径改为相对 src/。
 
 import { readFile } from "node:fs/promises";
 import type { Asset, AssetKind, Boundary, BlueprintRefs, External, Item, Section } from "./types.js";

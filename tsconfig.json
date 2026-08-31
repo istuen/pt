@@ -10,11 +10,7 @@
     "allowImportingTsExtensions": true
   },
   "include": [
-    "schema.ts",
-    "frontend/**/*.ts",
-    "midend/**/*.ts",
-    "backend/**/*.ts",
-    "transpile.ts"
+    "src/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", ".pt"]
 }
