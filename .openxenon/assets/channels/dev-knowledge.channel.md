@@ -1,8 +1,8 @@
 ---
-name: project-dev
+name: dev-knowledge
 ---
 
-# project-dev (channel)
+# dev-knowledge (channel)
 
 ## Modules
 

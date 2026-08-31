@@ -6,7 +6,7 @@ name: glossary-test
 
 ## Channel
 
-project-dev
+dev-knowledge
 
 ## Domains
 

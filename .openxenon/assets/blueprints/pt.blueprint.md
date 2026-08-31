@@ -6,13 +6,14 @@ name: pt
 
 ## Channel
 
-project-dev
+dev-knowledge
 
 ## Domains
 
 - pt-concepts
+- pt-architecture
 - pt-transpile
-- pt-capabilities
+- pt-stack
 
 ## Trigger
 
@@ -22,7 +23,7 @@ project-dev
 
 ### identify-topic
 - deps: []
-- desc: 识别用户问题属于哪一类（概念 / 转译流程 / 能力边界）
+- desc: 识别用户问题属于哪一类（概念 / 架构 / 转译流程 / 技术栈）
 
 ### cite-domain
 - deps: [identify-topic]
