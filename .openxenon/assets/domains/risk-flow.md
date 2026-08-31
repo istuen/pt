@@ -15,7 +15,7 @@ name: risk-flow
 - path: ./data/customer-tier.xlsx
 - desc: 客户等级表
 
-## Blueprint
+## Manual
 
 ### risk-check
 - argument-hint: <客户ID> <金额>

@@ -11,4 +11,4 @@ name: article-flow
 - path: ./data/keyword-stats.xlsx
 - desc: 关键词热度数据
 
-## Blueprint
+## Manual

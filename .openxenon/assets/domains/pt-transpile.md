@@ -15,7 +15,7 @@ name: pt-transpile
 - path: .openxenon/assets/blueprints/
 - desc: Struct md 目录（kind=scene/blueprint，由 frontmatter.kind 区分，scene + manual 同名成对）
 
-## Blueprint
+## Manual
 
 ### transpile
 - argument-hint: <scene-name>

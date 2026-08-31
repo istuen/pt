@@ -22,7 +22,7 @@ name: pt-concepts
 ### 两个产物通道
 - desc: System Prompt（session 级，由 Scene 编译产出，before_agent_start 注入）+ Manual（轮次级，由 Blueprint 实例化产出，input 事件 transform）。前者可缓存，后者不可缓存。
 
-## Blueprint
+## Manual
 
 ### inv-three-tier-boundary
 - desc: frontend / midend / backend 三层职责互不渗透；跨层调用必须经过 IR（SchemaBundle）序列化边界。

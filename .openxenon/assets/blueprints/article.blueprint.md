@@ -1,12 +1,22 @@
 ---
-kind: scene
 name: article
-trigger: 当用户请求"写文章"时按以下流程执行；其余对话正常响应，勿套用本流程。
-layout: { mode: hybrid }
-refs: [writing, article-flow, md-stack]
 ---
 
-# article (scene)
+# article (blueprint)
+
+## Channel
+
+project-dev
+
+## Domains
+
+- writing
+- article-flow
+- md-stack
+
+## Trigger
+
+当用户请求"写文章"时按以下流程执行；其余对话正常响应，勿套用本流程。
 
 ## Boundaries
 

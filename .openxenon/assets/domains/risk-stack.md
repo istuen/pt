@@ -10,4 +10,4 @@ name: risk-stack
 ### fs-tools
 - operations: [read]
 
-## Blueprint
+## Manual

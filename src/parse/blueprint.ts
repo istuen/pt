@@ -40,6 +40,9 @@ export async function parseBlueprint(cwd: string, fileName: string): Promise<Blu
   if (channelSection && channelSection.items.length > 0) {
     channel = s(channelSection.items[0].fields.channel)
       || channelSection.items[0].name;
+  } else if (channelSection) {
+    // ## Channel 段可能是裸值形式（如 "## Channel\n\nproject-dev"）。
+    channel = extractBareValue(channelSection.raw);
   }
   // 兼容：frontmatter.channel
   if (!channel && typeof asset.frontmatter.channel === "string") {
@@ -74,6 +77,9 @@ export async function parseBlueprint(cwd: string, fileName: string): Promise<Blu
     trigger = s(triggerSection.items[0].fields.desc)
       || s(triggerSection.items[0].fields.trigger)
       || triggerSection.items[0].name;
+  } else if (triggerSection) {
+    // ## Trigger 段可能是裸值形式（纯文本段落）。
+    trigger = extractBareValue(triggerSection.raw);
   }
   // 兼容：frontmatter.trigger
   if (!trigger && typeof asset.frontmatter.trigger === "string") {
@@ -106,6 +112,17 @@ function stripBlueprintSuffix(fileBase: string): string {
   // v7 命名约定：<name>.blueprint.md → 去 .blueprint 后缀
   // v6 兼容：去 .scene/.manual 后缀
   return fileBase.replace(/\.blueprint$/, "").replace(/\.(scene|manual)$/, "");
+}
+
+/** 从裸值段（## <Name>\n\n<value>）提取第一个非空行作为 value。 */
+function extractBareValue(sectionRaw: string): string {
+  for (const line of sectionRaw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith("-") && !trimmed.startsWith("#")) {
+      return trimmed;
+    }
+  }
+  return "";
 }
 
 // ==================== 共享辅助 ====================

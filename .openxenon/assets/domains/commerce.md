@@ -19,7 +19,7 @@ name: commerce
 ### 客户等级
 - desc: 客户的风险分类（如普通/白银/黑名单）。
 
-## Blueprint
+## Manual
 
 ### ban-blacklist-lending
 - items: [黑名单, 黑号]

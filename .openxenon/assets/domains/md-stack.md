@@ -13,4 +13,4 @@ name: md-stack
 ### fs-tools
 - operations: [read, write]
 
-## Blueprint
+## Manual

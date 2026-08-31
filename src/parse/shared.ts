@@ -175,7 +175,11 @@ export function splitSections(body: string): Array<{ heading: string; raw: strin
 
 /** 把段内 markdown 解析成 Item[]：
  *  - 有 H3 (`### name`) → 每个 H3 是一个 item，下属 `- key: value` 是 fields
- *  - 无 H3，整段就是 list → 顶层 `- key: value` 直接作为 items
+ *  - 无 H3，整段就是 list → 顶层 `- key: value` / `- name` 直接作为 items
+ *
+ *  顶层 list 支持两种行形态：
+ *    - `- key: value` → { name: "key", fields: { key: value } }
+ *    - `- name`       → { name: "name", fields: {} }（裸名列表，例 ## Modules 段）
  */
 export function parseItems(sectionRaw: string): Item[] {
   const lines = sectionRaw.split(/\r?\n/);
@@ -198,7 +202,7 @@ export function parseItems(sectionRaw: string): Item[] {
     return items;
   }
 
-  // 无 H3：顶层 list 直接当 items
+  // 无 H3：顶层 list 直接当 items（支持 `- key: value` 和 `- name` 两种行）
   const items: Item[] = [];
   for (const line of lines) {
     const fv = line.match(/^\s*-\s+([a-zA-Z_][\w-]*)\s*:\s*(.+)$/);
@@ -207,6 +211,11 @@ export function parseItems(sectionRaw: string): Item[] {
         name: fv[1],
         fields: { [fv[1]]: parseScalar(fv[2].trim()) },
       });
+      continue;
+    }
+    const bare = line.match(/^\s*-\s+(.+?)\s*$/);
+    if (bare) {
+      items.push({ name: bare[1].trim(), fields: {} });
     }
   }
   return items;

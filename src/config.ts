@@ -30,8 +30,8 @@ export async function readProjectSetting<T = unknown>(
   }, json) as T | undefined;
 }
 
-/** 列出 .openxenon/assets/blueprints/*.md 下的 Scene struct 名（v6：去 .scene/.manual 后缀）。
- *  Manual struct 不参与选择（同名成对绑定到 Scene）。 */
+/** 列出 .openxenon/assets/blueprints/*.blueprint.md 下的 Blueprint 名（v7：去 .blueprint 后缀）。
+ *  一个 Blueprint = 一个场景（v6 的 Scene + Manual 合并）。 */
 export async function listScenes(cwd: string): Promise<string[]> {
   const dir = join(cwd, ".openxenon", "assets", "blueprints");
   try {
@@ -40,9 +40,9 @@ export async function listScenes(cwd: string): Promise<string[]> {
     for (const f of files) {
       if (!f.endsWith(".md")) continue;
       const base = f.slice(0, -3);  // 去 .md
-      // Scene struct：<name>.scene.md → 返回 <name>
-      if (base.endsWith(".scene")) {
-        scenes.push(base.slice(0, -6));  // 去 .scene
+      // Blueprint：<name>.blueprint.md → 返回 <name>
+      if (base.endsWith(".blueprint")) {
+        scenes.push(base.slice(0, -10));  // 去 .blueprint
       }
     }
     return scenes.sort();
@@ -51,7 +51,7 @@ export async function listScenes(cwd: string): Promise<string[]> {
   }
 }
 
-/** 自动探测：仅当 Scene 唯一时返回该名；否则 null */
+/** 自动探测：仅当 Blueprint 唯一时返回该名；否则 null */
 export async function detectSingleScene(cwd: string): Promise<string | null> {
   const all = await listScenes(cwd);
   return all.length === 1 ? all[0] : null;

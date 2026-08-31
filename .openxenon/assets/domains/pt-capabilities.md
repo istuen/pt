@@ -25,4 +25,4 @@ name: pt-capabilities
 ### transpile
 - role: Source Adapter 注册表 + 调度（loadAndTranspile：adapter.load → generateV6Prompt → 剥注释）
 
-## Blueprint
+## Manual

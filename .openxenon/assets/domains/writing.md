@@ -13,7 +13,7 @@ name: writing
 ### 选题
 - desc: 一篇文章要回答的核心问题；选题决定文章价值，先定选题再写。
 
-## Blueprint
+## Manual
 
 ### ban-title-party
 - items: [震惊, 惊呆了, 必看]

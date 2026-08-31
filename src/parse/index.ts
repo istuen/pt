@@ -80,11 +80,15 @@ async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Pr
   } catch {
     return [];  // 目录不存在返空（channels/ 在 7.4 前可能尚未建立）
   }
-  const results = await Promise.all(
-    files.map((f) => parser(f).catch((e) => {
-      console.error(`[pt] parse ${dir}/${f} failed:`, e);
-      return null;
-    })),
+  const results: Array<T | null> = await Promise.all(
+    files.map(async (f): Promise<T | null> => {
+      try {
+        return await parser(f);
+      } catch (e) {
+        console.error(`[pt] parse ${dir}/${f} failed:`, e);
+        return null;
+      }
+    }),
   );
   return results.filter((r): r is T => r !== null);
 }
