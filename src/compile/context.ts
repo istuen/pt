@@ -228,57 +228,81 @@ function compileGenericModule(h2Name: string, refDomains: Domain[], _layout: Str
 
 // ==================== 域段格式化（Scene 模块内按 type 分发） ====================
 
+/** Domain Scene 渲染器：返回该 Domain 在 Scene 模块里的 markdown 段（空字符串表示不输出）。 */
+type DomainSceneRenderer = (d: Domain, mode: "byDomain" | "byType" | "hybrid") => string;
+
+/** Domain type → Scene renderer。已注册：term / workflow / stack / glossary。
+ *  扩展 type：调 registerDomainSceneRenderer("xxx", fn) 即可，不动主循环。 */
+const domainSceneRenderers: Record<string, DomainSceneRenderer> = {
+  term: renderTermSceneSection,
+  workflow: renderWorkflowSceneSection,
+  stack: renderStackSceneSection,
+  glossary: renderGlossarySceneSection,
+};
+
+/** 扩展接口：加新 Domain type 只加一行注册 + 一个 renderer 函数。 */
+export function registerDomainSceneRenderer(type: string, fn: DomainSceneRenderer): void {
+  domainSceneRenderers[type] = fn;
+}
+
 function formatDomainSceneSection(d: Domain, mode: "byDomain" | "byType" | "hybrid"): string {
-  if (d.type === "term") {
-    const terms = (d.modules["Scene"] as Array<{ name: string; desc: string }> | undefined) ?? [];
-    const rules = extractRules(d);
-    const lines: string[] = [`### 模块「${d.name}」`];
+  const fn = domainSceneRenderers[d.type];
+  if (!fn) return "";  // 未注册 type：不输出
+  return fn(d, mode);
+}
 
-    if (terms.length > 0) {
-      lines.push("", "**术语**");
-      for (const t of terms) {
-        if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
-        else lines.push(`- **${t.name}**`);
-      }
-    }
-    // hybrid 下 rules 不进 section（已抽到全局段）；byDomain 下保留 rules
-    if (mode !== "hybrid" && rules.length > 0) {
-      lines.push("", "**规则**");
-      for (const r of rules.filter((x) => x.slot !== "global")) {
-        if (r.type === "invariant") lines.push(`- ${r.check}`);
-        else if (r.type === "ban" && r.items && r.items.length > 0) {
-          lines.push(`- ${r.check}：禁止 ${r.items.join(" / ")}`);
-        }
-      }
-    }
-    return lines.join("\n").trimEnd();
-  }
+// ---- Scene 渲染器（按 type 注册） ----
 
-  if (d.type === "workflow") {
-    const scene = d.modules["Scene"] as { externals?: Array<{ name: string; path: string }> } | undefined;
-    const externals = scene?.externals ?? [];
-    if (externals.length === 0) return "";
-    const lines: string[] = [`### 模块「${d.name}」`, "", "**外部数据**"];
-    for (const ext of externals) {
-      lines.push(`- ${ext.name}：\`${ext.path}\``);
-    }
-    return lines.join("\n").trimEnd();
-  }
+function renderTermSceneSection(d: Domain, mode: "byDomain" | "byType" | "hybrid"): string {
+  const terms = (d.modules["Scene"] as Array<{ name: string; desc: string }> | undefined) ?? [];
+  const rules = extractRules(d);
+  const lines: string[] = [`### 模块「${d.name}」`];
 
-  if (d.type === "glossary" || (d.type !== "term" && d.type !== "workflow" && d.type !== "stack")) {
-    // 扩展 type fallback（term 形态）
-    const terms = (d.modules["Scene"] as Array<{ name: string; desc: string }> | undefined) ?? [];
-    if (terms.length === 0) return "";
-    const lines: string[] = [`### 术语表「${d.name}」`];
+  if (terms.length > 0) {
+    lines.push("", "**术语**");
     for (const t of terms) {
       if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
       else lines.push(`- **${t.name}**`);
     }
-    return lines.join("\n").trimEnd();
   }
+  // hybrid 下 rules 不进 section（已抽到全局段）；byDomain 下保留 rules
+  if (mode !== "hybrid" && rules.length > 0) {
+    lines.push("", "**规则**");
+    for (const r of rules.filter((x) => x.slot !== "global")) {
+      if (r.type === "invariant") lines.push(`- ${r.check}`);
+      else if (r.type === "ban" && r.items && r.items.length > 0) {
+        lines.push(`- ${r.check}：禁止 ${r.items.join(" / ")}`);
+      }
+    }
+  }
+  return lines.join("\n").trimEnd();
+}
 
+function renderWorkflowSceneSection(d: Domain, _mode: "byDomain" | "byType" | "hybrid"): string {
+  const scene = d.modules["Scene"] as { externals?: Array<{ name: string; path: string }> } | undefined;
+  const externals = scene?.externals ?? [];
+  if (externals.length === 0) return "";
+  const lines: string[] = [`### 模块「${d.name}」`, "", "**外部数据**"];
+  for (const ext of externals) {
+    lines.push(`- ${ext.name}：\`${ext.path}\``);
+  }
+  return lines.join("\n").trimEnd();
+}
+
+function renderStackSceneSection(_d: Domain, _mode: "byDomain" | "byType" | "hybrid"): string {
   // stack: tools 在聚合段输出，不进 section
   return "";
+}
+
+function renderGlossarySceneSection(d: Domain, _mode: "byDomain" | "byType" | "hybrid"): string {
+  const terms = (d.modules["Scene"] as Array<{ name: string; desc: string }> | undefined) ?? [];
+  if (terms.length === 0) return "";
+  const lines: string[] = [`### 术语表「${d.name}」`];
+  for (const t of terms) {
+    if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
+    else lines.push(`- **${t.name}**`);
+  }
+  return lines.join("\n").trimEnd();
 }
 
 // ==================== 公共段（mode-based） ====================
