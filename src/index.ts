@@ -1,8 +1,9 @@
 // src/index.ts — Pi 扩展入口（v7）
 // Pi ExtensionAPI 用法见 pt-plugin-design.md §0 与 §5。
 //
-// v7 user 面命令：--blueprint（flag）/ /blueprint（命令），对应"激活 Blueprint → 编译 Context"。
-//   "blueprint" 在 v7 是配置层（Channel + Domains + trigger + boundaries）。
+// v7 user 面命令：--pt-context（flag）/ /pt-context（命令），对应"激活 Blueprint → 编译 Context"。
+//   "blueprint" 在 v7 是配置层概念（Channel + Domains + trigger + boundaries），内部变量名保留 blueprint 字样；
+//   用户面命令改名 pt-context，强调产物是 Context（编译后的上下文文件）。
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -66,8 +67,8 @@ function findFlow(name: string) {
 
 export default function (pi: ExtensionAPI): void {
   // 启动时 flag（CLI 优先）
-  pi.registerFlag("blueprint", {
-    description: "启动时激活的 Blueprint 名（注入 System Prompt）",
+  pi.registerFlag("pt-context", {
+    description: "启动时激活的 Blueprint 名（编译成 Context 注入 System Prompt）",
     type: "string",
   });
 
@@ -75,17 +76,17 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     lastCwd = ctx.cwd;
     try {
-      const flag = pi.getFlag("blueprint");
+      const flag = pi.getFlag("pt-context");
       const flagVal = typeof flag === "string" && flag.trim() ? flag.trim() : undefined;
 
-      const fromSettings = await readProjectSetting<string>(ctx.cwd, "au.blueprint");
+      const fromSettings = await readProjectSetting<string>(ctx.cwd, "au.pt-context");
       const auto = await detectSingleScene(ctx.cwd);
 
       const picked = flagVal ?? fromSettings ?? auto;
 
       if (!picked) {
-        ctx.ui.setStatus("pt", "pt: 无 blueprint");
-        ctx.ui.notify("Pt：未找到 Blueprint。用 /blueprint <name> 选择，或在 .pi/settings.json 设 au.blueprint。", "info");
+        ctx.ui.setStatus("pt", "pt: 无 context");
+        ctx.ui.notify("Pt：未找到 Blueprint。用 /pt-context <name> 选择，或在 .pi/settings.json 设 au.pt-context。", "info");
         return;
       }
 
@@ -129,9 +130,9 @@ export default function (pi: ExtensionAPI): void {
     lastBuiltPrompt = null;
   });
 
-  // ========== /blueprint 命令：即时切换 ==========
-  pi.registerCommand("blueprint", {
-    description: "切换当前 Blueprint（注入 System Prompt），即时重转译（无参则弹出选择器）",
+  // ========== /pt-context 命令：即时切换 ==========
+  pi.registerCommand("pt-context", {
+    description: "切换当前 Blueprint（编译成 Context 注入 System Prompt），即时重转译（无参则弹出选择器）",
     getArgumentCompletions: async (prefix) => {
       const names = await listScenes(lastCwd);
       const items = names.map((n) => ({ value: n, label: n }));
@@ -147,7 +148,7 @@ export default function (pi: ExtensionAPI): void {
           return;
         }
         if (!ctx.hasUI) {
-          ctx.ui.notify("/blueprint（无参）在非交互模式不可用，请指定名称", "warning");
+          ctx.ui.notify("/pt-context（无参）在非交互模式不可用，请指定名称", "warning");
           return;
         }
         const picked = await ctx.ui.select("选择 Blueprint", names);
@@ -178,7 +179,7 @@ export default function (pi: ExtensionAPI): void {
         const channelCount = cachedBundles?.reduce((acc, b) => acc + b.channels.length, 0) ?? 0;
         const bpCount = cachedBundles?.reduce((acc, b) => acc + b.blueprints.length, 0) ?? 0;
         const lines = [
-          `pt blueprint: ${activeBlueprint ?? "(未激活)"}`,
+          `pt context: ${activeBlueprint ?? "(未激活)"}`,
           `pt domains: ${domainCount}, channels: ${channelCount}, blueprints: ${bpCount}, flows: ${flowCount}`,
           `pt segment length: ${cachedSegment?.length ?? 0} chars`,
           `pt cache hit: ${lastCacheHit ? "yes" : "no"}`,
@@ -188,6 +189,33 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.notify(lines.join(" | "), "info");
         if (sub === "" && cachedSegment) {
           ctx.ui.notify(cachedSegment, "info");
+        }
+        return;
+      }
+
+      if (sub === "flows") {
+        if (!cachedBundles || cachedBundles.length === 0) {
+          ctx.ui.notify("无激活 Blueprint，先用 /pt-context <name> 激活", "warning");
+          return;
+        }
+        const flows: Array<{ name: string; hint?: string; domain: string }> = [];
+        for (const b of cachedBundles) {
+          const bp = b.blueprints.find((x) => x.name === b.activeBlueprint);
+          if (!bp) continue;
+          for (const dn of bp.domains) {
+            const d = b.domains.find((x) => x.name === dn);
+            if (!d || d.type !== "workflow") continue;
+            const tpls = (d.modules["Manual"] as Array<{ name: string; argumentHint?: string }> | undefined) ?? [];
+            for (const t of tpls) {
+              flows.push({ name: t.name, hint: t.argumentHint, domain: d.name });
+            }
+          }
+        }
+        if (flows.length === 0) {
+          ctx.ui.notify("当前 Blueprint 无可触发手册（workflow-type Domain 的 Manual 段为空）", "info");
+        } else {
+          const lines = flows.map((f) => `  /${f.name} ${f.hint ?? ""}  ← ${f.domain}`);
+          ctx.ui.notify(`可用手册（输入 /手册名 参数 触发 Context Message）:\n${lines.join("\n")}`, "info");
         }
         return;
       }
@@ -218,7 +246,7 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
-      ctx.ui.notify("用法: /pt [status|raw|full]", "warning");
+      ctx.ui.notify("用法: /pt [status|flows|raw|full]", "warning");
     },
   });
 }
