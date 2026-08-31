@@ -1,34 +1,71 @@
-// src/parse/parser.ts — OXN asset markdown → Asset
-// 纯字符串处理，无依赖。OXN adapter 内部用，Pt 核心不见。
+// src/parse/shared.ts — 通用 MD 词法+语法（domain/channel/blueprint 共享）
 //
-// Phase 7.1: 从 frontend/oxn/parser.ts 迁入，import 路径改为相对 src/。
+// Phase 7.3：从原 src/parse/{parser,types}.ts 抽公共部分。
+//   - Domain/Channel/Blueprint adapter 都按 H2 段解析，H3 子项 → Item。
+//   - 共享 frontmatter 解析、H2 段切分、H3 项解析、scalar 值解析。
+//   - 共享 Asset/Section/Item 类型。
 
 import { readFile } from "node:fs/promises";
-import type { Asset, AssetKind, Boundary, BlueprintRefs, External, Item, Section } from "./types.js";
 
-/** 读 OXN asset 文件并解析 */
+// ==================== 类型（OXN 中间表示，Pt 核心不见） ====================
+
+/** OXN 内部 asset kind（v7 沿用 v6 的扩展名空间）。
+ *  - "domain"    : Content Domain（v7 内容层）
+ *  - "channel"   : Channel（v7 结构层）
+ *  - "blueprint" : Blueprint（v7 配置层）
+ *  - "term" / "workflow" / "stack" / "glossary" : Domain type 标签（frontmatter.type）
+ *  - "scene" / "manual" : v6 Struct kind 兼容（v7 资产迁移期残留） */
+export type AssetKind =
+  | "domain" | "channel" | "blueprint"
+  | "term" | "workflow" | "stack" | "glossary"
+  | "scene" | "manual";
+
+export interface Item {
+  /** H3 标题（如 "文章"、"select-topic"） */
+  name: string;
+  /** "- key: value" / "- key: [a, b]" / "- key: { ... }" 字段。
+   *  值可以是 string / string[] / 嵌套对象（YAML 子集）；consumer 用 typeof 收窄。 */
+  fields: Record<string, unknown>;
+}
+
+export interface Section {
+  /** "## Terms" 原文 */
+  heading: string;
+  /** 段内 markdown（含 H3 子项） */
+  raw: string;
+  /** H3 子项解析结果 */
+  items: Item[];
+}
+
+export interface Asset {
+  kind: AssetKind;
+  /** 文件名去后缀（v7 例："project-dev.channel" / "pt-blueprint"） */
+  name: string;
+  frontmatter: Record<string, unknown>;
+  /** frontmatter 之后的 markdown */
+  body: string;
+  /** H2 段名（首字母大写）→ 段内容 */
+  sections: Record<string, Section>;
+}
+
+// ==================== 词法/语法（共享） ====================
+
+/** 读 asset 文件并解析 frontmatter + H2 段。 */
 export async function readAsset(path: string): Promise<Asset> {
   const raw = await readFile(path, "utf8");
   const { fm, body } = parseFrontmatter(raw);
 
-  // 从文件路径末尾推 name（无后缀）。Phase 5 拓展：
-  //   - article.scene.md → name="article.scene"
-  //   - article.manual.md → name="article.manual"
-  // 调用方负责 split。
+  // 从文件路径末尾推 name（无后缀）
   const fileName = path.split("/").pop() ?? "";
   const name = fileName.replace(/\.[^.]+$/, "");
 
-  // kind 优先从 frontmatter 读：v6 引入 type（Domain）与 kind（Struct）作为权威标签，
-  // entity 仅作为 v3 兼容路径。推断逻辑保留为最后 fallback。
+  // kind 推断优先级：frontmatter.kind → frontmatter.type → frontmatter.entity → H2 推断
   let kind: AssetKind | undefined;
   if (typeof fm.kind === "string") {
-    // v6 Struct: kind="scene" | "blueprint"。为便于 OXN 层统一表达，映射为同名 kind。
     kind = fm.kind as AssetKind;
   } else if (typeof fm.type === "string") {
-    // v6 Domain: type="term" | "workflow" | "stack"。映射为 OXN kind。
     kind = fm.type as AssetKind;
   } else if (typeof fm.entity === "string") {
-    // v3 兼容。
     kind = fm.entity as AssetKind;
   } else {
     kind = inferKind(body);
@@ -37,16 +74,14 @@ export async function readAsset(path: string): Promise<Asset> {
   const sectionsArr = splitSections(body);
   const sections: Record<string, Section> = {};
   for (const sec of sectionsArr) {
-    // 归一化 key：去 `## ` 前缀，去前后空格
     const key = sec.heading.replace(/^#+\s*/, "").trim();
-    const items = parseItems(sec.raw);
-    sections[key] = { heading: sec.heading, raw: sec.raw, items };
+    sections[key] = { heading: sec.heading, raw: sec.raw, items: parseItems(sec.raw) };
   }
 
   return { kind, name, frontmatter: fm, body, sections };
 }
 
-/** 解析 frontmatter --- ... --- 块（简易：只处理 key: value 与 key: [a, b]） */
+/** 解析 frontmatter --- ... --- 块（简易：key: value / key: [a, b] / key: { ... }） */
 export function parseFrontmatter(text: string): {
   fm: Record<string, unknown>;
   body: string;
@@ -64,9 +99,8 @@ export function parseFrontmatter(text: string): {
   return { fm, body: m[2] };
 }
 
-/** 解析 scalar 值：返回 string / string[] / 嵌套对象（YAML 子集）。
- *  支持：[a, b] / { key: value, ... } / "quoted" / unquoted
- *  嵌套值通过 parseScalar 递归解析，所以支持任意嵌套深度。 */
+/** 解析 scalar 值：string / string[] / 嵌套对象（YAML 子集）。
+ *  嵌套值通过 parseScalar 递归解析，支持任意深度。 */
 function parseScalar(val: string): unknown {
   if (!val) return "";
   // [a, b]
@@ -84,12 +118,10 @@ function parseScalar(val: string): unknown {
   return unquote(val);
 }
 
-/** 解析内联对象 { key: value, ... }。值仍是 scalar 字符串，由 parseScalar 递归解析。 */
 function parseInlineObject(s: string): Record<string, unknown> {
   const inner = s.slice(1, -1).trim();
   if (!inner) return {};
   const out: Record<string, unknown> = {};
-  // 简单分割：按逗号切（不支持值含逗号的复杂情况——YAML inline object 子集够用）
   for (const part of splitTopLevel(inner, ",")) {
     const kv = part.match(/^\s*([a-zA-Z_][\w-]*)\s*:\s*(.+)$/);
     if (kv) out[kv[1]] = parseScalar(kv[2].trim());
@@ -97,7 +129,6 @@ function parseInlineObject(s: string): Record<string, unknown> {
   return out;
 }
 
-/** 按分隔符切分字符串，但忽略 {} [] 内部的分隔符。 */
 function splitTopLevel(s: string, sep: string): string[] {
   const out: string[] = [];
   let depth = 0;
@@ -144,7 +175,7 @@ export function splitSections(body: string): Array<{ heading: string; raw: strin
 
 /** 把段内 markdown 解析成 Item[]：
  *  - 有 H3 (`### name`) → 每个 H3 是一个 item，下属 `- key: value` 是 fields
- *  - 无 H3，整段就是 list → 顶层 `- key: value` 直接作为 items（name=key, fields={key: value}）
+ *  - 无 H3，整段就是 list → 顶层 `- key: value` 直接作为 items
  */
 export function parseItems(sectionRaw: string): Item[] {
   const lines = sectionRaw.split(/\r?\n/);
@@ -181,66 +212,28 @@ export function parseItems(sectionRaw: string): Item[] {
   return items;
 }
 
-/** 从 Blueprint 的 `## Use` 段读 refs */
-export function parseBlueprintRefs(asset: Asset): BlueprintRefs | null {
-  const use = asset.sections["Use"];
-  if (!use) return null;
-  const out: Partial<BlueprintRefs> = {};
-  for (const item of use.items) {
-    if (item.name === "domain" || item.name === "workflow" || item.name === "stack") {
-      const v = item.fields[item.name];
-      if (typeof v === "string") out[item.name] = v;
-    }
-  }
-  if (!out.domain || !out.workflow || !out.stack) return null;
-  return out as BlueprintRefs;
+// ==================== 字段取值辅助（共享） ====================
+
+/** 把 unknown 收窄为 string（数组则 join）。无值 → ""。 */
+export function s(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string").join(", ");
+  return "";
 }
 
-/** 从 Blueprint 的 `## Boundaries` 段读 slot DAG */
-export function parseBoundaries(asset: Asset): Boundary[] {
-  const sec = asset.sections["Boundaries"];
-  if (!sec) return [];
-  const out: Boundary[] = [];
-  for (const item of sec.items) {
-    out.push({
-      slot: item.name,
-      operate: toStrArr(item.fields.operate),
-      deps: toStrArr(item.fields.deps),
-      desc: typeof item.fields.desc === "string" ? item.fields.desc : "",
-    });
-  }
-  return out;
-}
-
-/** 从 asset 的 `## Externals` 段读 externals */
-export function extractExternals(asset: Asset): External[] {
-  const sec = asset.sections["Externals"];
-  if (!sec) return [];
-  const out: External[] = [];
-  for (const item of sec.items) {
-    const path = typeof item.fields.path === "string" ? item.fields.path : "";
-    if (!path) continue;
-    const name = typeof item.fields.name === "string" ? item.fields.name : undefined;
-    out.push({
-      assetKind: asset.kind,
-      assetName: asset.name,
-      path,
-      name,
-    });
-  }
-  return out;
-}
-
-function toStrArr(v: unknown): string[] {
+/** 把 unknown 收窄为 string[]（单值包成 1-数组）。无值 → []。 */
+export function sArr(v: unknown): string[] {
   if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string");
-  if (typeof v === "string") return v ? [v] : [];
+  if (typeof v === "string" && v) return [v];
   return [];
 }
 
-/** frontmatter 没 entity/type/kind 时，按 H2 段名推断 asset kind。Phase 5 仍保留 v3 fallback。 */
+/** frontmatter 没 entity/type/kind 时，按 H2 段名推断 asset kind。 */
 function inferKind(body: string): AssetKind {
-  if (/^##\s+Use\b/m.test(body) && /^##\s+Boundaries\b/m.test(body)) return "blueprint";
+  if (/^##\s+Channel\b/m.test(body) && /^##\s+Domains\b/m.test(body)) return "blueprint";
+  if (/^##\s+Modules\b/m.test(body) && /^##\s+Layout\b/m.test(body)) return "channel";
   if (/^##\s+Slots\b/m.test(body)) return "workflow";
   if (/^##\s+Tools\b/m.test(body)) return "stack";
+  if (/^##\s+Boundaries\b/m.test(body)) return "blueprint";
   return "domain";
 }
