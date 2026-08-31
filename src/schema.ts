@@ -160,7 +160,7 @@ export interface Blueprint {
  *   - sourceHash：hash(Domains + Channel + Blueprint) 组合——三者任一变化即失效。
  *   - modules   ：H2 段名 → 聚合后的 markdown 字符串。
  *
- * Context 是物理文件（.pt/cache/*.context.md），缓存复用。
+ * Context 是物理文件（.pt/contexts/cache/*.context.md），缓存复用。
  * Pt 读取 Context 时比 sourceHash：一致用缓存，不一致重编译覆盖。
  */
 export interface Context {

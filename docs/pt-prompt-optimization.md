@@ -396,11 +396,11 @@ import { compileAsset, compileBlueprint } from "./oxn/compiler.ts";
 
 const cwd = "/Users/issac/pro/pt";
 const seg = await loadAndTranspile(cwd, "article-blueprint");
-const dom = compileAsset(await readAsset(`${cwd}/.openxenon/assets/domains/writing.md`));
-const wf  = compileAsset(await readAsset(`${cwd}/.openxenon/assets/workflows/article-flow.md`));
-const stk = compileAsset(await readAsset(`${cwd}/.openxenon/assets/stacks/md-stack.md`));
-const domAsset = await readAsset(`${cwd}/.openxenon/assets/domains/writing.md`);
-const bpAsset  = await readAsset(`${cwd}/.openxenon/assets/blueprints/article-blueprint.md`);
+const dom = compileAsset(await readAsset(`${cwd}/.pt/assets/domains/writing.md`));
+const wf  = compileAsset(await readAsset(`${cwd}/.pt/assets/workflows/article-flow.md`));
+const stk = compileAsset(await readAsset(`${cwd}/.pt/assets/stacks/md-stack.md`));
+const domAsset = await readAsset(`${cwd}/.pt/assets/domains/writing.md`);
+const bpAsset  = await readAsset(`${cwd}/.pt/assets/blueprints/article-blueprint.md`);
 const bp  = compileBlueprint(bpAsset, { domain: domAsset });
 const indexSrc = await readFile("index.ts", "utf8");
 const transpileSrc = await readFile("transpile.ts", "utf8");

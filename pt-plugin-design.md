@@ -58,7 +58,7 @@ pi.registerCommand("blueprint", {
       // 无参：弹出选择器
       const names = await listBlueprints(ctx.cwd);
       if (names.length === 0) {
-        ctx.ui.notify("未找到任何 blueprint（.openxenon/assets/blueprints/*.md）", "warning");
+        ctx.ui.notify("未找到任何 blueprint（.pt/assets/blueprints/*.md）", "warning");
         return;
       }
       const picked = await ctx.ui.select("选择 blueprint", names);
@@ -540,7 +540,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 export async function detectSingleBlueprint(cwd: string): Promise<string | null> {
-  const dir = join(cwd, ".openxenon", "assets", "blueprints");
+  const dir = join(cwd, ".pt", "assets", "blueprints");
   let files: string[];
   try {
     files = await readdir(dir);
@@ -563,7 +563,7 @@ export async function detectSingleBlueprint(cwd: string): Promise<string | null>
 
 ```typescript
 export async function listBlueprints(cwd: string): Promise<string[]> {
-  const dir = join(cwd, ".openxenon", "assets", "blueprints");
+  const dir = join(cwd, ".pt", "assets", "blueprints");
   try {
     return (await readdir(dir))
       .filter((f) => f.endsWith(".md"))
@@ -612,15 +612,15 @@ export async function loadAndTranspile(cwd: string, blueprintName: string): Prom
 export const oxnAdapter: SourceAdapter = {
   name: "oxn",
   async load(cwd, blueprintName) {
-    const bpPath = join(cwd, ".openxenon/assets/blueprints", `${blueprintName}.md`);
+    const bpPath = join(cwd, ".pt/assets/blueprints", `${blueprintName}.md`);
     const blueprint = await readAsset(bpPath);
     const refs = parseBlueprintRefs(blueprint);
     if (!refs) return "";
 
     const [domain, workflow, stack] = await Promise.all([
-      readAsset(join(cwd, ".openxenon/assets/domains", `${refs.domain}.md`)),
-      readAsset(join(cwd, ".openxenon/assets/workflows", `${refs.workflow}.md`)),
-      readAsset(join(cwd, ".openxenon/assets/stacks", `${refs.stack}.md`)),
+      readAsset(join(cwd, ".pt/assets/domains", `${refs.domain}.md`)),
+      readAsset(join(cwd, ".pt/assets/workflows", `${refs.workflow}.md`)),
+      readAsset(join(cwd, ".pt/assets/stacks", `${refs.stack}.md`)),
     ]);
 
     return [
@@ -631,13 +631,13 @@ export const oxnAdapter: SourceAdapter = {
     ].filter(Boolean).join("\n\n");
   },
   async loadExternals(cwd, blueprintName) {
-    const bp = await readAsset(join(cwd, ".openxenon/assets/blueprints", `${blueprintName}.md`));
+    const bp = await readAsset(join(cwd, ".pt/assets/blueprints", `${blueprintName}.md`));
     const refs = parseBlueprintRefs(bp);
     if (!refs) return [];
     const [d, w, s] = await Promise.all([
-      readAsset(join(cwd, ".openxenon/assets/domains", `${refs.domain}.md`)),
-      readAsset(join(cwd, ".openxenon/assets/workflows", `${refs.workflow}.md`)),
-      readAsset(join(cwd, ".openxenon/assets/stacks", `${refs.stack}.md`)),
+      readAsset(join(cwd, ".pt/assets/domains", `${refs.domain}.md`)),
+      readAsset(join(cwd, ".pt/assets/workflows", `${refs.workflow}.md`)),
+      readAsset(join(cwd, ".pt/assets/stacks", `${refs.stack}.md`)),
     ]);
     return [...extractExternals(d), ...extractExternals(w), ...extractExternals(s)];
     // blueprint 自身无 Externals
@@ -651,7 +651,7 @@ export const oxnAdapter: SourceAdapter = {
 
 | 场景 | 行为 | 用户感知 |
 |---|---|---|
-| `.openxenon/assets/` 不存在 | `detectSingleBlueprint` 返回 null，不注入 | footer: `pt: 无 blueprint` |
+| `.pt/assets/` 不存在 | `detectSingleBlueprint` 返回 null，不注入 | footer: `pt: 无 blueprint` |
 | blueprint 文件不存在 | `session_start` catch → notify error | footer: `pt: 加载失败`，不阻塞启动 |
 | refs 引用的 domain/workflow/stack 缺失 | `oxnAdapter.load` 抛 → adapter 返回空串 | 该来源段缺失，其它来源照常 |
 | blueprint 无 `## Boundaries` | `compileBlueprint` 返回空串 | blueprint 段省略，前 3 段照常 |

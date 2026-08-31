@@ -12,7 +12,7 @@ name: pt-dev-flow
 - desc: 源码目录（parse/ + compile/ + render/ + schema.ts + transpile.ts + index.ts + config.ts）
 
 ### pt-assets-tree
-- path: .openxenon/assets/
+- path: .pt/assets/
 - desc: 资产目录（domains/ + channels/ + blueprints/）
 
 ### pt-cache-tree

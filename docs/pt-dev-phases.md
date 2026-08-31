@@ -278,7 +278,7 @@ Phase 0 完成（`schema.ts` 存在）。
      name: "oxn",
      async load(cwd, blueprintName): Promise<SchemaBundle> {
        // 读取 4 个 OXN asset（逻辑同现有 transpile.ts 的 oxnAdapter.load）
-       const blueprint = await readAsset(join(cwd, ".openxenon/assets/blueprints", `${blueprintName}.md`));
+       const blueprint = await readAsset(join(cwd, ".pt/assets/blueprints", `${blueprintName}.md`));
        const refs = parseBlueprintRefs(blueprint);
        const [domain, workflow, stack] = await Promise.all([...]);
 
@@ -407,7 +407,7 @@ Phase 1 完成（前端输出 SchemaBundle，backend 消费 SchemaBundle）。
 
 4. **OXN asset 支持 layout 声明**：在 blueprint frontmatter 加 `layout.mode` 字段（可选，默认 hybrid）。
    - 修改 `frontend/oxn/adapter.ts`：读 `blueprint.frontmatter.layout`，映射到 `StructureLayout`。
-   - 更新 `.openxenon/assets/blueprints/article-blueprint.md` 的 frontmatter，加 `layout: { mode: hybrid }`（或不动，用默认）。
+   - 更新 `.pt/assets/blueprints/article-blueprint.md` 的 frontmatter，加 `layout: { mode: hybrid }`（或不动，用默认）。
 
 ### 验收标准
 
@@ -510,7 +510,7 @@ FlowTemplate 实例化通道打通。动态手册从设计到落地。
 
 5. **systemPrompt 输出手册清单**：`backend/prompt.ts` 在 identity 段后追加 `### 可用手册` 段，列出 `flows` 的 name + argumentHint，供 LLM 自选。
 
-6. **加风控例子**：在 `.openxenon/assets/` 下加一套风控 asset（domain: commerce, blueprint: risk-check with Templates 段, 对应 workflow/stack）。先写静态规则（不带 `{{}}`），验证手册结构；再加参数化版本。
+6. **加风控例子**：在 `.pt/assets/` 下加一套风控 asset（domain: commerce, blueprint: risk-check with Templates 段, 对应 workflow/stack）。先写静态规则（不带 `{{}}`），验证手册结构；再加参数化版本。
 
 ### 验收标准
 
@@ -544,10 +544,10 @@ Phase 3 完成。
 ### 步骤
 
 1. **写完整风控例子**：
-   - `.openxenon/assets/domains/commerce.md`（Terms: 客户/订单/信用额度；Rules: R1 额度/R2 黑名单；Externals: credit-limits.xlsx, customer-tier.xlsx）
-   - `.openxenon/assets/workflows/risk-flow.md`（Slots: 取额度→取等级→校验）
-   - `.openxenon/assets/stacks/risk-stack.md`（Tools: read）
-   - `.openxenon/assets/blueprints/risk-check.md`（Use + Boundaries + Templates 段，含 `{{客户ID}}` `{{金额}}`）
+   - `.pt/assets/domains/commerce.md`（Terms: 客户/订单/信用额度；Rules: R1 额度/R2 黑名单；Externals: credit-limits.xlsx, customer-tier.xlsx）
+   - `.pt/assets/workflows/risk-flow.md`（Slots: 取额度→取等级→校验）
+   - `.pt/assets/stacks/risk-stack.md`（Tools: read）
+   - `.pt/assets/blueprints/risk-check.md`（Use + Boundaries + Templates 段，含 `{{客户ID}}` `{{金额}}`）
    - `./data/credit-limits.xlsx` 和 `./data/customer-tier.xlsx`（造测试数据）
 
 2. **端到端验证**：
@@ -740,7 +740,7 @@ yml: type: term
 yml: type: workflow
 ## Scene
   - 手册清单：full / scene-only / manual-only
-  - 数据源：.openxenon/assets/*.md
+  - 数据源：.pt/assets/*.md
 ## Blueprint
   - steps: frontend(adapter.load) → midend(layout) → backend(generatePrompt)
 
@@ -1153,7 +1153,7 @@ interface SchemaBundle {
 - **新建 `channels/` 目录**：至少一个 `project-dev.channel.md`（modules: [Scene, Manual], layout: hybrid）
 - **struct 资产改 Blueprint 格式**：7 个 `*.scene.md`/`*.manual.md` → `*.blueprint.md`，frontmatter 简化（只留 name），内容用 `## Channel`/`## Domains`/`## Trigger`/`## Boundaries`
 - **删旧 `blueprints/` 里的 scene/manual 成对文件**，统一成 `*.blueprint.md`
-- **验收**：`ls .openxenon/assets/{domains,channels,blueprints}/` 结构正确
+- **验收**：`ls .pt/assets/{domains,channels,blueprints}/` 结构正确
 - **commit**：`Phase 7.4: 资产迁移到 v7 格式`
 
 #### 7.5 compile/ 中端（Context 编译 + layout 编排）
@@ -1187,7 +1187,7 @@ function compileContext(
 `src/render/`：
 
 - `cache.ts`：Context 文件读写 + hash 校验
-  - `loadContext(name)`：读 `.pt/cache/{name}.context.md`，比对 sourceHash，命中返缓存，未命中返 null
+  - `loadContext(name)`：读 `.pt/contexts/cache/{name}.context.md`，比对 sourceHash，命中返缓存，未命中返 null
   - `saveContext(context)`：写文件（含 sourceHash 头）
 - `system-prompt.ts`：`renderSystemPrompt(context)` → 读 `context.modules["Scene"]` → 字符串
 - `context-message.ts`：`renderContextMessage(context, args)` → 读 `context.modules["Manual"]` + binder 展开 → 字符串
@@ -1207,7 +1207,7 @@ parse(blueprint.md, channel.md, domain.md*)
 #### 7.7 回归验证 + 扩展性验证
 
 - **四个 Blueprint 回归**：pt/article/risk-check/glossary-test 编译出的 System Prompt 字数与 v6 baseline 一致或语义等价
-- **Context 缓存验证**：第二次 `/pt full` 命中缓存（不重编译，读 `.pt/cache/*.context.md`）
+- **Context 缓存验证**：第二次 `/pt full` 命中缓存（不重编译，读 `.pt/contexts/cache/*.context.md`）
 - **Channel 复用验证**：至少 2 个 Blueprint 引用同一 Channel
 - **扩展性验证**：glossary 假 type 仍能注册 renderer 并出现在 Context 的 Scene 模块里
 - **三 mode 验证**（顺带补 v6 遗留）：加一个 byType 测试 Blueprint，验 byType 路径
@@ -1299,7 +1299,7 @@ Phase 7 (v7 模型重构 Domain→Channel→Blueprint→Context) ← 待执行
 2. **Phase 1 的"产物等价"是硬指标**——如果产物不等价，说明映射丢了字段或逻辑，必须修复后才能进 Phase 2。
 3. **Phase 3 必须先补文档再写代码**——3 处模糊点没定清楚就写代码会返工。
 4. **遇到设计文档没覆盖的情况**，不要自行发挥，记录下来交验收者决策。
-5. **OXN asset 的格式约定**参考 `.openxenon/assets/` 下现有 4 个文件（article-blueprint 等）。
+5. **OXN asset 的格式约定**参考 `.pt/assets/` 下现有 4 个文件（article-blueprint 等）。
 6. **Pi ExtensionAPI 用法**参考 `index.ts` 现有实现 + `pt-plugin-design.md`。
 
 ---
@@ -1313,9 +1313,9 @@ Phase 7 (v7 模型重构 Domain→Channel→Blueprint→Context) ← 待执行
 | **7.1 src/ 迁移** | 完成 | `src/{parse,compile,render,schema,transpile,config,index}.ts` 全部到位；package.json/tsconfig.json 已更新 |
 | **7.2 Schema 重写** | 完成 | `src/schema.ts` 含 Domain/Channel/Blueprint/Context 四 IR；grep 无 Struct interface 或 kind: 'scene'/'blueprint' |
 | **7.3 parse 拆分** | shared/domain/channel/blueprint 四文件，按目录位置分发载体 | shared.ts 抽公共词法+语法；domain.ts 按 type 分发；channel.ts 解析 ## Modules + ## Layout；blueprint.ts 解析 ## Channel + ## Domains + ## Trigger + ## Boundaries |
-| **7.4 资产迁移** | 10 Domain 改 ## Blueprint→## Manual；新建 channels/project-dev.channel.md；7 个 struct 资产合并成 4 个 *.blueprint.md | `ls .openxenon/assets/{domains,channels,blueprints}/` 结构正确；所有 Blueprint 引用 channel='project-dev' |
+| **7.4 资产迁移** | 10 Domain 改 ## Blueprint→## Manual；新建 channels/project-dev.channel.md；7 个 struct 资产合并成 4 个 *.blueprint.md | `ls .pt/assets/{domains,channels,blueprints}/` 结构正确；所有 Blueprint 引用 channel='project-dev' |
 | **7.5 compile 中端** | 完成 | `src/compile/context.ts` 实现 compileContext(blueprint, channel, domains) → Context IR；layout 逻辑从 v6 generateV6Prompt 抽回 |
-| **7.6 render 后端 + 缓存** | 完成 | `src/render/{system-prompt,context-message,cache}.ts`；Context 物理文件 .pt/cache/*.context.md + sourceHash 校验；链路 parse→compile→cache→render 打通 |
+| **7.6 render 后端 + 缓存** | 完成 | `src/render/{system-prompt,context-message,cache}.ts`；Context 物理文件 .pt/contexts/cache/*.context.md + sourceHash 校验；链路 parse→compile→cache→render 打通 |
 | **7.7 回归验证** | 完成 | 四 Blueprint 产物字数 vs v6 baseline（语义级）、缓存命中、Channel 复用、glossary 扩展性、三 mode 验证全过 |
 | **7.8 文档同步** | 完成 | `pt-asset-layering.md` §11.4 职责表改 v7、§11.5 文件结构改 src/、附录演进表加 v7；`pt-dev-phases.md` 接手坐标更新、Phase 依赖图加 Phase 7、全局验收清单加 Context 缓存命中项 |
 
@@ -1327,7 +1327,7 @@ Phase 7 (v7 模型重构 Domain→Channel→Blueprint→Context) ← 待执行
 | 2. 命名无碰撞 | ✅ | `grep -E 'Struct\|kind:' src/schema.ts` 无残留；Domain H2 无 `## Blueprint` |
 | 4. 产物不回归 | ✅ | pt=1897 (v6=1791, +6%) / article=537 (+16%) / risk-check=597 (+24%) / glossary-test=350 (~0%)。差异源自格式微调（v7 把 workflow-Domain externals 单独成 ### 模块 段；v6 嵌入 flow 首步）—— plan 允许 |
 | 4. Channel 可复用 | ✅ | 4 个 Blueprint 全部引用 channel='project-dev' |
-| 5. Context 缓存生效 | ✅ | 第二次 loadAndTranspile 返 cacheHit=true，segment 与首次一致；.pt/cache/<name>.context.md 文件落盘 |
+| 5. Context 缓存生效 | ✅ | 第二次 loadAndTranspile 返 cacheHit=true，segment 与首次一致；.pt/contexts/cache/<name>.context.md 文件落盘 |
 | 6. 扩展性不破坏 | ✅ | glossary 假 type 走 registerDomainSceneRenderer 注册表（与 Phase 5.5.4 设计一致），render 函数 + 一行注册 = 扩展，未动 compile 主循环 |
 
 ### 与 Phase 5.5 设计意图的一致性

@@ -20,7 +20,7 @@ Pt 的"多来源"不是指 OXN 内部的多种 AssetKind，而是指**多个来�
 
 | 来源渠道 | 状态 | 内容 | Adapter 职责 |
 |---|---|---|---|
-| **OXN Assets** | ✅ MVP 已实现 | domain/workflow/stack/blueprint（见第三节） | 读 `.openxenon/assets/`，按 AssetKind 转译 |
+| **OXN Assets** | ✅ MVP 已实现 | domain/workflow/stack/blueprint（见第三节） | 读 `.pt/assets/`，按 AssetKind 转译 |
 | 裸 Markdown | 🔜 未来 | 人写的 `.md` 文档 | 读指定目录的 `.md`，转成 systemPrompt 段 |
 | JSON/YAML 配置 | 🔜 未来 | 结构化配置（术语表/规则表） | 解析 JSON/YAML，转成 systemPrompt 段 |
 | 外部 API/数据库 | 🔜 未来 | 远程知识库 | 调 API/查 DB，转成 systemPrompt 段 |
@@ -148,7 +148,7 @@ cache 失效的唯一情况（extensions.md 第 2368 行）：激活带 `promptS
 
 | 层 | 职责 | 存储 |
 |---|---|---|
-| 来源渠道（MVP: `.openxenon/assets/`） | 所有会话共享的业务知识源（人写/系统管理） | 文件（git 管理） |
+| 来源渠道（MVP: `.pt/assets/`） | 所有会话共享的业务知识源（人写/系统管理） | 文件（git 管理） |
 | 会话选定（`activeBlueprint` 内存变量） | 本次会话激活哪个来源选定 | 内存（每进程隔离） |
 | 会话转译产物（`cachedSegment` 内存变量） | 转译出的提示词内容 | 内存（每进程隔离） |
 | 项目默认（`.pi/settings.json` 的 `au.blueprint`） | 新会话启动时的默认来源选定 | 文件（可 git 管理） |
@@ -167,7 +167,7 @@ Pt 不需要会话目录——内存态已隔离每会话状态。若未来要�
 
 ### OXN 是 Pt 的第一个来源渠道
 
-OXN 作为 Source Adapter，读取 `.openxenon/assets/` 下的资产。OXN 内部有 5 种 AssetKind，是 **OXN 这个来源渠道内部的子结构**（不是 Polyglot 的多来源）：
+OXN 作为 Source Adapter，读取 `.pt/assets/` 下的资产。OXN 内部有 5 种 AssetKind，是 **OXN 这个来源渠道内部的子结构**（不是 Polyglot 的多来源）：
 
 | OXN AssetKind | 内容 | Pi 落点 | OXN Adapter 转译方式 |
 |---|---|---|---|
@@ -520,7 +520,7 @@ let cachedSegment: string | null = null
 // === Source Adapter 注册表（多来源 = polyglot）===
 // MVP 只注册 OXN adapter；未来加来源 = 加一个 adapter 函数
 const sourceAdapters = [
-  oxnAdapter,   // MVP: 读 .openxenon/assets/
+  oxnAdapter,   // MVP: 读 .pt/assets/
   // markdownAdapter,  // 未来
   // configAdapter,    // 未来
 ]
@@ -573,11 +573,11 @@ async function loadAndTranspile(cwd: string, blueprintName: string): Promise<str
 // === OXN Source Adapter（MVP 唯一实现）===
 const oxnAdapter = {
   async load(cwd: string, blueprintName: string): Promise<string> {
-    const blueprint = await readAsset(join(cwd, `.openxenon/assets/blueprints/${blueprintName}.md`))
+    const blueprint = await readAsset(join(cwd, `.pt/assets/blueprints/${blueprintName}.md`))
     const refs = parseRefs(blueprint)
-    const domain = await readAsset(join(cwd, `.openxenon/assets/domains/${refs.domain}.md`))
-    const workflow = await readAsset(join(cwd, `.openxenon/assets/workflows/${refs.workflow}.md`))
-    const stack = await readAsset(join(cwd, `.openxenon/assets/stacks/${refs.stack}.md`))
+    const domain = await readAsset(join(cwd, `.pt/assets/domains/${refs.domain}.md`))
+    const workflow = await readAsset(join(cwd, `.pt/assets/workflows/${refs.workflow}.md`))
+    const stack = await readAsset(join(cwd, `.pt/assets/stacks/${refs.stack}.md`))
     return [
       compileDomain(domain),
       compileWorkflow(workflow),

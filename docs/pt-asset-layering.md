@@ -26,7 +26,7 @@ Pt 的语义分四层，每层是有边界的模块，人各自管理其内容�
 | **内容层** | **Domain** | 语义定义与上下文模块内容 | `domains/*.md` | 跨 Channel/Blueprint 复用 |
 | **结构层** | **Channel** | 通道结构，定义含哪些上下文模块 | `channels/*.md` | 跨项目复用 |
 | **配置层** | **Blueprint** | Channel + 具体 Domains 构建真正通道 | `blueprints/*.md` | 每场景一份 |
-| **产物层** | **Context** | Blueprint 编译后的输出，按模块聚合多 Domain 内容 | `.pt/cache/*.context.md` | 缓存复用 |
+| **产物层** | **Context** | Blueprint 编译后的输出，按模块聚合多 Domain 内容 | `.pt/contexts/cache/*.context.md` | 缓存复用 |
 
 **核心关系**（不是线性变换链，是 Domain + Channel 在 Blueprint 处合并）：
 
@@ -137,7 +137,7 @@ project-dev
 
 ### 0.4 产物层：Context
 
-**Context 是 Blueprint 编译后的输出**——把多个 Domain 的内容按 Channel 定义的结构组装成按各上下文模块聚合的文档。Context 是**物理文件**（`.pt/cache/*.context.md`），缓存复用，避免每次重新编译。
+**Context 是 Blueprint 编译后的输出**——把多个 Domain 的内容按 Channel 定义的结构组装成按各上下文模块聚合的文档。Context 是**物理文件**（`.pt/contexts/cache/*.context.md`），缓存复用，避免每次重新编译。
 
 ```markdown
 # pt.context.md  （Blueprint「pt」编译后的 Context）
@@ -188,7 +188,7 @@ project-dev
 │                                                                │
 │  Channel（结构）─┐                                              │
 │                   ├──→ Blueprint ──[compile]──→ Context 文件    │
-│  Domain[] ───────┘    （配置）        （.pt/cache/*.context.md） │
+│  Domain[] ───────┘    （配置）        （.pt/contexts/cache/*.context.md） │
 │                                                          ↓      │
 │                                                     hash 缓存    │
 └────────────────────────────────────────────────────────────────┘
@@ -923,12 +923,12 @@ export const oxnAdapter: SourceAdapter = {
   name: "oxn",
   async load(cwd, blueprintName): Promise<SchemaBundle> {
     // 读 4 个 OXN asset（parser.ts 内部逻辑）
-    const blueprint = await readAsset(join(cwd, ".openxenon/assets/blueprints", `${blueprintName}.md`));
+    const blueprint = await readAsset(join(cwd, ".pt/assets/blueprints", `${blueprintName}.md`));
     const refs = parseBlueprintRefs(blueprint);
     const [domain, workflow, stack] = await Promise.all([
-      readAsset(join(cwd, ".openxenon/assets/domains", `${refs.domain}.md`)),
-      readAsset(join(cwd, ".openxenon/assets/workflows", `${refs.workflow}.md`)),
-      readAsset(join(cwd, ".openxenon/assets/stacks", `${refs.stack}.md`)),
+      readAsset(join(cwd, ".pt/assets/domains", `${refs.domain}.md`)),
+      readAsset(join(cwd, ".pt/assets/workflows", `${refs.workflow}.md`)),
+      readAsset(join(cwd, ".pt/assets/stacks", `${refs.stack}.md`)),
     ]);
 
     const trigger = blueprint.frontmatter.trigger?.trim() ?? DEFAULT_TRIGGER;
@@ -1232,7 +1232,7 @@ P t：异构知识格式（frontmatter + H2/H3）→ 变换 → Pi prompt markdo
 - Domain → 内容层（OXN asset）
 - Channel → 结构层（OXN asset）
 - Blueprint → 配置层（OXN asset）
-- Context → 产物层（物理文件 .pt/cache/*.context.md）
+- Context → 产物层（物理文件 .pt/contexts/cache/*.context.md）
 - System Prompt / Context Message → 注入产物（Pi 机制名）
 
 ### 11.5 文件结构对应（Phase 7 实际状态，v7 四层模型）
@@ -1251,7 +1251,7 @@ src/
 ├── render/                    # 后端：IR → 产物字符串 + 缓存
 │   ├── system-prompt.ts       # Context.## Scene → System Prompt 字符串
 │   ├── context-message.ts     # FlowTemplate + 参数 → Context Message 字符串（binder 展开）
-│   ├── cache.ts               # Context 文件读写 + hash 校验（.pt/cache/*.context.md）
+│   ├── cache.ts               # Context 文件读写 + hash 校验（.pt/contexts/cache/*.context.md）
 │   └── index.ts               # 后端入口
 ├── schema.ts                  # v7 IR 类型（Domain/Channel/Blueprint/Context 四层）
 ├── transpile.ts               # 三段式链路：parse → compile → cache → render
@@ -1260,7 +1260,7 @@ src/
 └── package.json               # @issac/pi-pt，pi.extensions: ["./src/index.ts"]
 
 资产目录：
-.openxenon/assets/
+.pt/assets/
 ├── domains/                   # 10 个 Domain（type=term/workflow/stack/glossary）
 ├── channels/                  # 1 个 Channel：project-dev.channel.md
 └── blueprints/                # 4 个 Blueprint（*.blueprint.md）
