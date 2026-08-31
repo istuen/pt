@@ -30,10 +30,10 @@ export async function readProjectSetting<T = unknown>(
   }, json) as T | undefined;
 }
 
-/** 列出 .openxenon/assets/blueprints/*.blueprint.md 下的 Blueprint 名（v7：去 .blueprint 后缀）。
+/** 列出 .pt/assets/blueprints/*.blueprint.md 下的 Blueprint 名（v7：去 .blueprint 后缀）。
  *  一个 Blueprint = 一个场景（v6 的 Scene + Manual 合并）。 */
 export async function listScenes(cwd: string): Promise<string[]> {
-  const dir = join(cwd, ".openxenon", "assets", "blueprints");
+  const dir = join(cwd, ".pt", "assets", "blueprints");
   try {
     const files = await readdir(dir);
     const scenes: string[] = [];

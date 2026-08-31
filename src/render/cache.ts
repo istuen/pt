@@ -1,6 +1,6 @@
 // src/render/cache.ts — Context 文件读写 + hash 校验
 //
-// Phase 7.6：Context 物理文件缓存（.pt/cache/*.context.md）。
+// Phase 7.6：Context 物理文件缓存（.pt/contexts/cache/*.context.md）。
 //   - saveContext(ctx): 写文件（含 sourceHash 头）
 //   - loadContext(cwd, name): 读文件，比对 sourceHash，命中返缓存，未命中返 null
 //
@@ -11,9 +11,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Context } from "../schema.js";
 
-const CACHE_DIR = ".pt/cache";
+const CACHE_DIR = ".pt/contexts/cache";
 
-/** 把 Context IR 序列化并写入 .pt/cache/<name>.context.md。
+/** 把 Context IR 序列化并写入 .pt/contexts/cache/<name>.context.md。
  *  文件头：source-hash: <hash>（缓存失效依据）。 */
 export async function saveContext(cwd: string, ctx: Context): Promise<string> {
   const dir = join(cwd, CACHE_DIR);
@@ -24,7 +24,7 @@ export async function saveContext(cwd: string, ctx: Context): Promise<string> {
   return file;
 }
 
-/** 读 .pt/cache/<name>.context.md 并校验 sourceHash。
+/** 读 .pt/contexts/cache/<name>.context.md 并校验 sourceHash。
  *  - 文件不存在 → 返 null（首次加载）
  *  - 文件存在但 hash 不一致 → 返 null（需重编译覆盖）
  *  - 命中 → 返 Context IR */

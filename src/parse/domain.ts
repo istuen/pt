@@ -23,7 +23,7 @@ import { readAsset, s, sArr, type Item } from "./shared.js";
 
 /** 读 domains/<fileName>.md → Domain { name, type, modules: Record<H2名, 内容> } */
 export async function parseDomain(cwd: string, fileName: string): Promise<Domain> {
-  const asset = await readAsset(join(cwd, ".openxenon/assets/domains", fileName));
+  const asset = await readAsset(join(cwd, ".pt/assets/domains", fileName));
   const type = typeof asset.frontmatter.type === "string" ? asset.frontmatter.type : "term";
 
   // H2 段名 → 段内容的解析：按 type 分发；未知 type 走通用 fallback（term 形态）。

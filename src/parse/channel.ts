@@ -24,7 +24,7 @@ const VALID_MODES: ReadonlyArray<StructureLayout["mode"]> = ["byDomain", "byType
 
 /** 读 channels/<fileName>.md → Channel { name, modules, layout } */
 export async function parseChannel(cwd: string, fileName: string): Promise<Channel> {
-  const asset = await readAsset(join(cwd, ".openxenon/assets/channels", fileName));
+  const asset = await readAsset(join(cwd, ".pt/assets/channels", fileName));
 
   // modules：从 ## Modules 段读列表（每行一个 H2 段名）
   const modulesSection = asset.sections["Modules"];

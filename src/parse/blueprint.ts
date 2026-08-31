@@ -32,7 +32,7 @@ import { readAsset, s, sArr } from "./shared.js";
 
 /** 读 blueprints/<fileName>.md → Blueprint { name, channel, domains, trigger, boundaries } */
 export async function parseBlueprint(cwd: string, fileName: string): Promise<Blueprint> {
-  const asset = await readAsset(join(cwd, ".openxenon/assets/blueprints", fileName));
+  const asset = await readAsset(join(cwd, ".pt/assets/blueprints", fileName));
 
   // channel：## Channel 段第一个 H3 项的 name 字段（单行引用）
   const channelSection = asset.sections["Channel"];

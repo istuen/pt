@@ -144,7 +144,7 @@ export default function (pi: ExtensionAPI): void {
       if (!name) {
         const names = await listScenes(ctx.cwd);
         if (names.length === 0) {
-          ctx.ui.notify("未找到任何 Blueprint（.openxenon/assets/blueprints/*.blueprint.md）", "warning");
+          ctx.ui.notify("未找到任何 Blueprint（.pt/assets/blueprints/*.blueprint.md）", "warning");
           return;
         }
         if (!ctx.hasUI) {

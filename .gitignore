@@ -1,8 +1,11 @@
 # dependencies
 node_modules/
 
-# pi session cache
-.pt/
+# pi session cache + Pt 产物（缓存/dump，不入 git；资产 .pt/assets/ 入 git）
+.pt/contexts/cache/
+.pt/raws/
+.pt/fulls/
+*.context.md
 
 # TypeScript compiled output (pi runs .ts directly via tsx)
 *.js

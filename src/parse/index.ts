@@ -59,17 +59,17 @@ export const oxnAdapter: SourceAdapter = {
 // ==================== 目录枚举辅助 ====================
 
 async function loadAllDomains(cwd: string): Promise<Domain[]> {
-  const dir = join(cwd, ".openxenon/assets/domains");
+  const dir = join(cwd, ".pt/assets/domains");
   return loadDir(dir, ".md", (f) => parseDomain(cwd, f));
 }
 
 async function loadAllChannels(cwd: string): Promise<Channel[]> {
-  const dir = join(cwd, ".openxenon/assets/channels");
+  const dir = join(cwd, ".pt/assets/channels");
   return loadDir(dir, ".md", (f) => parseChannel(cwd, f));
 }
 
 async function loadAllBlueprints(cwd: string): Promise<Blueprint[]> {
-  const dir = join(cwd, ".openxenon/assets/blueprints");
+  const dir = join(cwd, ".pt/assets/blueprints");
   return loadDir(dir, ".md", (f) => parseBlueprint(cwd, f));
 }
 
