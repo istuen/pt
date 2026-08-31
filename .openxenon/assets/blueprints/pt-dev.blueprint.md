@@ -13,6 +13,7 @@ pt-dev
 - pt-architecture
 - pt-stack
 - pt-dev-flow
+- pt-collab
 
 ## Trigger
 
