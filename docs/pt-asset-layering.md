@@ -1211,46 +1211,64 @@ P t：异构知识格式（frontmatter + H2/H3）→ 变换 → Pi prompt markdo
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 11.4 各层职责边界（严格分离）
+### 11.4 各层职责边界（v7 三段式严格分离）
 
-| 层 | 输入 | 输出 | 不允许做 |
-|---|---|---|---|
-| 前端 | OXN MD / YAML / ... | SchemaBundle IR | 生成 prompt 字符串 |
-| 中端 | SchemaBundle IR | 变换后的 IR | 读来源文件、生成 prompt 字符串 |
-| 后端 | IR | systemPrompt / user message | 读来源文件、做编排变换 |
+| 层 | v7 名 | 输入 | 输出 | 不允许做 |
+|---|---|---|---|---|
+| **前端** | parse/ | OXN MD / YAML / ... | `SchemaBundle { domains, channels, blueprints }` | 生成 prompt 字符串、做 layout 编排 |
+| **中端** | compile/ | `SchemaBundle` + 选定的 `Blueprint` + `Channel` | `Context { name, sourceHash, modules }` | 读来源文件、直接出 prompt 字符串 |
+| **后端** | render/ | `Context` | System Prompt / Context Message 字符串 + 缓存文件 | 读来源文件、做 layout 编排 |
 
 三个判据检验架构是否清晰：
 1. **能否换来源不动核心？** 前端换 adapter，中后端不动 → 解耦成立。
-2. **能否换编排不动解析和生成？** 中端换 layout 实现，前后端不动 → 解耦成立。
+2. **能否换编排不动解析和生成？** 中端换 layout 实现（byDomain/byType/hybrid），前后端不动 → 解耦成立。
 3. **能否换后端目标不动前端？** 后端换目标（如未来输出到非 Pi agent），前端不动 → 解耦成立。
 
-### 11.5 文件结构对应（Phase 4 实际状态）
+**Phase 7 三段式恢复**：Phase 5.5 时 midend 退出（layout 逻辑并入 backend），三段式叙事塌陷。Phase 7 v7 重构重新拉回 compile/ 为中端：
+- 中端职责：Blueprint + Channel + Domains → Context IR（按 channel.layout.mode 编排）
+- 后端职责：Context IR → 产物字符串 + 缓存（不再做编排，只渲染）
+
+**v7 三层叙事命名对齐 Pi 产物层**：
+- Domain → 内容层（OXN asset）
+- Channel → 结构层（OXN asset）
+- Blueprint → 配置层（OXN asset）
+- Context → 产物层（物理文件 .pt/cache/*.context.md）
+- System Prompt / Context Message → 注入产物（Pi 机制名）
+
+### 11.5 文件结构对应（Phase 7 实际状态，v7 四层模型）
 
 ```
-pt/
-├── schema.ts                  # IR 类型定义（前端中端后端共享契约）
-├── frontend/
-│   └── oxn/
-│       ├── parser.ts          # OXN MD 解析（从 oxn/parser.ts 迁入）
-│       ├── adapter.ts         # OXN MD → SchemaBundle（含 Templates 段提取）
-│       └── types.ts           # OXN 内部类型（Asset/Item/Section，不进 Pt 核心）
-├── midend/
-│   ├── layout.ts              # StructureLayout 变换（byDomain/byType/hybrid）
-│   └── index.ts               # 占位
-├── backend/
-│   ├── prompt.ts              # LayoutedBundle → systemPrompt（含 ### 可用手册 段）
-│   ├── message.ts             # FlowTemplate + 参数 → user message（binder）
-│   └── index.ts               # 占位
-├── transpile.ts               # Source Adapter 注册表 + 调度（Phase 3 返回 {segment, bundles}）
-├── index.ts                   # Pi 事件调度：before_agent_start + input（接管 template）
-├── config.ts                  # 不变：读 .pi/settings.json + 探测 blueprint
-└── package.json               # @issac/pi-pt
+src/
+├── parse/                     # 前端：Pt md → IR（三 adapter 按目录位置分发载体）
+│   ├── shared.ts              # 通用 MD 词法+语法（四层共享）+ 共享类型（Asset/Section/Item）
+│   ├── domain.ts              # domains/*.md → Domain IR
+│   ├── channel.ts             # channels/*.md → Channel IR
+│   ├── blueprint.ts           # blueprints/*.md → Blueprint IR
+│   └── index.ts               # oxnAdapter 入口（按目录位置分发到三个 adapter）
+├── compile/                   # 中端：IR → IR 变换（Phase 7 恢复）
+│   ├── context.ts             # (Blueprint+Channel+Domains) → Context IR（layout 编排）
+│   └── index.ts               # 中端入口，导出 compileContext / computeSourceHash
+├── render/                    # 后端：IR → 产物字符串 + 缓存
+│   ├── system-prompt.ts       # Context.## Scene → System Prompt 字符串
+│   ├── context-message.ts     # FlowTemplate + 参数 → Context Message 字符串（binder 展开）
+│   ├── cache.ts               # Context 文件读写 + hash 校验（.pt/cache/*.context.md）
+│   └── index.ts               # 后端入口
+├── schema.ts                  # v7 IR 类型（Domain/Channel/Blueprint/Context 四层）
+├── transpile.ts               # 三段式链路：parse → compile → cache → render
+├── config.ts                  # 读 .pi/settings.json + 探测 Blueprint
+├── index.ts                   # Pi 事件调度
+└── package.json               # @issac/pi-pt，pi.extensions: ["./src/index.ts"]
 
-已删除文件（迁移后无死代码）：
-- pt/types.ts           # 内容迁至 frontend/oxn/types.ts + schema.ts（Phase 1 删）
-- pt/oxn/parser.ts      # 迁至 frontend/oxn/parser.ts（Phase 1 删）
-- pt/oxn/compiler.ts    # 迁至 backend/prompt.ts（Phase 1 删）
-- pt/oxn/ 目录          # 空，删（Phase 1）
+资产目录：
+.openxenon/assets/
+├── domains/                   # 10 个 Domain（type=term/workflow/stack/glossary）
+├── channels/                  # 1 个 Channel：project-dev.channel.md
+└── blueprints/                # 4 个 Blueprint（*.blueprint.md）
+
+Phase 7 废弃旧结构：
+- pt/frontend/ → src/parse/（重构为三 adapter）
+- pt/backend/ → src/render/（拆为 system-prompt / context-message / cache 三文件）
+- pt/midend/ → src/compile/（Phase 5.5 退出后于 Phase 7 恢复）
 ```
 
 ### 11.6 与通用编译器的差异（实现是简化形态）
@@ -1308,7 +1326,8 @@ Phase 5 按本节语义模型对齐当前实现。核心是**让三段式架构�
 | v3 | 静态知识库三层 + 动态手册三层 + Schema 反转 + Pt 接管 template | Blueprint 误归静态；FlowTemplate 误放 blueprint.Templates |
 | v4 | Module + Structure(静态/动态)：Scene 产 systemPrompt，Blueprint 产 input message；插槽通用化；1:N Workflow 组合 | 3 种平级 Module（Domain/Workflow/Stack）致命名碰撞；Scene/Blueprint 名不达意 |
 | v5 | Domain 即 Module + meta/domain 两面 + meta-Struct/domain-Struct | 仍多一层与 Pi 无关的抽象词（meta/domain）；产物层借 Pi 的词凑数 |
-| **v6（本文 §0）** | **Domain 即 Module；每个 Domain 用 `## Scene` / `## Blueprint` 两个 H2 段；Scene 读 `## Scene` 产 System Prompt，Blueprint 读 `## Blueprint` 产 Manual；三层命名 Domain→Struct→Render 各有独立名** | — |
+| **v6** | **Domain 即 Module；每个 Domain 用 `## Scene` / `## Blueprint` 两个 H2 段；Scene 读 `## Scene` 产 System Prompt，Blueprint 读 `## Blueprint` 产 Manual；三层命名 Domain→Struct→Render 各有独立名** | **结构层与 Domain H2 段名碰撞（Struct.kind="blueprint" vs Domain.## Blueprint）；模板与实例未分离（Scene.refs 是具体 Domain 名，无复用机制）** |
+| **v7（本文 §0）** | **Domain → Channel → Blueprint → Context 四层模型。Channel 负责结构复用（跨项目），Blueprint 负责实例配置（Channel + 具体 Domains + trigger + boundaries），产物 Context 是物理文件带 hash 缓存；三段式叙事（parse/compile/render）恢复** | **（v7 为当前模型）** |
 
 v6 的关键修正（相对 v5）：
 1. **命名回归 Scene / Blueprint**：废弃 meta-Struct/domain-Struct。Blueprint = 蓝图 = 模板 = Prompt Template，语义正向。Struct 名直接对齐 Pi 产出。

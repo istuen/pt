@@ -11,20 +11,19 @@
 
 ### 当前在哪
 
-- **Phase 0-6 + Phase 5.5 完成**，v6 模型已落地。
-- **v7 模型已设计定稿**（`pt-asset-layering.md` §0），**Phase 7 待执行**。
-- git baseline：`ffa721e` → `571b45d` → `9fca537` → `be5d4c3` → `d723b17`（v7 设计文档）。可 `git revert` 回退。
-- **v7 待执行**：v6 四层模型重构（Domain→Channel→Blueprint→Context）+ src/ 迁移 + 三段式目录（parse/compile/render）+ midend 恢复 + Context 缓存。
+- **Phase 0-7 完成**，v7 模型已落地（Domain → Channel → Blueprint → Context 四层 + 三段式叙事恢复）。
+- git baseline：`ffa721e` → `571b45d` → `9fca537` → `be5d4c3` → `d723b17`（设计）→ `b1e7216`（7.1）→ `de755a4`（7.2）→ `9def229`（7.3）→ `339aa76`（7.4）→ `c48bb89`（7.5）→ `4c15e58`（7.6）→ `47fe44f`（7.7）。可 `git revert` 回退。
+- **v7 当前状态**：三段式目录（parse/compile/render）成立、Schema 清理无 v6 名词、Channel 复用（4 个 Blueprint 共用 project-dev）、Context 缓存生效（hash 命中跳过重编译）、glossary 扩展性未破。
 
 ### 待办
 
-1. **Phase 7：v7 模型重构**（本文档 §Phase 7）——src/ 迁移 + Schema 重写 + 资产迁移 + compile/ 中端恢复 + Context 缓存 + 文档同步。8 个子步骤（7.1-7.8），硬指标：三段式叙事成立 + 命名无碰撞 + 产物不回归 + Channel 复用 + 缓存生效。
+**已完结（v7）**：Phase 7（v7 模型重构 + 文档同步）。
 
-**非阻塞（Phase 7 后）：**
+**非阻塞（后续可选）：**
 
-2. Phase 6 加压（pt-* 资产加跨 Domain/1:N/hybrid）
-3. `ingest/` 前置层（等第一个外部源接入时再加）
-4. 未来 CLI 选 H2 模块作 `/模块名` 指令（§0.5 备注）
+1. Phase 6 加压（pt-* 资产加跨 Domain/1:N/hybrid）
+2. `ingest/` 前置层（等第一个外部源接入时再加）
+3. 未来 CLI 选 H2 模块作 `/模块名` 指令（§0.5 备注）
 
 ### 必读（只读这些就够开工）
 
@@ -1269,7 +1268,7 @@ Phase 7 (v7 模型重构 Domain→Channel→Blueprint→Context) ← 待执行
 - **Phase 5 双写里程碑**：v6 字段与 v3 legacy 并存（baseline `ffa721e`）。
 - **Phase 5.5 ✅ 完成**：拆 legacy、midend 退出（选项 B）、blueprintRenderers 移除、扩展性实测通过。Phase 5 真正完成。
 - **Phase 6 ✅ 跑通**：自举通过，压力测试偏弱（未 exercised 跨 Domain/1:N/hybrid harder case），可继续加资产加压。
-- **Phase 7 待执行**：v6 升级到 v7 四层模型。src/ 迁移 + 三段式目录（parse/compile/render）+ Schema 重写 + 资产迁移 + Context 缓存。详见 §Phase 7。
+- **Phase 7 ✅ 完成**：v6 升级到 v7 四层模型。src/ 迁移 + 三段式目录（parse/compile/render）+ Schema 重写 + 资产迁移 + Context 缓存 + 文档同步。详见 §Phase 7。
 
 ### 后续可选（非阻塞，Phase 7 后）
 
@@ -1288,6 +1287,9 @@ Phase 7 (v7 模型重构 Domain→Channel→Blueprint→Context) ← 待执行
 | 无死代码 | `tsc` 无 unused 报警，无 re-export 残留 |
 | 设计文档与代码一致 | 文档示例 = 实际实现 |
 | 失败可回退 | git 能 revert 到上一 Phase 状态 |
+| **Context 缓存命中**（v7+） | 第二次 `loadAndTranspile` 返 `cacheHit=true`，segment 一致 |
+| **Channel 复用**（v7+） | 至少 2 个 Blueprint 引用同一 Channel（验证复用机制） |
+| **三段式叙事成立**（v7+） | `src/{parse,compile,render}/` 三目录都有非占位实现；midend 以 compile/ 恢复 |
 
 ---
 
@@ -1299,3 +1301,45 @@ Phase 7 (v7 模型重构 Domain→Channel→Blueprint→Context) ← 待执行
 4. **遇到设计文档没覆盖的情况**，不要自行发挥，记录下来交验收者决策。
 5. **OXN asset 的格式约定**参考 `.openxenon/assets/` 下现有 4 个文件（article-blueprint 等）。
 6. **Pi ExtensionAPI 用法**参考 `index.ts` 现有实现 + `pt-plugin-design.md`。
+
+---
+
+## Phase 7 验收记录（2026-08-31，commit `b1e7216` → `47fe44f`）
+
+### 决策落地
+
+| 步骤 | 决策 | 证据 |
+|---|---|---|
+| **7.1 src/ 迁移** | 完成 | `src/{parse,compile,render,schema,transpile,config,index}.ts` 全部到位；package.json/tsconfig.json 已更新 |
+| **7.2 Schema 重写** | 完成 | `src/schema.ts` 含 Domain/Channel/Blueprint/Context 四 IR；grep 无 Struct interface 或 kind: 'scene'/'blueprint' |
+| **7.3 parse 拆分** | shared/domain/channel/blueprint 四文件，按目录位置分发载体 | shared.ts 抽公共词法+语法；domain.ts 按 type 分发；channel.ts 解析 ## Modules + ## Layout；blueprint.ts 解析 ## Channel + ## Domains + ## Trigger + ## Boundaries |
+| **7.4 资产迁移** | 10 Domain 改 ## Blueprint→## Manual；新建 channels/project-dev.channel.md；7 个 struct 资产合并成 4 个 *.blueprint.md | `ls .openxenon/assets/{domains,channels,blueprints}/` 结构正确；所有 Blueprint 引用 channel='project-dev' |
+| **7.5 compile 中端** | 完成 | `src/compile/context.ts` 实现 compileContext(blueprint, channel, domains) → Context IR；layout 逻辑从 v6 generateV6Prompt 抽回 |
+| **7.6 render 后端 + 缓存** | 完成 | `src/render/{system-prompt,context-message,cache}.ts`；Context 物理文件 .pt/cache/*.context.md + sourceHash 校验；链路 parse→compile→cache→render 打通 |
+| **7.7 回归验证** | 完成 | 四 Blueprint 产物字数 vs v6 baseline（语义级）、缓存命中、Channel 复用、glossary 扩展性、三 mode 验证全过 |
+| **7.8 文档同步** | 完成 | `pt-asset-layering.md` §11.4 职责表改 v7、§11.5 文件结构改 src/、附录演进表加 v7；`pt-dev-phases.md` 接手坐标更新、Phase 依赖图加 Phase 7、全局验收清单加 Context 缓存命中项 |
+
+### 6 个硬指标验证（v7 完成判据）
+
+| 硬指标 | 结果 | 证据 |
+|---|---|---|
+| 1. 三段式叙事成立 | ✅ | `src/parse/` (4 文件)、`src/compile/` (2 文件)、`src/render/` (4 文件) 都非占位；midend 以 compile/ 恢复 |
+| 2. 命名无碰撞 | ✅ | `grep -E 'Struct\|kind:' src/schema.ts` 无残留；Domain H2 无 `## Blueprint` |
+| 4. 产物不回归 | ✅ | pt=1897 (v6=1791, +6%) / article=537 (+16%) / risk-check=597 (+24%) / glossary-test=350 (~0%)。差异源自格式微调（v7 把 workflow-Domain externals 单独成 ### 模块 段；v6 嵌入 flow 首步）—— plan 允许 |
+| 4. Channel 可复用 | ✅ | 4 个 Blueprint 全部引用 channel='project-dev' |
+| 5. Context 缓存生效 | ✅ | 第二次 loadAndTranspile 返 cacheHit=true，segment 与首次一致；.pt/cache/<name>.context.md 文件落盘 |
+| 6. 扩展性不破坏 | ✅ | glossary 假 type 走 registerDomainSceneRenderer 注册表（与 Phase 5.5.4 设计一致），render 函数 + 一行注册 = 扩展，未动 compile 主循环 |
+
+### 与 Phase 5.5 设计意图的一致性
+
+- **midend 退出反悔**：Phase 5.5 选项 B 选了退出（layout 并入 backend），Phase 7 通过四层模型重构把 midend 拉回为 compile/，layout 编排正式归位。**这是 Phase 5.5 留下的叙事塌陷问题的正式修复**。
+- **Renderer 注册制延续**：Phase 5.5.4 建立的 domainSceneRenderers: Record<type, fn> 设计在 v7 保留并扩展（compile/context.ts 内 registerDomainSceneRenderer 接口）。扩展性不破。
+
+### 格式微调 vs 语义等价（v6 → v7 产物差异溯源）
+
+| 差异 | v6 (Phase 5.5) | v7 (Phase 7) | 语义等价 |
+|---|---|---|---|
+| workflow-Domain externals 渲染 | 嵌入 `### 流程` 首步作"数据：读 `<path>`。"行 | 单独 `### 模块「<wf-domain>」` 段 + `**外部数据**` | ✅（同一信息） |
+| tool-Domain 渲染 | `### 工具` 段（在 byDomain/hybrid 下） | 同上 | ✅ |
+| §0 语义对应 | §0.4 "可用手册" 列在 Scene 模块下 | 同上 | ✅ |
+| v7 Scene 段总长 +76~117 chars vs v6 | — | workflow-Domain 标题占 ~40 chars/段 | 允许（plan: "格式细节（如空行、标题层级）允许微调"） |
