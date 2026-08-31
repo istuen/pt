@@ -1,15 +1,15 @@
 # Pt 分层模型与转译架构
 
-> **阅读指引**：本文档 §0 是语义锚定，所有后续章节以 §0 为准。早期章节（§1-§4）存在语义演进痕迹，已在需要处标注偏差。
+> **阅读指引**：本文档 §0 是语义锚定（**v7 模型**，2026-08-30 定稿），所有后续章节以 §0 为准。§1-§11 是历史演进章节（v1-v6），保留作背景，存在语义演进痕迹——遇到与 §0 冲突处，以 §0 为准。
 >
-> 关联文档：`docs/pt-prompt-optimization.md`（转译产物优化，已落地阶段 1+2+3）、`docs/pt-dev-phases.md`（开发执行计划）。
+> 关联文档：`docs/pt-prompt-optimization.md`（转译产物优化，已落地阶段 1+2+3）、`docs/pt-dev-phases.md`（开发执行计划，含 v7 重构 Phase）。
 >
 > 本文回答三个问题：
-> 1. Pt 处理什么、产出什么、各概念如何分流？（§0 语义定义）
+> 1. Pt 处理什么、产出什么、各概念如何分流？（§0 语义定义 — v7 四层模型）
 > 2. Pt 与来源（OXN 等）的依赖关系如何反转？（§6 Schema/adapter）
-> 3. 转译通道如何分段？（§11 前端/中端/后端）
+> 3. 转译通道如何分段？（§11 前端/中端/后端，v7 改名 Domain/Layout/Render）
 >
-> 结论：**Module + Structure(静态/动态) 模型 + Schema/adapter 依赖反转 + Pt 接管 prompt template 展开（共存不覆盖）**。
+> 结论：**Domain → Channel → Blueprint → Context 四层模型 + Schema/adapter 依赖反转 + Pt 接管 Context 编译与注入（共存不覆盖）**。
 
 ---
 
@@ -17,188 +17,242 @@
 
 本节是 Pt 的语义基准，定义 Pt 处理什么、产出什么、各概念如何分流。后续架构章节均以此为准。
 
-Pt 的语义分三层，各层有独立命名，不借 Pi 的词凑数：
+> **v7 模型**（2026-08-30 定稿）。v6 的 Struct/Scene/Blueprint 三层升级为 **Domain → Channel → Blueprint → Context** 四层。§1-§11 是历史演进章节，保留作背景，以本节为准。
 
-| 层 | 名 | 职责 | 对应代码阶段 |
-|---|---|---|---|
-| **内容层** | Domain | 承载业务语义（正交内容块） | 前端 adapter 解析 |
-| **结构层** | Struct（Scene / Blueprint） | 声明如何把 Domain 组装成产出 | 中端 layout 编排 |
-| **产物层** | Render（System Prompt / Manual） | 最终注入 Pi Agent 的文档 | 后端 renderer 渲染 |
+Pt 的语义分四层，每层是有边界的模块，人各自管理其内容文件：
 
-### 0.1 产物层（Render）：对应 Pi Agent 的两个注入点
-
-| 产物 | 对齐 Pi | 去向 | 时机 | 缓存 |
+| 层 | 名 | 职责 | 载体 | 复用性 |
 |---|---|---|---|---|
-| **System Prompt** | System Prompt | `before_agent_start` 注入 | session 级，一次编译 | 可缓存（内容不变即命中） |
-| **Manual** | Prompt Template 实例化 | `input` 事件 transform | 轮次级，按上下文实例化 | 不缓存（每轮可能不同） |
+| **内容层** | **Domain** | 语义定义与上下文模块内容 | `domains/*.md` | 跨 Channel/Blueprint 复用 |
+| **结构层** | **Channel** | 通道结构，定义含哪些上下文模块 | `channels/*.md` | 跨项目复用 |
+| **配置层** | **Blueprint** | Channel + 具体 Domains 构建真正通道 | `blueprints/*.md` | 每场景一份 |
+| **产物层** | **Context** | Blueprint 编译后的输出，按模块聚合多 Domain 内容 | `.pt/cache/*.context.md` | 缓存复用 |
 
-**System Prompt 是整个 session 的元表示**——这个 session 里有什么知识、哪些手册可用、公理性规则。**Manual 才是真正的业务**——这一轮具体做什么、套哪条定理、读哪个数据。
+**核心关系**（不是线性变换链，是 Domain + Channel 在 Blueprint 处合并）：
 
-Manual 不是“一条消息”，是**一份操作手册**——有标题、前提、步骤、checklist 的结构化文档，Pi 恰好把它作为 message 送进 `input` 事件。Pt 产出的是手册，不是推理。Blueprint 对齐 Pi 的 Prompt Template（机制），Manual 是实例化后的产物。
+```
+外部内容源 → Domain ─┐
+                      ├──→ Blueprint ──[compile]──→ Context
+           Channel ──┘
+```
 
-静态/动态、可缓存/不可缓存是这两类产物的**派生属性**（System Prompt 因少变而可缓存），不是定义本身。
+Domain 和 Channel 都是可独立复用的模块；Blueprint 把一个 Channel 和一组具体 Domain 组合成真正可执行的通道；Context 是这次组合编译出的产物文件。
 
-### 0.2 内容层与结构层：Domain + Struct
+### 0.1 内容层：Domain
 
-Pt 的输入分两类，正交组合：
+**Domain 承载语义定义与上下文模块内容**。一个 Domain = 一个 md 文件，内部用 **H2 二级标题**划分内容模块。
 
-#### Domain（即 Module，内容提供者）
+Domain 的 H2 段名 = 上下文模块类型。当前固定约定两个产物模块：
 
-**Domain 是 Pt 唯一的模块类型**——Module 即 Domain，不是 Module 下含 Domain。Domain 承载业务语义，是正交的内容块，各自独立，可被不同 Struct 复用。
-
-Domain 通过 **Type 标签**区分承载内容的性质：
-
-| Domain Type | 承载内容 | `## Scene` 段（What） | `## Blueprint` 段（How / Why） |
-|---|---|---|---|
-| **term**（默认） | 业务概念 | 公理：是什么 | 定理：为什么 |
-| **workflow** | 流程手册 | 手册清单 + 数据源：有哪些 | steps：怎么走 |
-| **stack** | 能力 | tools 清单：有哪些 | usage：怎么用 / 何时用 |
-| 扩展 type | 未来新增（glossary、constraint 等） | … | … |
-
-**关键：Pt 框架不硬编码 Domain Type**。Struct 通过插槽引用 Domain，Pt 核心只认“插槽 → Domain”映射，不认识具体 type。加新 type 只需：定义 type 的 Scene/Blueprint 两段内容格式 + 后端加 renderer。中端、Schema 不动（详见 §11.8 渲染器注册制）。
-
-#### Struct（结构，编排者）
-
-Struct 声明如何把 Domain 组装成产物。分两种，与产物层一一对应：
-
-| Struct | 性质 | 产物 | 读 Domain 的哪段 | 载体 |
+| H2 段名 | 模块类型 | 注入目标 | 时机 | 性质 |
 |---|---|---|---|---|
-| **Scene** | 静态结构 | System Prompt | `## Scene`（What） | scene asset |
-| **Blueprint** | 动态结构 | Manual | `## Blueprint`（How / Why） | blueprint asset |
+| `## Scene` | 静态知识模块 | System Prompt（`before_agent_start`） | session 级 | 可缓存 |
+| `## Manual` | 操作手册模块 | Context Message（`input` 事件） | 轮次级 | 不缓存 |
 
-**Scene 和 Blueprint 都是 Struct，平级，各有独立载体**。两者引用同一批 Domain 名，各读其对应段——Scene 读 `## Scene`，Blueprint 读 `## Blueprint`。
+Domain 可以有任意其他 H2 段（如 `## Term`、未来扩展模块），这些是**内部模块**，不直接注入 Pi，但可被 Channel 编排进 Context 供其他模块引用。
 
-### 0.3 Scene 与 Blueprint
+**关键**：H2 段名是开放的——加新模块类型 = 加新 H2 段名 + Channel 声明该模块。Pt 核心按 H2 名读段，不硬编码段名（产物模块的注入映射见 §0.5）。
 
-> ⚠️ **命名说明**。早期文档曾用 meta-Struct / domain-Struct，又担心“Blueprint 有静态设计含义”。现回归 Scene / Blueprint：**Blueprint = 蓝图 = 模板 = Prompt Template**，语义正向不误导。语义修正（Blueprint 是动态，产 Manual）不变。
+#### Domain Type 标签
 
-| 维度 | Scene | Blueprint |
-|---|---|---|
-| 性质 | 静态结构 | 动态结构 |
-| 产物 | System Prompt | Manual |
-| 对齐 Pi | System Prompt | Prompt Template |
-| 时机 | session 级（`before_agent_start`） | 轮次级（`input` 事件） |
-| 读 Domain 哪段 | `## Scene`（What：有什么） | `## Blueprint`（How/Why：怎么做） |
-| 内容 | 元表示（业务空间长什么样） | 业务表示（这次具体怎么做） |
-| 可缓存 | 是 | 否 |
+Domain 通过 frontmatter `type` 区分承载内容性质（term/workflow/stack/扩展）。Type 决定**各 H2 段内部的内容格式**（term 的 `## Scene` 是公理列表，workflow 的 `## Scene` 是手册清单 + 数据源），不决定 H2 段有哪些。Pt 核心按 type 分发 renderer，加新 type = 加 renderer，不动 Schema/主循环（扩展性实测通过）。
 
-Scene 编译 = 把引用的 Domain 的 `## Scene` 段按编排策略组装成 System Prompt。
-Blueprint 实例化 = 把引用的 Domain 的 `## Blueprint` 段按手册布局组装成 Manual。
+### 0.2 结构层：Channel
 
-### 0.4 Domain 的两段：`## Scene` / `## Blueprint`
+**Channel 是通道结构**，负责定义通道内有哪些上下文模块、怎么编排。Channel 可跨项目复用——比如「项目开发」这个结构在多个项目里都适用，只是具体 Domain 不同。
 
-每个 Domain 内部有配对的两段，Scene 读 `## Scene`，Blueprint 读 `## Blueprint`：
+**Channel 只管结构，不含具体 Domain、不含触发条件**。后者是 Blueprint（配置层）的职责。
 
-```
-Domain（type: term）
-  ├─ ## Scene     → 公理（What：是什么）    → Scene      → System Prompt
-  └─ ## Blueprint → 定理（Why：为什么）      → Blueprint  → Manual
-
-Domain（type: workflow）
-  ├─ ## Scene     → 手册清单 + 数据源（What） → Scene      → System Prompt
-  └─ ## Blueprint → steps（How：怎么走）      → Blueprint  → Manual
-
-Domain（type: stack）
-  ├─ ## Scene     → tools 清单（What）        → Scene      → System Prompt
-  └─ ## Blueprint → usage（How：怎么用）      → Blueprint  → Manual
-```
-
-**What / How / Why 语义**：
-- **`## Scene` 段 = What**：存在性声明——有什么概念、有什么手册、有什么工具。稳定，少变，进 System Prompt。
-- **`## Blueprint` 段 = How 或 Why**：操作性或推导性——怎么走步骤、怎么用工具、为什么这样推导。情境化，每轮可能不同，进 Manual。
-
-How 预设 What，Why 预设 What——**配对的两段语义上属于同一个 Domain**。因此一个 Domain = 一个 md，内部用 `## Scene` / `## Blueprint` 两个 H2 段表达（见 §0.7 载体格式）。转译器根据 H2 段名分发：`## Scene` 段喂 Scene renderer，`## Blueprint` 段喂 Blueprint renderer。
-
-**分流原则**：不是强制每条内容标 level，而是消费侧分流——Scene 读 `## Scene`，Blueprint 读 `## Blueprint`。作者决定哪些内容进哪段。term-type Domain 的 `## Scene` 内部继续用 H3 = 公理、无序号 = 定理的现有格式。
-
-### 0.5 完整数据流
-
-```
-┌─ System Prompt（session 级，可缓存）────────────────┐
-│                                                      │
-│  Domain[term].## Scene       ─┐                      │
-│  Domain[workflow].## Scene    ├─→ Scene ─→ System Prompt
-│  Domain[stack].## Scene      ─┘    编译    （缓存）   │
-│                                                      │
-│  Scene 里声明：有哪些 Blueprint 可用                 │
-└──────────────────────────────────────────────────────┘
-                       ↓ 用户 `/name args` 或 LLM 自选
-┌─ Manual（轮次级，不缓存）────────────────────────────┐
-│                                                      │
-│  Domain[workflow].## Blueprint ─┐                    │
-│  Domain[term].## Blueprint    ──├─→ Blueprint ─→ Manual
-│                                 实例化(binder)        │
-└──────────────────────────────────────────────────────┘
-```
-
-### 0.6 Blueprint 的组合性：1:N Domain
-
-一个 Blueprint 可引用多个 workflow-type Domain（一个真实业务场景必然多流程组合）：
-
-```
-Domain[workflow]（原子流程）   注册 / 登录 / 忘记密码
-     ↓ 组合
-Blueprint（业务手册）          新用户注册与登录 / 旧用户登录与忘记密码
-     ↓ 配合
-Domain[term]（业务语义）      常规注册语义 / 促销注册语义
-     ↓ 构成
-场景                           常规新用户注册 / 促销新用户注册
-```
-
-- **Blueprint 不是最终场景**，是流程组合结构。
-- **场景 = Blueprint + Domain[term] 组合后才成型**：同一 Blueprint 配常规 term-Domain 是常规场景，配促销 term-Domain 是促销场景——流程结构不变，语义规则变。
-- Blueprint 和 Domain[term] 正交，可独立切换。
-
-**跨 Domain 引用**：Blueprint 在 Use 段声明引用的 Domain 列表（如 `domains: [订单, 下单, 退款]`），renderer 把所引 Domain 的 `## Blueprint` 段全部摊平进 Manual。workflow steps 里不写 `引用 订单.定理`，靠 LLM 从上下文自行关联——符合“Pt 产出手册，LLM 做推理”。
-
-### 0.7 载体格式
-
-#### Domain 载体：一个 md，内部 Scene + Blueprint 两段
-
-一个 Domain = 一个 md 文件 = 一个 type = 两个 H2 段：
+**Channel 的结构与配置都用 MD 标题层级表达**，YAML 只放文档级元信息（name 等）。
 
 ```markdown
-# <name>.md
-type: term | workflow | stack | <扩展>
+---
+name: project-dev
+---
 
-## Scene
-  （type 决定内容：term→公理 / workflow→手册清单+数据源 / stack→tools）
-  ### 公理标题        # term-type 特化：H3 = 公理
-  - 无序号内容         # term-type 特化：无序号 = 定理
+# project-dev
 
-## Blueprint
-  （type 决定内容：term→定理 / workflow→steps / stack→usage）
+## Modules
+
+- Scene
+- Manual
+- Term
+
+## Layout
+
+mode: hybrid
 ```
 
-**为什么一个 md 而非分两个文件**：`## Scene` 和 `## Blueprint` 是同一 Domain 的配对两段（What + How/Why），语义上属于同一个体。两个 Struct 引用不同集（Scene 引全集、Blueprint 引子集）但共享 Domain 命名空间——引用一个实体比引用两个配对文件干净。作者维护一个文件，改一段时另一段同步，无漂移风险。逻辑分层用 markdown H2 段名表达，转译器按段名分发，不必拆文件。
+Channel 通过 `## Modules` 段声明含哪些上下文模块（对应 Domain 的 H2 段名），通过 `## Layout` 段声明编排策略（byDomain/byType/hybrid）。
 
-#### Struct 载体：Scene / Blueprint 各独立
+### 0.3 配置层：Blueprint
 
-| Struct | 载体 | 声明内容 |
+**Blueprint 用 Channel + 具体 Domains 构建一个真正的通道**。一个 Channel 可被多个 Blueprint 引用（跨项目复用），每个 Blueprint 填入自己的 Domain 组合和触发条件。
+
+**Blueprint 的配置也用 MD 标题层级表达**，YAML 只放文档级元信息。
+
+```markdown
+---
+name: pt
+---
+
+# pt
+
+## Channel
+
+project-dev
+
+## Domains
+
+- pt-concepts
+- pt-transpile
+- pt-capabilities
+
+## Trigger
+
+当用户询问 Pt 自身相关知识（架构、转译流程、能力边界）时按以下流程回答；其余对话正常响应，勿套用本流程。
+
+## Boundaries
+
+### identify-topic
+- deps: []
+- desc: 识别用户问题属于哪一类（概念 / 转译流程 / 能力边界）
+
+### cite-domain
+- deps: [identify-topic]
+- desc: 按类别引用对应 Domain 的 Scene 段
+
+### compose-answer
+- deps: [cite-domain]
+- desc: 把 Scene 段与 Manual 模块组合成可执行回答
+```
+
+**字段职责**：
+- `## Channel`：引用哪个 Channel（结构复用）
+- `## Domains`：具体用哪些 Domain（配置组合）
+- `## Trigger`：触发条件（实例级，每个 Blueprint 不同）
+- `## Boundaries`：流程节点 DAG（实例级）
+
+**Trigger 和 Boundaries 放 Blueprint 不放 Channel**——每个场景的触发条件和流程步骤都不同（pt/article/risk-check 各异），是实例配置不是可复用结构。
+
+### 0.4 产物层：Context
+
+**Context 是 Blueprint 编译后的输出**——把多个 Domain 的内容按 Channel 定义的结构组装成按各上下文模块聚合的文档。Context 是**物理文件**（`.pt/cache/*.context.md`），缓存复用，避免每次重新编译。
+
+```markdown
+# pt.context.md  （Blueprint「pt」编译后的 Context）
+
+## Scene
+  （所有引用 Domain 的 ## Scene 段聚合，按 Channel.layout 编排）
+  ### 全局约束
+  - [ ] ...
+  ### 流程
+  ① identify-topic — ...
+  ### 模块「pt-concepts」
+  **术语**
+  - **Pt 是什么**：Pi 扩展，把业务知识资产...
+
+## Manual
+  （所有引用 Domain 的 ## Manual 段聚合）
+  ### 可用手册
+  - pt-transpile: 转译流程手册
+
+## Term
+  （若 Channel 声明了 Term 模块，则聚合各 Domain 的 ## Term 段）
+```
+
+**Context 的内容模块对应 Pi Agent 不同地方的 Prompt**：
+- `## Scene` 模块 → 注入 System Prompt（`before_agent_start`）
+- `## Manual` 模块 → 注入 Context Message（`input` 事件 transform）
+- 其他模块（`## Term` 等）→ 不直接注入，供 Scene/Manual 引用或未来扩展
+
+**内容由 Domain 定义**，因此 Context 的内容可以是普通文本，也可以是执行描述（协助 LLM 推理或告知 LLM 如何执行）。Pt 产出的是结构化上下文文档，LLM 做推理。
+
+### 0.5 模块 → 注入目标映射（固定约定起步）
+
+当前固定约定（v7 起步）：
+
+| Context 模块 | 注入目标 | Pi 机制 |
 |---|---|---|
-| Scene | `scene asset` | 引用的 Domain 列表（读各 `## Scene`）+ 编排策略（layout）+ trigger + Boundaries（流程 DAG） |
-| Blueprint | `blueprint asset` | 引用的 Domain 列表（读各 `## Blueprint`）+ 手册渲染布局（标题/前提/步骤/checklist） |
+| `## Scene` | System Prompt | `before_agent_start` 事件注入 |
+| `## Manual` | Context Message | `input` 事件 transform（Pt 接管 `/name args` 展开） |
 
-Scene 和 Blueprint 各自独立 asset，平级。不同业务场景可有不同渲染布局（注册手册 vs 风控手册的步骤呈现可能不同）。Blueprint 的 Use 段引用 Domain 名，解耦内容和结构。
+**未来扩展**：Pt 增加一个 CLI，让用户选择某个 H2 模块作为 `/模块名` 指令给 Pi 用。当前先固定 `/scene`，未来调整。
 
-> 注：当前 OXN asset 格式不按此模型，后续按 Pt 定义调整 OXN，不在此处考虑来源适配。
+**Context Message 是 Pt 的编译输出术语**——内容模块才是对应 Agent 里不同地方的 Prompt。Context Message 替代 v6 的 "Manual/user message" 叫法，名实相符（Context 的消息形态产物）。
 
-### 0.8 术语速查
+### 0.6 完整数据流
+
+```
+┌─ 编译期（session_start 或 /blueprint 切换时）─────────────────┐
+│                                                                │
+│  Channel（结构）─┐                                              │
+│                   ├──→ Blueprint ──[compile]──→ Context 文件    │
+│  Domain[] ───────┘    （配置）        （.pt/cache/*.context.md） │
+│                                                          ↓      │
+│                                                     hash 缓存    │
+└────────────────────────────────────────────────────────────────┘
+                           ↓ Pt 读取 Context 文件
+┌─ 注入期 ──────────────────────────────────────────────────────┐
+│                                                                │
+│  Context.## Scene  ──→ 注入 System Prompt（每轮 before_agent） │
+│  Context.## Manual ──→ 待命（用户 /name args 或 LLM 自选触发） │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+                           ↓ 用户 `/name args`
+┌─ 实例化期（轮次级）───────────────────────────────────────────┐
+│                                                                │
+│  Context.## Manual + 参数 ──→ Context Message ──→ input 事件   │
+│  （binder 展开模板，产出操作手册实例）                           │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### 0.7 缓存与失效
+
+Context 是物理文件，缓存复用。**失效策略：hash(Domains + Channel + Blueprint) 组合哈希**——三者任一变化即失效重编译。
+
+```
+Context 文件头记录源 hash：
+  source-hash: <Domains 内容哈希 + Channel 内容哈希 + Blueprint 内容哈希>
+
+Pt 读取 Context 时：
+  1. 重算当前源的 hash
+  2. 与文件头 hash 比对
+  3. 一致 → 直接用缓存
+  4. 不一致 → 重新编译，覆盖文件
+```
+
+### 0.8 Domain H2 段与 Domain Type 的关系
+
+两个正交维度：
+- **H2 段名** = 上下文模块类型（Scene/Manual/Term/扩展）——决定内容**去哪个注入点**
+- **Domain Type** = 内容性质标签（term/workflow/stack/扩展）——决定各 H2 段内部**内容格式**
+
+```
+Domain「pt-concepts」（type: term）
+  ├─ ## Scene   → 公理列表（What：是什么）   → Context.## Scene → System Prompt
+  ├─ ## Manual  → 定理列表（Why：为什么）     → Context.## Manual → Context Message
+  └─ ## Term    → 术语表（内部模块，不直接注入）
+```
+
+**type 决定 H2 段内部格式，H2 段名决定内容去向**——两者独立扩展。加新 type = 加 renderer；加新模块 = 加 H2 段 + Channel 声明。
+
+### 0.9 术语速查
 
 | 术语 | 定义 |
 |---|---|
-| **Domain** | Pt 唯一的模块类型（即 Module），承载业务语义 |
-| **Domain Type** | Domain 上的标签（term/workflow/stack/扩展），区分承载内容性质 |
-| **`## Scene` 段** | Domain 的静态段（What：公理/手册清单/tools 清单），进 System Prompt |
-| **`## Blueprint` 段** | Domain 的动态段（How/Why：定理/steps/usage），进 Manual |
-| **Struct** | 结构编排者，把 Domain 组装成产物（Scene / Blueprint） |
-| **Scene** | 静态 Struct，读 Domain 的 `## Scene` 段，产出 System Prompt |
-| **Blueprint** | 动态 Struct，读 Domain 的 `## Blueprint` 段，产出 Manual；对齐 Pi Prompt Template |
-| **Render** | 产物层统称（System Prompt / Manual） |
-| **System Prompt** | Scene 的产物，session 级，注入 `before_agent_start` |
-| **Manual** | Blueprint 实例化的产物，轮次级，注入 `input` 事件；是操作手册不是消息 |
-| **binder** | 把 Blueprint 引用的 workflow Domain 的 steps 模板用上下文参数填充，产出 Manual 实例 |
-| **插槽（slot）** | Struct 里声明“这里装哪个 Domain”的机制，Pt 核心不硬编码 type |
+| **Domain** | 内容层模块，承载语义定义与上下文模块内容，用 H2 分段 |
+| **Domain Type** | Domain 上的标签（term/workflow/stack/扩展），区分各 H2 段内部内容格式 |
+| **H2 段** | Domain 内的上下文模块（`## Scene`/`## Manual`/`## Term`/扩展），段名决定注入去向 |
+| **Channel** | 结构层模块，定义通道含哪些上下文模块 + 编排策略，跨项目复用 |
+| **Blueprint** | 配置层模块，Channel + 具体 Domains + trigger + boundaries，每场景一份 |
+| **Context** | 产物层文件，Blueprint 编译输出，按模块聚合多 Domain 内容，缓存复用 |
+| **Context Message** | Pt 编译输出术语，Context 的 `## Manual` 模块注入 input 事件的产物 |
+| **System Prompt** | Context 的 `## Scene` 模块注入 before_agent_start 的产物（Pi 精确术语） |
+| **binder** | 把 Context 的 `## Manual` 模块里 workflow-Domain 的 steps 模板用参数填充，产出 Context Message 实例 |
+| **source-hash** | Context 缓存失效依据，hash(Domains + Channel + Blueprint) 组合 |
+| **module → injection 固定约定** | `## Scene`→System Prompt, `## Manual`→Context Message（v7 起步，未来可 CLI 选） |
 
 ---
 
