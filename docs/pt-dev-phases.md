@@ -11,31 +11,28 @@
 
 ### 当前在哪
 
-- **Phase 0-6 + Phase 5.5 基本完成**，但复验发现 2 个问题（见下“待办”），未真完。
-- git baseline：`ffa721e`（Phase 0-6 双写）→ `571b45d`（Phase 5.5 legacy 清理）→ `9fca537`（5.5.4 扩展性）→ `be5d4c3`（文档回填）。可 `git revert` 回退。
-- **v6 单一形态**：SchemaBundle 只含 `{domains, structs, activeScene}`，无 legacy；midend 退出；blueprintRenderers 移除；扩展性实测通过。
-- **Phase 6 自举跑通**，压力测试偏弱。
+- **Phase 0-6 + Phase 5.5 完成**，v6 模型已落地。
+- **v7 模型已设计定稿**（`pt-asset-layering.md` §0），**Phase 7 待执行**。
+- git baseline：`ffa721e` → `571b45d` → `9fca537` → `be5d4c3` → `d723b17`（v7 设计文档）。可 `git revert` 回退。
+- **v7 待执行**：v6 四层模型重构（Domain→Channel→Blueprint→Context）+ src/ 迁移 + 三段式目录（parse/compile/render）+ midend 恢复 + Context 缓存。
 
 ### 待办
 
-**阻塞（复验发现，先处理）：**
+1. **Phase 7：v7 模型重构**（本文档 §Phase 7）——src/ 迁移 + Schema 重写 + 资产迁移 + compile/ 中端恢复 + Context 缓存 + 文档同步。8 个子步骤（7.1-7.8），硬指标：三段式叙事成立 + 命名无碰撞 + 产物不回归 + Channel 复用 + 缓存生效。
 
-1. **修 `/blueprint` → `/scene`**（Phase 5.5 漏项）——`index.ts` 里 `blueprint` 出现 20 次，命令名/flag/settings 键都要改。纯漏改，详见「复验发现的新问题 §1」。
-2. **定架构叙事方向**——midend 退出后代码是两段式，文档还三段式。选 A（接受两段式，改文档）还是选 B（恢复 midend，回退 Phase 5.5 选项 B）？详见「复验发现的新问题 §2」。
+**非阻塞（Phase 7 后）：**
 
-**非阻塞（可后续）：**
-
-3. 三 mode 实测（加 byType 测试 scene）
-4. Phase 6 加压（pt-* 资产加跨 Domain/1:N/hybrid）
-5. §0 补 Manual 语义边界（“Manual 只展开 workflow-Domain”）
+2. Phase 6 加压（pt-* 资产加跨 Domain/1:N/hybrid）
+3. `ingest/` 前置层（等第一个外部源接入时再加）
+4. 未来 CLI 选 H2 模块作 `/模块名` 指令（§0.5 备注）
 
 ### 必读（只读这些就够开工）
 
 | 文档 | 读哪段 | 为什么 |
 |---|---|---|
-| `pt-dev-phases.md` | **「Phase 5.5 实测结果」**（本文件后部） | Phase 5.5 的决策与实测证据 |
-| `pt-asset-layering.md` | **§0（全部 0.1-0.8）** | v6 语义基准：Domain=Module、`## Scene`/`## Blueprint` 两段、Scene/Blueprint/Manual 命名 |
-| 代码 | `schema.ts` / `frontend/oxn/adapter.ts` / `backend/prompt.ts` | v6 单一形态实现 |
+| `pt-asset-layering.md` | **§0（v7 四层模型）** | v7 语义基准：Domain→Channel→Blueprint→Context + Context Message + 固定注入约定 |
+| `pt-dev-phases.md` | **§Phase 7 步骤 7.1-7.8** + 验收标准 + 风险 | 要执行的改动面和验证判据 |
+| 代码 | `schema.ts` / `frontend/oxn/adapter.ts` / `backend/prompt.ts` | v6 当前实现，重构的起点（7.1 后迁入 src/） |
 
 ### 可跳过（背景，不影响执行）
 
@@ -1015,6 +1012,235 @@ Phase 5 checklist 的“手动添加 glossary 假 type”未实测。注册机�
 
 ---
 
+## Phase 7：v7 模型重构（Domain → Channel → Blueprint → Context）
+
+> v6 模型（Struct/Scene/Blueprint/Manual）升级为 v7 四层模型。设计基准见 `pt-asset-layering.md` §0（v7）。本 Phase 是**结构重构 + 模型对齐**，不是功能添加——产物语义不变（还是注入 System Prompt + Context Message），但载体、目录、IR、链路全改。
+
+### 背景与动机
+
+v6 的问题（复验发现）：
+1. **midend 退出后三段式叙事塌**——代码两段式，文档三段式，叙事对不上。
+2. **结构层与 Domain H2 段名碰撞**——v6 的 `Struct.kind="blueprint"` 与 Domain 的 `## Blueprint` 段同名。
+3. **产物名不一致**——System Prompt 是 Pi 词，Manual 是 Pt 词，混用。
+4. **模板/实例未分离**——Scene 的 refs 直接是具体 Domain 名，无结构复用机制。
+
+v7 用四层模型解决：
+- Domain（内容，H2 开放）→ Channel（结构，可复用）→ Blueprint（配置，实例）→ Context（产物，缓存）
+- 结构层让 Channel，配置层用 Blueprint，产物层 Context——命名无碰撞
+- Context Message 替代 Manual，与 System Prompt 都是 Pt 产物名
+- Channel 可跨项目复用，Blueprint 是实例配置
+
+### 目标
+
+1. **目录结构改为动词三段式**：`parse/`（前端）+ `compile/`（中端，midend 恢复）+ `render/`（后端）。数据形态名（Domain/Channel/Blueprint/Context）作 IR 类型留在 schema.ts。
+2. **src/ 迁移**：所有源码进 `src/`，顶层只留配置 + 入口。
+3. **Schema 重写**：Domain 多 H2、Channel、Blueprint、Context 四套 IR + 载体约束。
+4. **资产迁移**：9 个 Domain 改 `## Blueprint` → `## Manual`；新建 `channels/`；struct 资产改 Blueprint 格式。
+5. **编译链路**：Blueprint + Channel + Domains → Context IR → Context 物理文件（hash 缓存）。
+6. **注入链路**：读 Context 文件 → System Prompt（`## Scene`）/ Context Message（`## Manual`）。
+7. **`ingest/` 前置层**：文档注明，v7 不建目录，等第一个外部源接入时再加。
+
+### 目录结构（v7 终态）
+
+```
+src/
+├── parse/                  # 前端：Pt md → IR
+│   ├── shared.ts           # 通用 MD 词法+语法（四层共享）
+│   ├── domain.ts           # domains/*.md → Domain IR
+│   ├── channel.ts          # channels/*.md → Channel IR
+│   └── blueprint.ts        # blueprints/*.md → Blueprint IR
+├── compile/                # 中端：IR → IR 变换（midend 恢复）
+│   └── context.ts          # (Blueprint+Channel+Domains IR) → Context IR（layout 编排）
+├── render/                 # 后端：IR → 产物字符串 + 缓存
+│   ├── system-prompt.ts    # Context IR.## Scene → System Prompt 字符串
+│   ├── context-message.ts  # Context IR.## Manual → Context Message 字符串
+│   └── cache.ts            # Context 文件读写 + hash 校验
+├── schema.ts               # 四层 IR 类型（Domain/Channel/Blueprint/Context）+ 载体约束
+├── transpile.ts            # 链路：parse → compile → render
+└── index.ts                # Pi 入口
+
+# ingest/ 前置层（外部源 → Pt md 的接入转换）：v7 不建，等第一个外部源接入时再加。
+#   详见 pt-asset-layering.md §0.1（Domain 可能来自外部源转换）。
+```
+
+### 设计判据（硬指标）
+
+- **三段式叙事成立**：parse（前端）→ compile（中端）→ render（后端），midend 以 `compile/` 恢复，§11.4 职责表三行恢复。
+- **命名无碰撞**：schema.ts grep 不到 v6 的 `Struct`/`kind`；Domain H2 无 `## Blueprint`（改 `## Manual`）。
+- **产物语义不回归**：pt/article/risk-check/glossary-test 四个 Blueprint 编译出的 System Prompt 内容与 v6 等价（语义级，非字节级）。
+- **Channel 可复用**：至少 2 个 Blueprint 引用同一 Channel（验证复用机制）。
+- **Context 缓存生效**：二次加载命中缓存（hash 一致不重编译）。
+- **扩展性不破坏**：glossary 假 type 仍能注册 renderer 并渲染。
+
+### 步骤
+
+#### 7.1 src/ 迁移 + 三段式目录骨架（纯结构，不改逻辑）
+
+- 建 `src/parse/`、`src/compile/`、`src/render/`
+- 把现有 `frontend/oxn/*` 挪到 `src/parse/`（暂留旧名，7.3 再拆分）
+- 把现有 `backend/*` 挪到 `src/render/`（暂留旧名）
+- `schema.ts`/`transpile.ts`/`config.ts`/`index.ts` 挪到 `src/`
+- `package.json` 的 `pi.extensions` 改 `["./src/index.ts"]`
+- `tsconfig.json` 的 `include` 改 `["src"]`
+- 改所有相对 import 路径
+- **验收**：`tsc --noEmit` 通过 + `/pt full` 产物字数与 baseline 一致
+- **commit**：`Phase 7.1: src/ 迁移 + 三段式目录骨架`
+
+#### 7.2 Schema 重写（v7 四层 IR）
+
+`src/schema.ts` 重写，定义四层 IR + 载体约束：
+
+```typescript
+// 内容层：Domain（多 H2 段，段名开放）
+interface Domain {
+  name: string;
+  type: string;                    // term/workflow/stack/扩展
+  modules: Record<string, unknown>; // H2 段名 → 段内容（key = "Scene"/"Manual"/"Term"/...）
+}
+
+// 结构层：Channel（定义含哪些模块 + 编排）
+interface Channel {
+  name: string;
+  modules: string[];               // ["Scene", "Manual", "Term", ...]
+  layout: { mode: "byDomain" | "byType" | "hybrid"; domainOrder?: string[] };
+}
+
+// 配置层：Blueprint（Channel + 具体 Domains + trigger + boundaries）
+interface Blueprint {
+  name: string;
+  channel: string;                 // 引用 Channel 名
+  domains: string[];               // 引用 Domain 名列表
+  trigger?: string;
+  boundaries?: BoundaryNode[];
+}
+
+// 产物层：Context（编译输出，缓存载体）
+interface Context {
+  name: string;                    // = Blueprint 名
+  sourceHash: string;              // hash(Domains + Channel + Blueprint)
+  modules: Record<string, string>; // H2 段名 → 聚合后的 markdown 字符串
+}
+
+// IR 集合（编译期内存态）
+interface SchemaBundle {
+  domains: Domain[];
+  channels: Channel[];
+  blueprints: Blueprint[];
+  activeBlueprint: string;
+}
+```
+
+- **删 v6 残留**：`Struct`/`Scene`(as Struct)/`StructureLayout`(旧)/`DomainModule`/`KnowledgeBase` 全删
+- **保留共享类型**：`Term`/`Rule`/`BoundaryNode`/`ExternalRef`/`ToolRef`/`FlowStep`/`FlowTemplate`（这些是 Domain 段内容的子结构）
+- **验收**：此步会破坏编译（v6 代码引用旧类型），7.3-7.6 逐步修复
+- **commit**：`Phase 7.2: Schema 重写为 v7 四层 IR`
+
+#### 7.3 parse/ 拆分（前端三 adapter）
+
+`src/parse/` 拆成四个文件：
+
+- `shared.ts`：通用 MD 词法+语法（从现有 `frontend/oxn/parser.ts` 抽公共部分）
+- `domain.ts`：`domains/*.md` → `Domain` IR（按 type 分发解析各 H2 段，H2 名开放）
+- `channel.ts`：`channels/*.md` → `Channel` IR（解析 `## Modules` + `## Layout`）
+- `blueprint.ts`：`blueprints/*.md` → `Blueprint` IR（解析 `## Channel` + `## Domains` + `## Trigger` + `## Boundaries`）
+
+**载体区分**：按目录位置（`domains/`/`channels/`/`blueprints/`）分发，不靠 frontmatter 猜。
+- **验收**：三个 adapter 各自能解析对应 md 成 IR，单元测试或 `console.log` 验证
+- **commit**：`Phase 7.3: parse/ 拆分前端三 adapter`
+
+#### 7.4 资产迁移（9 Domain + 新建 channels + struct→blueprint）
+
+- **9 个 Domain 改 H2**：`## Blueprint` → `## Manual`（pt-concepts/pt-transpile/pt-capabilities/writing/commerce/article-flow/risk-flow/md-stack/risk-stack/glossary-test）
+- **新建 `channels/` 目录**：至少一个 `project-dev.channel.md`（modules: [Scene, Manual], layout: hybrid）
+- **struct 资产改 Blueprint 格式**：7 个 `*.scene.md`/`*.manual.md` → `*.blueprint.md`，frontmatter 简化（只留 name），内容用 `## Channel`/`## Domains`/`## Trigger`/`## Boundaries`
+- **删旧 `blueprints/` 里的 scene/manual 成对文件**，统一成 `*.blueprint.md`
+- **验收**：`ls .openxenon/assets/{domains,channels,blueprints}/` 结构正确
+- **commit**：`Phase 7.4: 资产迁移到 v7 格式`
+
+#### 7.5 compile/ 中端（Context 编译 + layout 编排）
+
+`src/compile/context.ts`：
+
+```typescript
+// (Blueprint + Channel + Domains) → Context IR
+function compileContext(
+  blueprint: Blueprint,
+  channel: Channel,
+  domains: Domain[]
+): Context {
+  // 1. 按 channel.modules 遍历每个模块名（如 "Scene"/"Manual"）
+  // 2. 对每个模块：聚合所有 blueprint.domains 引用的 Domain 的该 H2 段内容
+  // 3. 按 channel.layout.mode 编排（byDomain/byType/hybrid）
+  //    - hybrid: slot:"global" 的 Rule 抽全局段
+  //    - byType: 按 Domain type 聚合
+  //    - byDomain: 按引用顺序输出
+  // 4. 产 Context IR（modules: Record<h2, markdown>）
+  // 5. 算 sourceHash = hash(domains + channel + blueprint)
+}
+```
+
+- **layout 逻辑从 v6 的 `generateV6Prompt` 抽回中端**——backend 不再做编排，只渲染
+- **验收**：compileContext 产出 Context IR，`modules["Scene"]` / `modules["Manual"]` 非空
+- **commit**：`Phase 7.5: compile/ 中端 Context 编译`
+
+#### 7.6 render/ 后端（Context → 产物字符串 + 缓存）
+
+`src/render/`：
+
+- `cache.ts`：Context 文件读写 + hash 校验
+  - `loadContext(name)`：读 `.pt/cache/{name}.context.md`，比对 sourceHash，命中返缓存，未命中返 null
+  - `saveContext(context)`：写文件（含 sourceHash 头）
+- `system-prompt.ts`：`renderSystemPrompt(context)` → 读 `context.modules["Scene"]` → 字符串
+- `context-message.ts`：`renderContextMessage(context, args)` → 读 `context.modules["Manual"]` + binder 展开 → 字符串
+
+**链路**（`transpile.ts`）：
+```
+parse(blueprint.md, channel.md, domain.md*) 
+  → compile(blueprint, channel, domains) → Context IR
+  → cache.load? 命中 : cache.save(Context) 
+  → render.systemPrompt(Context) 注入 before_agent_start
+  → render.contextMessage(Context, args) 注入 input 事件
+```
+
+- **验收**：`/pt full` 产出 System Prompt，内容与 v6 语义等价
+- **commit**：`Phase 7.6: render/ 后端 + 缓存 + 链路打通`
+
+#### 7.7 回归验证 + 扩展性验证
+
+- **四个 Blueprint 回归**：pt/article/risk-check/glossary-test 编译出的 System Prompt 字数与 v6 baseline 一致或语义等价
+- **Context 缓存验证**：第二次 `/pt full` 命中缓存（不重编译，读 `.pt/cache/*.context.md`）
+- **Channel 复用验证**：至少 2 个 Blueprint 引用同一 Channel
+- **扩展性验证**：glossary 假 type 仍能注册 renderer 并出现在 Context 的 Scene 模块里
+- **三 mode 验证**（顺带补 v6 遗留）：加一个 byType 测试 Blueprint，验 byType 路径
+- **commit**：`Phase 7.7: 回归 + 扩展性 + 缓存验证`
+
+#### 7.8 文档同步
+
+- `pt-asset-layering.md` §11（转译通道架构）：
+  - §11.4 职责表恢复三行（前端/中端/后端）
+  - §11.5 文件结构表改 `parse/compile/render`
+  - §11.2 编译同构论证保留（v7 更贴合：多前端 + 中端 + 多后端）
+- `pt-dev-phases.md`：
+  - 接手坐标更新（Phase 7 完成，v7 为当前模型）
+  - Phase 依赖图加 Phase 7 节点
+  - 全局验收清单加"Context 缓存命中"项
+- **commit**：`Phase 7.8: 文档同步`
+
+### 风险
+
+1. **Schema 重写破坏编译**（7.2 后 tsc 暂时不过）。缓解：7.2-7.6 是连续修复链，一气呵成，中间不交付。
+2. **layout 逻辑迁移可能丢分支**。缓解：v6 的 byDomain/byType/hybrid 三分支逻辑搬到 compileContext 时，对照 `generateV6Prompt` 逐分支验，7.7 回归兜底。
+3. **资产改 H2 是机械大改**。缓解：9 个 Domain 一次性 sed 改，改完 grep 验证无 `## Blueprint` 残留。
+4. **Context 缓存 hash 设计不当**。缓解：sourceHash = sha256(domains 内容 + channel 内容 + blueprint 内容) 拼接，文件头记录，命中时跳过 parse+compile 全链路。
+5. **Channel 资产新建无真实复用场景**。缓解：让 pt/article/risk-check 三个 Blueprint 都引用同一个 `project-dev.channel.md`，人为制造复用验证。
+
+### 前置依赖
+
+- Phase 5.5 完成（v6 双写已清理，baseline `ffa721e` / `571b45d` / `9fca537` 可回退）。
+
+---
+
+
 ## Phase 依赖图
 
 ```
@@ -1033,6 +1259,8 @@ Phase 5 (模型对齐 v6，双写里程碑) ← baseline ffa721e
 Phase 5.5 (legacy 清理 + 扩展性验证) ← ✅ 完成 (571b45d + 9fca537)
    ↓
 Phase 6 (自举) ← ✅ 跑通，压力测试可继续加
+   ↓
+Phase 7 (v7 模型重构 Domain→Channel→Blueprint→Context) ← 待执行
 ```
 
 - **Phase 0 → 1 → 2 串行**（后一个依赖前一个的产物）。
@@ -1041,12 +1269,13 @@ Phase 6 (自举) ← ✅ 跑通，压力测试可继续加
 - **Phase 5 双写里程碑**：v6 字段与 v3 legacy 并存（baseline `ffa721e`）。
 - **Phase 5.5 ✅ 完成**：拆 legacy、midend 退出（选项 B）、blueprintRenderers 移除、扩展性实测通过。Phase 5 真正完成。
 - **Phase 6 ✅ 跑通**：自举通过，压力测试偏弱（未 exercised 跨 Domain/1:N/hybrid harder case），可继续加资产加压。
+- **Phase 7 待执行**：v6 升级到 v7 四层模型。src/ 迁移 + 三段式目录（parse/compile/render）+ Schema 重写 + 资产迁移 + Context 缓存。详见 §Phase 7。
 
-### 后续可选（非阻塞）
+### 后续可选（非阻塞，Phase 7 后）
 
-- 三 mode 实测（加 byType 测试 scene）
 - Phase 6 加压（pt-* 资产加跨 Domain/1:N/hybrid）
-- §0 补 Manual 语义边界（“Manual 只展开 workflow-Domain”）
+- `ingest/` 前置层（等第一个外部源接入时再加）
+- 未来 CLI 选 H2 模块作 `/模块名` 指令（v7 §0.5 备注）
 
 ---
 
