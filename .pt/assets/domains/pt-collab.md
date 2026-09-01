@@ -5,6 +5,11 @@ name: pt-collab
 
 # pt-collab
 
+## Trigger
+### pt-collab-trigger
+- desc: 派任务/验收时参考；含任务描述/进度报告/验收/baseline 规范
+- hint: /manual:pt-collab 查看完整规范
+
 ## Scene
 
 ### task-description

@@ -5,6 +5,11 @@ name: pt-quality
 
 # pt-quality
 
+## Trigger
+### pt-quality-trigger
+- desc: 改 Pt 代码时参考；含 9 条技术规范（modules-type-safety 等）
+- hint: /manual:pt-quality 查看完整规范
+
 ## Scene
 
 ### quality-index
