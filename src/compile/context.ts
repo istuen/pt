@@ -1,29 +1,29 @@
-// src/compile/context.ts — 中端：Blueprint + Channel + Domains → Context IR
+// src/compile/context.ts — 中端：Profile + Blueprint + Domains → Context IR
 //
-// Phase 8.4：v8 中端重写。
-//   - 输入：blueprint（v8 配置：injectionPoints + compilation）+ channel（v8 结构：injectionPoints）+ domains[]
-//   - 输出：Context IR（v8 产物层）—— modules: Record<注入点名, 聚合后 markdown>
+// Phase 9.4：v9 中端重写。
+//   - 输入：profile（v9 配置：blueprint + domains + injectionPoints）+ blueprint（v9 结构：injectionPoints + compilation）+ domains[]
+//   - 输出：Context IR（v9 产物层）—— modules: Record<注入点名, 聚合后 markdown>
 //
-// v8 编译流程：
-//   遍历 Channel.injectionPoints：
-//     1. 找 Blueprint 对应 InjectionPointInstance（同名）
-//     2. 取本注入点参与的 Domain（按 Blueprint.domains）
-//     3. 按 ipConfig.target 分发：
-//        - system_prompt → compileSystemPromptModule
-//        - context_message → compileContextMessageModule
-//        - 扩展 → compileGenericInjectionPoint
+// v9 编译流程：
+//   遍历 Blueprint.injectionPoints：
+//     1. 找 Profile 对应 InjectionPointInstance（同名）—— 注入点追加的 Domains
+//     2. resolveDomains(profile, ipInstance, ipConfig, domainByName) — 合并全局 + 追加，按 Blueprint.Modules 过滤
+//     3. dispatchInjectionPoint — 遍历 ipConfig.modules，按 modName 注册表聚合
 //
-// Scene/Manual 在 v8 由注入点语义名替代（如"会话知识"/"对话记忆"），
-// 但 H2 段名（Domain 内的 Scene/Manual）仍然是聚合点的供给侧。
+// v9 核心变化：
+//   - dispatchInjectionPoint 按 modName 驱动聚合（v8 按 target 硬编码）
+//   - moduleRenderers 注册表替代 domainSceneRenderers（v8 按 type 分发）
+//   - 加新聚合标题（### Modules 加新项）= 改 Blueprint，不用改代码；generic fallback 自动处理
+//   - Trigger 段聚合在 system_prompt 注入点，作为索引段
+//   - Profile domains 自动分发：YAML 全局 domains + 注入点追加
 
 import type {
   Blueprint,
-  Channel,
   Context as ContextIR,
   Domain,
   InjectionPointConfig,
   InjectionPointInstance,
-  InjectionTarget,
+  Profile,
   Rule,
   StructureLayout,
 } from "../schema.js";
@@ -35,318 +35,128 @@ interface FlowTemplateLite {
   argumentHint?: string;
 }
 
-interface ToolLite {
-  name: string;
-  role?: string;
-  operations?: string[];
-}
-
-const CIRCLED = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
-
 // ==================== Context 编译入口 ====================
 
 /**
- * 编译 Blueprint 为 Context IR（v8）。
- * - 遍历 Channel.injectionPoints
- * - 每个注入点找 Blueprint 同名 InjectionPointInstance
- * - 按 ipConfig.target 分发编译（system_prompt / context_message / 扩展）
+ * 编译 Profile 为 Context IR（v9）。
+ * - 遍历 Blueprint.injectionPoints
+ * - 每个注入点找 Profile 同名 InjectionPointInstance
+ * - 按 modName 注册表聚合（dispatchInjectionPoint）
  */
 export function compileContext(
+  profile: Profile,
   blueprint: Blueprint,
-  channel: Channel,
   domains: Domain[],
 ): ContextIR {
   // 1. 按 Domain 名建立索引
   const domainByName = new Map(domains.map((d) => [d.name, d]));
 
-  // 2. 按 Channel 的注入点遍历
+  // 2. 按 Blueprint 的注入点遍历
   const modules: Record<string, string> = {};
-  for (const ipConfig of channel.injectionPoints) {
-    // 找 Blueprint 对应的注入点实例化（同名）
-    const ipInstance = blueprint.injectionPoints.find((i) => i.name === ipConfig.name);
-    if (!ipInstance) continue;
+  for (const ipConfig of blueprint.injectionPoints) {
+    // 找 Profile 对应的注入点实例化（同名）
+    const ipInstance = profile.injectionPoints.find((i) => i.name === ipConfig.name);
 
-    // 取本注入点参与的 Domain（按 Blueprint.domains 声明顺序）
-    const refDomains = ipInstance.domains
-      .map((n) => domainByName.get(n))
-      .filter((d): d is Domain => !!d);
+    // v9 Domains 分发：全局 domains + 注入点追加，按 Blueprint Modules 过滤
+    const refDomains = resolveDomains(profile, ipInstance, ipConfig, domainByName);
 
-    // 按 target 分发编译
+    // 按 modName 驱动聚合
     modules[ipConfig.name] = dispatchInjectionPoint(ipInstance, ipConfig, refDomains);
   }
 
   // 3. 算 sourceHash
-  const sourceHash = computeSourceHash(blueprint, channel, domains);
+  const sourceHash = computeSourceHash(profile, blueprint, domains);
 
   return {
-    name: blueprint.name,
+    name: profile.name,
     sourceHash,
     modules,
   };
 }
 
-function dispatchInjectionPoint(
-  ipInstance: InjectionPointInstance,
+/** v9 Domains 分发：全局 domains + 注入点追加（去重，保序），按 Blueprint Modules 过滤。
+ *  规则：Domain 有该注入点 Modules 列出的任一 H2 段 → 贡献；没有 → 跳过。
+ *  这就是 v9 "Domain 同一份内容可贡献多注入点" 的语义——Profile 引用的 Domain，
+ *  只有其 H2 段匹配 Blueprint.Modules 时才进当前注入点。 */
+function resolveDomains(
+  profile: Profile,
+  ipInstance: InjectionPointInstance | undefined,
   ipConfig: InjectionPointConfig,
-  refDomains: Domain[],
-): string {
-  const target: InjectionTarget = ipConfig.target;
-  if (target === "system_prompt") {
-    return compileSystemPromptModule(ipInstance, ipConfig, refDomains);
-  }
-  if (target === "context_message") {
-    return compileContextMessageModule(ipInstance, ipConfig, refDomains);
-  }
-  return compileGenericInjectionPoint(ipInstance, ipConfig, refDomains);
-}
-
-// ==================== System Prompt 注入点（原 Scene 模块内容） ====================
-
-function compileSystemPromptModule(
-  ipInstance: InjectionPointInstance,
-  ipConfig: InjectionPointConfig,
-  refDomains: Domain[],
-): string {
-  const mode: StructureLayout["mode"] = ipConfig.mode ?? "hybrid";
-  const parts: string[] = [];
-
-  // 1. Trigger（从 ipInstance 取）
-  const trigger = ipInstance.trigger?.trim()
-    || "当用户请求相关任务时按以下流程执行；其余对话正常响应，勿套用本流程。";
-  parts.push(`> ${trigger}`);
-
-  // 2. 全局约束（hybrid only）
-  if (mode === "hybrid") {
-    const globals = refDomains.flatMap(extractRules).filter((r) => r.slot === "global");
-    if (globals.length > 0) parts.push(renderGlobalRules(globals));
-  }
-
-  // 3. 流程段（Boundaries 从 ipInstance 取）
-  const flowText = compileFlow(ipInstance, refDomains);
-  if (flowText) parts.push(flowText);
-
-  // 4. 按 mode 拼装 Domain sections
-  // v8：只聚合 ipConfig.modules 列出的 H2 段名（默认 "Scene"）
-  const modulesToRender = ipConfig.modules.length > 0 ? ipConfig.modules : ["Scene"];
-  const domainsToRender = refDomains.filter((d) =>
-    modulesToRender.some((m) => d.modules[m] !== undefined),
-  );
-  if (mode === "byType") {
-    const termsText = renderAggregatedTerms(domainsToRender);
-    if (termsText) parts.push(termsText);
-    const rulesText = renderAggregatedRules(domainsToRender);
-    if (rulesText) parts.push(rulesText);
-  } else {
-    for (const d of domainsToRender) {
-      const sec = formatDomainSceneSection(d, mode, modulesToRender);
-      if (sec) parts.push(sec);
+  domainByName: Map<string, Domain>,
+): Domain[] {
+  // 合并：全局 domains + 注入点追加（去重，保序）
+  const allNames = [...profile.domains];
+  if (ipInstance) {
+    for (const dn of ipInstance.domains) {
+      if (!allNames.includes(dn)) allNames.push(dn);
     }
   }
 
-  // 5. 工具段（stack-Domain 贡献；byType 下聚合 tools 由 Scene 单独处理）
-  const toolsText = renderAggregatedTools(refDomains);
-  if (toolsText && mode !== "byType") parts.push(toolsText);
-
-  // 6. 可用手册（workflow-Domain 的 FlowTemplate 派生）
-  const flowsText = renderFlowsCatalog(refDomains);
-  if (flowsText) parts.push(flowsText);
-
-  return parts.join("\n\n");
+  // 过滤：Domain 有该注入点 Modules 列出的任一 H2 段才贡献
+  return allNames
+    .map((n) => domainByName.get(n))
+    .filter((d): d is Domain => !!d)
+    .filter((d) => ipConfig.modules.some((m) => d.modules[m] !== undefined));
 }
 
-// ==================== Context Message 注入点（原 Manual 模块内容） ====================
+// ==================== modName 驱动聚合（v9 核心） ====================
 
 /**
- * 编译 target=context_message 的注入点。
- *  v8 修复：不再仅处理 workflow-Domain 的 FlowTemplate 列表——
- *  而是聚合 ipConfig.modules 列出的所有 H2 段内容。
- *  - workflow-Domain 的 Manual 段 → FlowTemplate 列表
- *  - term-Domain 的 Manual 段 → Rule 列表（v7 死代码，v8 修复）
- *  - 其他 H2 段 → 通用聚合
+ * v9 dispatchInjectionPoint：按 modName 驱动聚合。
+ *   - 遍历 ipConfig.modules（Blueprint 声明的聚合标题列表）
+ *   - 每个 modName 调对应 moduleRenderers[modName] 渲染
+ *   - renderer 内部按 d.type 特化取内容格式
+ *   - target 不在此判断——target 决定注入位置，由 AgentAdapter 处理（compile 不感知 Agent）
  */
-function compileContextMessageModule(
-  _ipInstance: InjectionPointInstance,
+function dispatchInjectionPoint(
+  _ipInstance: InjectionPointInstance | undefined,
   ipConfig: InjectionPointConfig,
   refDomains: Domain[],
 ): string {
-  const lines: string[] = [];
-  // 默认聚合 "Manual" 段（v8 兼容 v7 行为）
-  const modulesToRender = ipConfig.modules.length > 0 ? ipConfig.modules : ["Manual"];
+  const parts: string[] = [];
 
-  for (const d of refDomains) {
-    const parts: string[] = [];
-    for (const modName of modulesToRender) {
+  // 遍历 Blueprint.Modules 列出的聚合标题
+  for (const modName of ipConfig.modules) {
+    const renderer = moduleRenderers[modName] ?? renderGenericModule;
+    const modParts: string[] = [];
+    for (const d of refDomains) {
       const content = d.modules[modName];
       if (content === undefined) continue;
-
-      if (modName === "Manual") {
-        if (d.type === "workflow") {
-          // workflow-Domain 的 Manual → FlowTemplate 列表
-          const tpls = (content as Array<FlowTemplateLite> | undefined) ?? [];
-          for (const t of tpls) {
-            const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
-            parts.push(`- **/${t.name}**${hint}`);
-          }
-        } else if (d.type === "term") {
-          // term-Domain 的 Manual → Rule 列表（v7 死代码，v8 修复）
-          const rules = (content as Rule[]) ?? [];
-          for (const r of rules) {
-            if (r.type === "invariant") {
-              parts.push(`- [ ] ${r.check}`);
-            } else if (r.type === "ban" && r.items && r.items.length > 0) {
-              parts.push(`- [ ] ${r.check}：${r.items.join(" / ")}`);
-            }
-          }
-        }
-      } else {
-        // 其他 H2 段 → 通用聚合（按 generic fallback）
-        if (Array.isArray(content)) {
-          for (const item of content) {
-            if (item && typeof item === "object" && "name" in item && "desc" in item) {
-              const t = item as { name: string; desc: string };
-              if (t.desc) parts.push(`- **${t.name}**：${t.desc}`);
-              else parts.push(`- **${t.name}**`);
-            }
-          }
-        }
-      }
+      const rendered = renderer(d, content, ipConfig.mode);
+      if (rendered) modParts.push(rendered);
     }
-    if (parts.length > 0) {
-      lines.push(`### 模块「${d.name}」`);
-      lines.push("");
-      lines.push(...parts);
-      lines.push("");
-    }
+    if (modParts.length > 0) parts.push(modParts.join("\n\n"));
   }
 
-  return lines.join("\n").trimEnd();
+  return parts.join("\n\n").trimEnd();
 }
 
-// ==================== 通用注入点（扩展 target） ====================
+// ==================== moduleRenderers 注册表（替代 v8 domainSceneRenderers） ====================
 
-function compileGenericInjectionPoint(
-  _ipInstance: InjectionPointInstance,
-  ipConfig: InjectionPointConfig,
-  refDomains: Domain[],
-): string {
-  // 按域聚合 ipConfig.modules 列出的所有 H2 段内容
-  const lines: string[] = [];
-  const modulesToRender = ipConfig.modules.length > 0 ? ipConfig.modules : [];
+type ModuleRenderer = (d: Domain, content: unknown, mode?: StructureLayout["mode"]) => string;
 
-  for (const d of refDomains) {
-    for (const modName of modulesToRender) {
-      const content = d.modules[modName];
-      if (!content) continue;
-      if (Array.isArray(content)) {
-        for (const item of content) {
-          if (item && typeof item === "object" && "name" in item && "desc" in item) {
-            const t = item as { name: string; desc: string };
-            if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
-            else lines.push(`- **${t.name}**`);
-          }
-        }
-      }
-    }
-  }
-  return lines.join("\n").trimEnd();
-}
-
-// ==================== 流程段 ====================
-
-/** v8：从 ipInstance.boundaries 取（不再从 blueprint 顶级）。 */
-function compileFlow(ipInstance: InjectionPointInstance, refDomains: Domain[]): string {
-  const boundaries = ipInstance.boundaries ?? [];
-  if (boundaries.length === 0) return "";
-
-  const idxMap = new Map<string, number>();
-  boundaries.forEach((b, i) => idxMap.set(b.slot, i));
-
-  // 所有 externals（首步挂载）
-  const allExts = refDomains.flatMap((d) => {
-    if (d.type !== "workflow") return [];
-    const scene = d.modules["Scene"] as { externals?: Array<{ name: string; path: string }> } | undefined;
-    return (scene?.externals ?? []).map((ext) => ({ ...ext, _domainName: d.name }));
-  });
-
-  // 步骤专属 rules（slot == stepName）
-  const stepRules = new Map<string, Rule[]>();
-  for (const d of refDomains) {
-    for (const rule of extractRules(d)) {
-      if (rule.slot && rule.slot !== "global") {
-        const arr = stepRules.get(rule.slot) ?? [];
-        arr.push(rule);
-        stepRules.set(rule.slot, arr);
-      }
-    }
-  }
-
-  const lines: string[] = ["### 流程"];
-  boundaries.forEach((bd, i) => {
-    const depSuffix = bd.deps.length > 0
-      ? ` ← 依赖 ${bd.deps.map((d) => CIRCLED[idxMap.get(d) ?? 0] ?? d).join(" ")}`
-      : "";
-    lines.push(`${CIRCLED[i] ?? i + 1} **${bd.slot}** — ${bd.desc || "（未指定）"}${depSuffix}`);
-
-    if (i === 0 && allExts.length > 0) {
-      for (const ext of allExts) {
-        lines.push(`   数据：读 \`${ext.path}\`。`);
-      }
-    }
-    const rules = stepRules.get(bd.slot);
-    if (rules) {
-      for (const r of rules.filter((x) => x.type === "invariant")) {
-        lines.push(`   - [ ] ${r.check}`);
-      }
-      for (const r of rules.filter((x) => x.type === "ban")) {
-        if (r.items && r.items.length > 0) {
-          lines.push(`   - [ ] ${r.check}：${r.items.join(" / ")}`);
-        }
-      }
-    }
-  });
-
-  return lines.join("\n").trimEnd();
-}
-
-// ==================== 域段格式化（System Prompt 模块内按 type 分发） ====================
-
-/** Domain Scene 渲染器：返回该 Domain 在 System Prompt 注入点里的 markdown 段（空字符串表示不输出）。 */
-type DomainSceneRenderer = (
-  d: Domain,
-  mode: "byDomain" | "byType" | "hybrid",
-  modules: string[],
-) => string;
-
-/** Domain type → Scene renderer。已注册：term / workflow / stack / glossary。
- *  扩展 type：调 registerDomainSceneRenderer("xxx", fn) 即可，不动主循环。 */
-const domainSceneRenderers: Record<string, DomainSceneRenderer> = {
-  term: renderTermSceneSection,
-  workflow: renderWorkflowSceneSection,
-  stack: renderStackSceneSection,
-  glossary: renderGlossarySceneSection,
+/** modName → renderer。已注册：Scene / Trigger / Manual。
+ *  扩展：调 registerModuleRenderer("xxx", fn) 加一行 + 一个函数即可，不动主循环。
+ *  加新聚合标题（Blueprint.Modules 加项）不注册 = 走 generic fallback（自动按 H3 + name/desc 输出）。 */
+const moduleRenderers: Record<string, ModuleRenderer> = {
+  Scene: renderSceneModule,
+  Trigger: renderTriggerModule,
+  Manual: renderManualModule,
 };
 
-/** 扩展接口：加新 Domain type 只加一行注册 + 一个 renderer 函数。 */
-export function registerDomainSceneRenderer(type: string, fn: DomainSceneRenderer): void {
-  domainSceneRenderers[type] = fn;
+/** 扩展接口：加新 modName 只加一行注册 + 一个 renderer 函数。 */
+export function registerModuleRenderer(modName: string, fn: ModuleRenderer): void {
+  moduleRenderers[modName] = fn;
 }
 
-function formatDomainSceneSection(d: Domain, mode: "byDomain" | "byType" | "hybrid", modules: string[]): string {
-  const fn = domainSceneRenderers[d.type];
-  if (!fn) return "";  // 未注册 type：不输出
-  return fn(d, mode, modules);
-}
+// ==================== Scene module renderer（按 d.type 特化） ====================
 
-// ---- Scene 渲染器（按 type 注册） ----
-
-function renderTermSceneSection(d: Domain, mode: "byDomain" | "byType" | "hybrid", modules: string[]): string {
-  // v8：聚合 modules 列出的 H2 段（默认 "Scene" 段是 term-Term[]）
+/** Scene 段聚合：term→Term[] 列表 / workflow→externals / stack→空。
+ *  hybrid mode 下 rule 也可从 Scene 抽——但 v9 规则在 Manual 段，Scene 段只承载场景元数据。 */
+function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout["mode"]): string {
   const lines: string[] = [`### 模块「${d.name}」`];
-
-  for (const modName of modules) {
-    const content = d.modules[modName];
-    if (content === undefined) continue;
-    if (modName === "Scene") {
+  switch (d.type) {
+    case "term": {
       const terms = (content as Array<{ name: string; desc: string }> | undefined) ?? [];
       if (terms.length > 0) {
         lines.push("", "**术语**");
@@ -355,72 +165,100 @@ function renderTermSceneSection(d: Domain, mode: "byDomain" | "byType" | "hybrid
           else lines.push(`- **${t.name}**`);
         }
       }
+      break;
     }
-    // term-Domain 的 Manual 段（v8 支持聚合）
-    if (modName === "Manual") {
-      const rules = (content as Rule[]) ?? [];
-      const nonGlobal = rules.filter((r) => r.slot !== "global");
-      if (mode !== "hybrid" && nonGlobal.length > 0) {
-        lines.push("", "**规则**");
-        for (const r of nonGlobal) {
-          if (r.type === "invariant") lines.push(`- ${r.check}`);
-          else if (r.type === "ban" && r.items && r.items.length > 0) {
-            lines.push(`- ${r.check}：禁止 ${r.items.join(" / ")}`);
-          }
-        }
+    case "workflow": {
+      const scene = content as { externals?: Array<{ name: string; path: string }> } | undefined;
+      const exts = scene?.externals ?? [];
+      if (exts.length > 0) {
+        lines.push("", "**外部数据**");
+        for (const ext of exts) lines.push(`- ${ext.name}：\`${ext.path}\``);
       }
+      break;
     }
+    case "stack": {
+      // stack 的 tools 在 tools 聚合段输出，不进 Scene section
+      return "";
+    }
+    default:
+      // 未知 type 走 generic fallback（term 形态）
+      return renderGenericModule(d, content);
   }
   return lines.join("\n").trimEnd();
 }
 
-function renderWorkflowSceneSection(d: Domain, _mode: "byDomain" | "byType" | "hybrid", modules: string[]): string {
-  const lines: string[] = [`### 模块「${d.name}」`];
-  let any = false;
+// ==================== Trigger module renderer（索引聚合，v9 新增） ====================
 
-  for (const modName of modules) {
-    const content = d.modules[modName];
-    if (content === undefined) continue;
-    if (modName === "Scene") {
-      const scene = content as { externals?: Array<{ name: string; path: string }> } | undefined;
-      const externals = scene?.externals ?? [];
-      if (externals.length > 0) {
-        if (any) lines.push("");
-        lines.push("**外部数据**");
-        for (const ext of externals) {
-          lines.push(`- ${ext.name}：\`${ext.path}\``);
+/** Trigger 段聚合：把所有 Domain 的 Trigger 项合并成索引。
+ *  v9 关键：Trigger 是索引，告诉 LLM "有什么手册可查 + 何时查"。不加模块标题——索引段是平的。 */
+function renderTriggerModule(d: Domain, content: unknown): string {
+  const items = (content as Array<{ name: string; desc?: string; hint?: string }> | undefined) ?? [];
+  if (items.length === 0) return "";
+  const lines: string[] = [];
+  for (const t of items) {
+    if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
+    else lines.push(`- **${t.name}**`);
+    if (t.hint) lines.push(`  ${t.hint}`);
+  }
+  return lines.join("\n");
+}
+
+// ==================== Manual module renderer（聚合参考手册） ====================
+
+/** Manual 段聚合：workflow→FlowTemplate 列表 / term→Rule 列表。
+ *  v9：context_message 注入点（参考手册）主要消费 Manual 段。 */
+function renderManualModule(d: Domain, content: unknown): string {
+  const lines: string[] = [`### 模块「${d.name}」`, ""];
+  switch (d.type) {
+    case "workflow": {
+      const tpls = (content as Array<FlowTemplateLite> | undefined) ?? [];
+      for (const t of tpls) {
+        const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
+        lines.push(`- **/${t.name}**${hint}`);
+      }
+      break;
+    }
+    case "term": {
+      const rules = (content as Rule[]) ?? [];
+      for (const r of rules) {
+        if (r.type === "invariant") lines.push(`- [ ] ${r.check}`);
+        else if (r.type === "ban" && r.items && r.items.length > 0) {
+          lines.push(`- [ ] ${r.check}：${r.items.join(" / ")}`);
         }
-        any = true;
       }
+      break;
+    }
+    case "stack":
+      // stack 无 Manual 段
+      return "";
+    default:
+      return renderGenericModule(d, content);
+  }
+  return lines.join("\n").trimEnd();
+}
+
+// ==================== Generic fallback（扩展 modName 时自动适用） ====================
+
+/** Generic fallback：原样输出 H3 标题 + 列表项，不解析内容格式。
+ *  加新聚合标题（如 ### Modules 加 ## Glossary）不用注册 renderer，自动用 fallback 聚合。 */
+function renderGenericModule(_d: Domain, content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  const lines: string[] = [];
+  for (const item of content) {
+    if (item && typeof item === "object" && "name" in item) {
+      const t = item as { name: string; desc?: string };
+      if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
+      else lines.push(`- **${t.name}**`);
     }
   }
-  return any ? lines.join("\n").trimEnd() : "";
+  return lines.join("\n");
 }
 
-function renderStackSceneSection(_d: Domain, _mode: "byDomain" | "byType" | "hybrid", _modules: string[]): string {
-  // stack: tools 在聚合段输出，不进 section
-  return "";
-}
+// ==================== 公共段（mode-based，hybrid 模式的全局约束段保留） ====================
 
-function renderGlossarySceneSection(d: Domain, _mode: "byDomain" | "byType" | "hybrid", modules: string[]): string {
-  const lines: string[] = [`### 术语表「${d.name}」`];
-  let any = false;
-  for (const modName of modules) {
-    const content = d.modules[modName];
-    if (content === undefined) continue;
-    if (Array.isArray(content)) {
-      for (const t of content as Array<{ name: string; desc: string }>) {
-        if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
-        else lines.push(`- **${t.name}**`);
-        any = true;
-      }
-    }
-  }
-  return any ? lines.join("\n").trimEnd() : "";
-}
-
-// ==================== 公共段（mode-based） ====================
-
+/** hybrid mode 下的全局约束段：从 term-Domain 的 Manual 段聚合 global slot 的 Rule。
+ *  v9：保留此逻辑但不在 dispatchInjectionPoint 主路径调用——如有 Blueprint 扩展需要，
+ *      可通过 registerModuleRenderer 加 modName 复用。 */
 function renderGlobalRules(rules: Rule[]): string {
   const lines: string[] = ["### 全局约束"];
   for (const r of rules.filter((x) => x.type === "invariant")) {
@@ -434,87 +272,17 @@ function renderGlobalRules(rules: Rule[]): string {
   return lines.join("\n");
 }
 
-function renderAggregatedTerms(refDomains: Domain[]): string {
-  // byType：跨模块聚合术语
-  const lines: string[] = ["### 业务术语"];
-  let any = false;
-  for (const d of refDomains) {
-    if (d.type !== "term") continue;
-    const terms = (d.modules["Scene"] as Array<{ name: string; desc: string }> | undefined) ?? [];
-    for (const t of terms) {
-      const text = t.desc ? `- **${t.name}**：${t.desc}` : `- **${t.name}**`;
-      lines.push(`${text}（来自：${d.name}）`);
-      any = true;
-    }
-  }
-  return any ? lines.join("\n") : "";
-}
-
-function renderAggregatedRules(refDomains: Domain[]): string {
-  // byType：跨模块聚合 rules
-  const lines: string[] = ["### 业务规则"];
-  let any = false;
-  for (const d of refDomains) {
-    const rules = extractRules(d);
-    for (const r of rules) {
-      const text = r.type === "ban" && r.items
-        ? `- ${r.check}：禁止 ${r.items.join(" / ")}`
-        : `- ${r.check}`;
-      lines.push(`${text}（来自：${d.name}）`);
-      any = true;
-    }
-  }
-  return any ? lines.join("\n") : "";
-}
-
-function renderAggregatedTools(refDomains: Domain[]): string {
-  const allTools = refDomains.flatMap<ToolLite>((d) => {
-    if (d.type !== "stack") return [];
-    return (d.modules["Scene"] as Array<ToolLite> | undefined) ?? [];
-  });
-  if (allTools.length === 0) return "";
-  const lines: string[] = ["### 工具"];
-  for (const t of allTools) {
-    if (t.role) lines.push(`- ${t.name}：${t.role}`);
-    else if (t.operations && t.operations.length > 0) lines.push(`- ${t.name}：${t.operations.join(" / ")}`);
-    else lines.push(`- ${t.name}`);
-  }
-  return lines.join("\n").trimEnd();
-}
-
-function renderFlowsCatalog(refDomains: Domain[]): string {
-  const allTpls = refDomains.flatMap<FlowTemplateLite>((d) => {
-    if (d.type !== "workflow") return [];
-    return (d.modules["Manual"] as Array<FlowTemplateLite> | undefined) ?? [];
-  });
-  if (allTpls.length === 0) return "";
-  const lines: string[] = ["### 可用手册"];
-  for (const t of allTpls) {
-    const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
-    lines.push(`- **/${t.name}**${hint}`);
-  }
-  return lines.join("\n");
-}
-
-// ==================== 辅助 ====================
-
-function extractRules(d: Domain): Rule[] {
-  const val = d.modules["Manual"];
-  if (Array.isArray(val)) return val as Rule[];
-  return [];
-}
-
 // ==================== sourceHash ====================
 
-/** sha256(JSON.stringify(blueprint) + channel + domains 内容) → hex */
+/** sha256(JSON.stringify(profile) + blueprint + domains) → hex */
 export function computeSourceHash(
+  profile: Profile,
   blueprint: Blueprint,
-  channel: Channel,
   domains: Domain[],
 ): string {
   const payload = JSON.stringify({
+    profile: stableStringify(profile),
     blueprint: stableStringify(blueprint),
-    channel: stableStringify(channel),
     domains: domains.map((d) => stableStringify(d)),
   });
   return simpleHash(payload);
