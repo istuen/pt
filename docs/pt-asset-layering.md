@@ -11,7 +11,7 @@
 >
 > 结论：**Domain → Channel → Blueprint → Context 四层模型 + H2=注入点 + 模块级 Domain 引用 + Context 缓存策略可配置**。
 >
-> **v8 相对 v7 的变化**（详见 §0.10）：
+> **v8 相对 v7 的变化**（详见 §0.9）：
 > - **Channel H2 = 注入点**（显式映射 Pi 上下文位置，替代 v7 的隐式 Modules+render 硬编码）
 > - **Blueprint 按注入点选 Domain**（模块级引用，替代 v7 的粗粒度全量引用）
 > - **Blueprint 管编译方式**（缓存目录 + 拆分策略，替代 v7 硬编码 cache.ts）
@@ -24,7 +24,7 @@
 
 本节是 Pt 的语义基准，定义 Pt 处理什么、产出什么、各概念如何分流。后续架构章节均以此为准。
 
-> **v8 模型**（2026-08-31 定稿）。v7 的 Domain/Channel/Blueprint/Context 四层保留，但重新定义 Channel 与 Blueprint 的职责：**Channel H2 = 注入点，Blueprint = 注入点选 Domain + 编译方式**。详见 §0.10 变更说明。
+> **v8 模型**（2026-08-31 定稿）。v7 的 Domain/Channel/Blueprint/Context 四层保留，但重新定义 Channel 与 Blueprint 的职责：**Channel H2 = 注入点，Blueprint = 注入点选 Domain + 编译方式**。详见 §0.9 变更说明。
 
 **Pt 的本质是「异构上下文编译器」**——核心产物是 Context（编译后目标上下文）。Domain 是异构领域知识（term/workflow/stack 异构源），Channel 是编译上下文通道，Blueprint 是异构领域知识编译上下文通道蓝图，Context 是编译后目标上下文。Pt 把异构的领域知识按 Channel 定义的注入点编译成统一的目标上下文，供 Pi Agent 各注入位置消费。
 
