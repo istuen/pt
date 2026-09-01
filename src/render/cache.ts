@@ -67,7 +67,8 @@ function serializeContext(ctx: Context): string {
   const lines: string[] = [];
   lines.push("---");
   lines.push(`source-hash: ${ctx.sourceHash}`);
-  lines.push(`name: ${ctx.name}`);
+  lines.push(`profile: ${ctx.name}`);
+  lines.push(`blueprint: ${ctx.blueprint}`);
   lines.push("---");
   lines.push("");
   for (const [h2Name, content] of Object.entries(ctx.modules)) {
@@ -89,7 +90,8 @@ function deserializeContext(name: string, raw: string): Context | null {
     if (kv) fm[kv[1]] = kv[2].trim();
   }
   const hash = fm["source-hash"];
-  const fmName = fm["name"] ?? name;
+  const fmName = fm["profile"] ?? fm["name"] ?? name;
+  const fmBlueprint = fm["blueprint"] ?? "";
   if (!hash) return null;
 
   const body = fmMatch[2];
@@ -111,5 +113,5 @@ function deserializeContext(name: string, raw: string): Context | null {
     modules[sec.name] = body.slice(sec.start, sec.end).trim();
   }
 
-  return { name: fmName, sourceHash: hash, modules };
+  return { name: fmName, blueprint: fmBlueprint, sourceHash: hash, modules };
 }

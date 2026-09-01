@@ -80,7 +80,7 @@ function renderDomainManual(d: Domain, content: unknown): string | null {
       lines.push("## 可用手册");
       for (const t of content) {
         const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
-        lines.push(`- **/${t.name}**${hint}`);
+        lines.push(`- /${t.name}${hint}: ${t.intent}`);
       }
       break;
     }
@@ -89,9 +89,12 @@ function renderDomainManual(d: Domain, content: unknown): string | null {
       if (content.length === 0) return null;
       lines.push("## 规范清单");
       for (const r of content) {
-        if (r.type === "invariant") lines.push(`- [ ] ${r.check}`);
-        else if (r.type === "ban" && r.items && r.items.length > 0) {
-          lines.push(`- [ ] ${r.check}：${r.items.join(" / ")}`);
+        if (r.type === "invariant") {
+          if (r.check) lines.push(`- ${r.name}: ${r.check}`);
+          else lines.push(`- ${r.name}`);
+        } else if (r.type === "ban" && r.items && r.items.length > 0) {
+          if (r.check) lines.push(`- ${r.name}: ${r.check} (${r.items.join(" / ")})`);
+          else lines.push(`- ${r.name}: ${r.items.join(" / ")}`);
         }
       }
       break;

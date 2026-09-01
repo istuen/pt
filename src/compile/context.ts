@@ -74,6 +74,7 @@ export function compileContext(
 
   return {
     name: profile.name,
+    blueprint: profile.blueprint,
     sourceHash,
     modules,
   };
@@ -159,26 +160,25 @@ export function registerModuleRenderer(modName: string, fn: ModuleRenderer): voi
 /** Scene 段聚合：term→Term[] 列表 / workflow→externals / stack→空。
  *  hybrid mode 下 rule 也可从 Scene 抽——但 v9 规则在 Manual 段，Scene 段只承载场景元数据。 */
 function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout["mode"]): string {
-  const lines: string[] = [`### 模块「${d.name}」`];
+  const lines: string[] = [`### ${d.name}`];
 
   switch (d.type) {
     case "term": {
       if (!isTermArray(content)) return "";
-      if (content.length > 0) {
-        lines.push("", "**术语**");
-        for (const t of content) {
-          if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
-          else lines.push(`- **${t.name}**`);
-        }
+      for (const t of content) {
+        if (t.desc) lines.push(`- ${t.name}: ${t.desc}`);
+        else lines.push(`- ${t.name}`);
       }
       break;
     }
     case "workflow": {
       if (!isWorkflowScene(content)) return "";
       const externals = content.externals ?? [];
-      if (externals.length > 0) {
-        lines.push("", "**外部数据**");
-        for (const ext of externals) lines.push(`- ${ext.name}：\`${ext.path}\``);
+      for (const ext of externals) {
+        if (ext.path && ext.desc) lines.push(`- ${ext.name}: ${ext.path} — ${ext.desc}`);
+        else if (ext.path) lines.push(`- ${ext.name}: ${ext.path}`);
+        else if (ext.desc) lines.push(`- ${ext.name}: ${ext.desc}`);
+        else lines.push(`- ${ext.name}`);
       }
       break;
     }
@@ -202,8 +202,8 @@ function renderTriggerModule(d: Domain, content: unknown): string {
   if (content.length === 0) return "";
   const lines: string[] = [];
   for (const t of content) {
-    if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
-    else lines.push(`- **${t.name}**`);
+    if (t.desc) lines.push(`- ${t.name}: ${t.desc}`);
+    else lines.push(`- ${t.name}`);
     if (t.hint) lines.push(`  ${t.hint}`);
   }
   return lines.join("\n");
@@ -214,23 +214,26 @@ function renderTriggerModule(d: Domain, content: unknown): string {
 /** Manual 段聚合：workflow→FlowTemplate 列表 / term→Rule 列表。
  *  v9：context_message 注入点（参考手册）主要消费 Manual 段。 */
 function renderManualModule(d: Domain, content: unknown): string {
-  const lines: string[] = [`### 模块「${d.name}」`, ""];
+  const lines: string[] = [`### ${d.name}`, ""];
 
   switch (d.type) {
     case "workflow": {
       if (!isFlowTemplateArray(content)) return "";
       for (const t of content) {
         const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
-        lines.push(`- **/${t.name}**${hint}`);
+        lines.push(`- /${t.name}${hint}: ${t.intent}`);
       }
       break;
     }
     case "term": {
       if (!isRuleArray(content)) return "";
       for (const r of content) {
-        if (r.type === "invariant") lines.push(`- [ ] ${r.check}`);
-        else if (r.type === "ban" && r.items && r.items.length > 0) {
-          lines.push(`- [ ] ${r.check}：${r.items.join(" / ")}`);
+        if (r.type === "invariant") {
+          if (r.check) lines.push(`- ${r.name}: ${r.check}`);
+          else lines.push(`- ${r.name}`);
+        } else if (r.type === "ban" && r.items && r.items.length > 0) {
+          if (r.check) lines.push(`- ${r.name}: ${r.check} (${r.items.join(" / ")})`);
+          else lines.push(`- ${r.name}: ${r.items.join(" / ")}`);
         }
       }
       break;
@@ -252,8 +255,8 @@ function renderGenericModule(_d: Domain, content: unknown): string {
   if (!isNamedItemArray(content)) return "";
   const lines: string[] = [];
   for (const item of content) {
-    if (item.desc) lines.push(`- **${item.name}**：${item.desc}`);
-    else lines.push(`- **${item.name}**`);
+    if (item.desc) lines.push(`- ${item.name}: ${item.desc}`);
+    else lines.push(`- ${item.name}`);
   }
   return lines.join("\n");
 }
@@ -266,11 +269,11 @@ function renderGenericModule(_d: Domain, content: unknown): string {
 function renderGlobalRules(rules: Rule[]): string {
   const lines: string[] = ["### 全局约束"];
   for (const r of rules.filter((x) => x.type === "invariant")) {
-    lines.push(`- [ ] ${r.check}`);
+    lines.push(`- ${r.name}: ${r.check}`);
   }
   for (const r of rules.filter((x) => x.type === "ban")) {
     if (r.items && r.items.length > 0) {
-      lines.push(`- [ ] ${r.check}：${r.items.join(" / ")}`);
+      lines.push(`- ${r.name}: ${r.check} (${r.items.join(" / ")})`);
     }
   }
   return lines.join("\n");

@@ -39,7 +39,7 @@ beforeAll(async () => {
     }
   } catch {}
 
-  for (const name of ["pt", "pt-dev", "glossary-test"]) {
+  for (const name of ["pt-chat", "pt-dev", "glossary-test"]) {
     const r = await loadAndTranspile(cwd, name);
     loadedProfiles[name] = {
       name,
@@ -56,13 +56,13 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 1. 三 Profile 产物 ==========
   describe("1. 三 Profile 产物", () => {
     it("三个 Profile 都成功加载", () => {
-      expect(loadedProfiles.pt).toBeDefined();
+      expect(loadedProfiles["pt-chat"]).toBeDefined();
       expect(loadedProfiles["pt-dev"]).toBeDefined();
       expect(loadedProfiles["glossary-test"]).toBeDefined();
     });
 
-    it("pt Profile 含 v9 措辞", () => {
-      const r = loadedProfiles.pt.segment;
+    it("pt-chat Profile 含 v9 措辞", () => {
+      const r = loadedProfiles["pt-chat"].segment;
       expect(r).toContain("parse");
       expect(r).toContain("compile");
       expect(r).toContain("render");
@@ -82,10 +82,10 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 2. Context 缓存命中 ==========
   describe("2. Context 缓存命中", () => {
-    it("pt 二次加载命中缓存", async () => {
-      const r2 = await loadAndTranspile(cwd, "pt");
+    it("pt-chat 二次加载命中缓存", async () => {
+      const r2 = await loadAndTranspile(cwd, "pt-chat");
       expect(r2.cacheHit).toBe(true);
-      expect(r2.segment).toBe(loadedProfiles.pt.segment);
+      expect(r2.segment).toBe(loadedProfiles["pt-chat"].segment);
     });
   });
 
@@ -110,8 +110,8 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(loadedProfiles["glossary-test"].segment.includes("术语表") ||
              loadedProfiles["glossary-test"].segment.includes("GlossaryEntry")).toBe(true);
     });
-    it("pt profile 不被 glossary 污染", () => {
-      expect(loadedProfiles.pt.segment).not.toContain("GlossaryEntry");
+    it("pt-chat profile 不被 glossary 污染", () => {
+      expect(loadedProfiles["pt-chat"].segment).not.toContain("GlossaryEntry");
     });
   });
 
@@ -134,15 +134,15 @@ describe("Phase 9.9 v9 完整回归", () => {
       let qualityManualIdx = -1;
       let searchFrom = canKaoIdx;
       while (searchFrom !== -1) {
-        const next = raw.indexOf("### 模块「pt-quality」", searchFrom);
+        const next = raw.indexOf("### pt-quality", searchFrom);
         if (next === -1) break;
         if (next > canKaoIdx) { qualityManualIdx = next; break; }
         searchFrom = next + 1;
       }
       // 必须在 ## 参考手册 之后（pt-quality Manual 段进参考手册段）
       expect(qualityManualIdx).toBeGreaterThan(canKaoIdx);
-      // 且是文件中最后一个 ### 模块「pt-quality」（Manual 唯一）
-      const lastIdx = raw.lastIndexOf("### 模块「pt-quality」");
+      // 且是文件中最后一个 ### pt-quality（Manual 唯一）
+      const lastIdx = raw.lastIndexOf("### pt-quality");
       expect(qualityManualIdx).toBe(lastIdx);
     });
 
@@ -151,7 +151,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const canKaoIdx = raw.indexOf("## 参考手册");
       const huiHuaIdx = raw.indexOf("## 会话知识");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
-      const modulesTypeSafetyIdx = raw.indexOf("- [ ] modules-type-safety");
+      const modulesTypeSafetyIdx = raw.indexOf("- modules-type-safety:");
       expect(modulesTypeSafetyIdx < huiHuaIdx || modulesTypeSafetyIdx > huiHuaIdx + 1 + nextH2AfterHuiHuaOffset).toBe(true);
     });
   });
@@ -174,7 +174,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
       const huiHuaIdx = raw.indexOf("## 会话知识");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
-      const meIdx = raw.indexOf("### 模块「me」");
+      const meIdx = raw.indexOf("### me");
       expect(meIdx).toBeGreaterThan(huiHuaIdx);
       expect(meIdx).toBeLessThan(huiHuaIdx + 1 + nextH2AfterHuiHuaOffset);
     });

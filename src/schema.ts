@@ -35,11 +35,15 @@ export interface Term {
 export interface ExternalRef {
   name: string;
   path: string;
+  /** 描述（workflow Scene 概念项无 path 时用 desc 承载语义） */
+  desc?: string;
   protocol?: "file" | "api" | "db";
 }
 
 /** 业务规则（挂到步骤或全局） */
 export interface Rule {
+  /** 规则名（H3 标题，如 modules-type-safety）；renderer 输出 `name: check` 格式 */
+  name: string;
   /** 挂到哪个步骤的 slot 名；"global" 表示跨模块聚合（hybrid 模式下抽到全局段） */
   slot: string;
   /** ban = 禁止项；invariant = 不变量 */
@@ -215,6 +219,8 @@ export interface Profile {
 export interface Context {
   /** Profile 名（Context 跟 Profile 一对一）。 */
   name: string;
+  /** Blueprint 名（Context 来源 Blueprint，缓存标识 + YAML 头）。 */
+  blueprint: string;
   /** hash(profile + blueprint + domains)，缓存失效依据。 */
   sourceHash: string;
   /** 注入点名（语义名）→ 聚合后的 markdown 字符串。 */

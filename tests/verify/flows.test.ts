@@ -9,8 +9,8 @@ import { loadAndTranspile } from "../../src/transpile.js";
 import { getAgentAdapter } from "../../src/agent/index.js";
 
 describe("Profile 触发手册（listManuals）", () => {
-  it("pt Profile 可触发手册", async () => {
-    const r = await loadAndTranspile(process.cwd(), "pt");
+  it("pt-chat Profile 可触发手册", async () => {
+    const r = await loadAndTranspile(process.cwd(), "pt-chat");
     const b = r.bundles[0];
     expect(b).toBeDefined();
 

@@ -15,8 +15,8 @@ export type DomainSectionParser = (items: Item[], sectionRaw: string) => unknown
 const domainSectionRenderers: Record<string, Record<string, DomainSectionParser>> = {
   // H2="Scene"
   Scene: {
-    term: (items) => items.map((it) => ({ name: it.name, desc: s(it.fields.desc) || s(it.fields.description) })),
-    workflow: (items) => ({ externals: items.map((it) => ({ name: it.name, path: s(it.fields.path) })) }),
+    term: (items) => items.map((it) => ({ name: it.name, desc: s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "" })),
+    workflow: (items) => ({ externals: items.map((it) => ({ name: it.name, path: s(it.fields.path) || "", desc: s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "" })) }),
     stack: (items) => items.map((it) => {
       const role = s(it.fields.role);
       const ops = sArr(it.fields.operations);
@@ -30,12 +30,11 @@ const domainSectionRenderers: Record<string, Record<string, DomainSectionParser>
   Manual: {
     term: (items) => items.map((it) => {
       const itemsArr = sArr(it.fields.items);
-      const desc = s(it.fields.desc) || s(it.fields.value) || s(it.fields.description);
-      const check = desc || it.name;
+      const check = s(it.fields.check) || s(it.fields.desc) || s(it.fields.value) || s(it.fields.description) || "";
       if (itemsArr.length > 0) {
-        return { slot: "global", type: "ban", check, items: itemsArr };
+        return { name: it.name, slot: "global", type: "ban", check, items: itemsArr };
       }
-      return { slot: "global", type: "invariant", check };
+      return { name: it.name, slot: "global", type: "invariant", check };
     }),
     workflow: (items, sectionRaw) => items.map((item) => {
       const tpl: Record<string, unknown> = {

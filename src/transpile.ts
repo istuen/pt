@@ -34,7 +34,7 @@ export interface TranspileResult {
   profile: Profile;
 }
 
-const EMPTY_CTX: Context = { name: "", sourceHash: "0", modules: {} };
+const EMPTY_CTX: Context = { name: "", blueprint: "", sourceHash: "0", modules: {} };
 const EMPTY_BP: Blueprint = { name: "", agent: AGENT_PI, injectionPoints: [], compilation: { cacheDir: CACHE_DIR, split: "single-file" } };
 const EMPTY_PROFILE: Profile = { name: "", blueprint: "", domains: [], injectionPoints: [] };
 
