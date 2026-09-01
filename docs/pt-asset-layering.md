@@ -13,11 +13,13 @@
 >
 > **v9 相对 v8 的变化**（详见 §0.10）：
 > - **职责重分配**：v8 Channel（结构层）→ v9 Blueprint（Agent 端结构）；v8 Blueprint（配置层）→ v9 Profile（业务端实例）
-> - **Channel 保留为未来** Domain 连接外部知识源的通道（当前不实现）
+> - **Channel 保留为未来** Domain 连接外部知识源的 Connector（当前不实现）
 > - **Trigger 段移到 Domain**（H2 段，不在 Profile/Blueprint）
 > - **Boundaries 丢弃**（Trigger 索引 + Scene axioms 替代流程 DAG）
 > - **聚合点数据驱动**：`### Modules` 是聚合标题列表，compile 按 modName 注册表分发 + generic fallback，加新聚合标题不改代码
 > - **Profile Domains 自动分发**：YAML 全局 domains + 注入点 ### Domains 追加
+> - **注入点名人类自定义**：Blueprint H2 是任意语义名，target 字段映射到 Agent 技术注入点（不写死 system_prompt/context_message）
+> - **AgentAdapter 抽象**：Blueprint 声明用哪个 Agent，Pt 调对应 Adapter 注入；MVP 只实现 PiAdapter，接口预留扩展 Codex/OpenCode
 > - **"对话记忆" → "参考手册"** 改名（语义更准确）
 > - **新增 me Domain** 概念（会话知识补"我"视角）
 
@@ -31,15 +33,17 @@
 
 **Pt 的本质是「异构上下文编译器」**——核心产物是 Context（编译后目标上下文）。Domain 是异构领域知识（人类业务端，H2 段开放：Scene/Trigger/Manual/...），Blueprint 是 Agent 端注入点结构（定义有哪些上下文场景 + 每个场景聚合什么模块 + 编译方式），Profile 是业务端实例（引用 Blueprint + 选哪些 Domain），Context 是编译后目标上下文。Pt 把异构的领域知识按 Blueprint 定义的注入点编译成统一的目标上下文，供 Pi Agent 各注入位置消费。
 
-Pt 的语义分四层（三层实现 + 一层预留），每层是有边界的模块，各自管理其内容文件：
+Pt 的语义分四层（三层实现 + 一层预留）+ 两套适配器，各自管理其内容文件：
 
-| 层 | 名 | v9 语义 | 载体 | 归属 | 复用性 |
+| 层/机制 | 名 | v9 语义 | 载体 | 归属 | 复用性 |
 |---|---|---|---|---|---|
 | **内容层** | **Domain** | **异构领域知识**——H2 段开放（Scene/Trigger/Manual/...），Type 标签区分内容性质 | `domains/*.md` | 人类业务端 | 跨项目 |
-| **结构层** | **Blueprint** | **Agent 端注入点结构**——H2=注入点，定义 target + 聚合模块 + Compilation | `blueprints/*.md` | Agent 端 | 跨项目复用 |
+| **结构层** | **Blueprint** | **Agent 端注入点结构**——H2=注入点（人类自定义名），target 映射 Agent 技术注入点，agent 声明用哪个 Agent | `blueprints/*.md` | Agent 端 | 跨项目复用 |
 | **配置层** | **Profile** | **业务端实例**——引用 Blueprint + 选 Domains（YAML 全局 + 注入点追加） | `profiles/*.md` | 业务端 | 项目级 |
 | **产物层** | **Context** | **编译后目标上下文**——按注入点聚合多 Domain 内容，物理文件 + hash 缓存 | `.pt/contexts/cache/*.context.md` | — | 缓存复用 |
-| （预留） | **Channel** | Domain 连接外部知识源的通道（未来实现） | — | 连接层 | — |
+| （预留） | **Channel** | Domain 连接外部知识源的 Connector（未来实现） | — | 连接层 | — |
+| 适配器 | **AgentAdapter** | 适配不同 Agent 的注入机制（PiAdapter / 未来 CodexAdapter / ...），Pt 核心不感知 Agent API | `src/agent/*.ts` | Pt 核心扩展 | — |
+| 适配器 | **SourceAdapter** | 适配不同知识源格式（oxnAdapter / 未来 yamlAdapter / ...），Pt 核心不感知来源格式 | `src/parse/*.ts` | Pt 核心扩展 | — |
 
 **核心关系**（Domain + Blueprint 在 Profile 处合并，编译出 Context）：
 
@@ -127,17 +131,18 @@ Domain「pt-quality」（type: term）
 
 ### 0.2 结构层：Blueprint（Agent 端注入点结构）
 
-**Blueprint 是 Agent 端的注入点结构设计**——定义有哪些上下文场景（注入点）、每个注入点聚合哪些 H2 段（聚合模块）、注入到 Pi 的哪个上下文位置（target）、用什么聚合方式（mode）、怎么编译（Compilation）。Blueprint 可跨项目复用——比如「开发知识」这个结构在多个项目里都适用，只是具体 Domain 不同。
+**Blueprint 是 Agent 端的注入点结构设计**——定义用哪个 Agent（agent 字段）、有哪些上下文场景（注入点）、每个注入点聚合哪些 H2 段（聚合模块）、注入到 Agent 的哪个上下文位置（target）、用什么聚合方式（mode）、怎么编译（Compilation）。Blueprint 可跨项目复用——比如「开发知识」这个结构在多个项目里都适用，只是具体 Domain 不同。
 
-**Blueprint 的核心设计：H2 = 注入点**。Blueprint 的每个 H2 二级标题对应 Pi Agent 的一个上下文注入位置（system_prompt / context_message / 未来扩展）。H2 名用**语义名**（会话知识/参考手册），由 `target` 字段映射到 Pi 技术注入点——代码适配 Pi，资产用语义。
+**Blueprint 的核心设计：H2 = 注入点（人类自定义名）**。Blueprint 的每个 H2 二级标题是一个注入点，H2 名由人类自定义（会话知识/参考手册/背景知识/操作手册/...），不由代码写死。`target` 字段把该语义名映射到 **Agent 技术注入点**（Pi 的 `system_prompt`/`context_message`，Codex/OpenCode 的其他名）——AgentAdapter 解释 target，Pt 核心不感知 target 的具体含义。
 
 **Blueprint 只管结构，不含具体 Domain、不含 Trigger/Boundaries**。选 Domain 是 Profile（配置层）的职责；Trigger 在 Domain 内（H2 段）；Boundaries v9 丢弃（见 §0.10）。
 
-Blueprint 的结构与配置用 MD 标题层级表达，YAML 只放文档级元信息（name）。
+Blueprint 的结构与配置用 MD 标题层级表达，YAML 放文档级元信息（name + agent）。
 
 ```markdown
 ---
 name: dev-knowledge
+agent: pi
 ---
 
 # dev-knowledge (blueprint)
@@ -160,12 +165,24 @@ split: single-file
 ```
 
 **字段职责**：
-- `## 会话知识` / `## 参考手册`：H2 = 注入点（语义名，可任意命名）
-- `target`：Pi 注入位置（`system_prompt` / `context_message`，代码层映射）
-- `mode`：聚合方式（byDomain / byType / hybrid，仅对 system_prompt 类注入点有意义）
+- YAML `agent`：声明用哪个 AgentAdapter（`pi` / 未来 `codex`/`opencode`/...，默认 `pi`）
+- `## 会话知识` / `## 参考手册`：H2 = 注入点（**人类自定义语义名**，可任意命名，不由代码写死）
+- `target`：Agent 技术注入点名（Pi 的 `system_prompt`/`context_message`，由 AgentAdapter 解释）
+- `mode`：聚合方式（byDomain / byType / hybrid，仅对 system_prompt 类 target 有意义）
 - `### Modules`：H3 = 聚合模块列表，列出参与本注入点的 Domain H2 段名（聚合标题）
 - 无符号序号项 = Domain 的 H2 段名（如 `- Scene` 指向 Domain 的 `## Scene` 段，`- Trigger` 指向 `## Trigger` 段）
 - `## Compilation`：编译方式（缓存目录 + 拆分策略，详见 §0.8）
+
+#### 注入点名人类自定义（不写死）
+
+v8 的代码硬编码注入点名 `会话知识|对话记忆`（parse/shared.ts 用它判断文件类型，compile 用 target 硬编码分发）。v9 彻底数据驱动：
+
+- **注入点名是 Blueprint 的 H2**（人类自定义），不是代码常量
+- **target 是 AgentAdapter 的注入点技术名**（Pi 的 system_prompt/context_message，由 AgentAdapter 定义）
+- compile/render 按 target 分发，但 **target 的具体值由 AgentAdapter 解释**——Pt 核心不硬编码 `"system_prompt"` 字符串判断
+- parse 判断文件类型用 frontmatter 字段（`type`/`agent`/`blueprint`）而非注入点名
+
+用户想用"背景知识""操作手册"等自定义注入点名完全可以——只要 target 字段映射到 AgentAdapter 支持的注入点。
 
 #### 为什么 H2 = 注入点（不是 Modules 列表）
 
@@ -180,7 +197,7 @@ v9: Blueprint.injectionPoints = [
       { name: "会话知识", target: system_prompt, modules: [Scene, Trigger], mode: hybrid },
       { name: "参考手册", target: context_message, modules: [Manual] }
     ]
-    render 通用: 按 target 分发，不硬编码模块名
+    render 通用: 按 target 分发（target 由 AgentAdapter 解释），不硬编码模块名
     加新注入点 = Blueprint 加 H2，不改 render
 ```
 
@@ -272,6 +289,8 @@ v9 的 Context 结构按注入点组织（与 Blueprint 的 H2 对应）：
 **内容由 Domain 定义**，因此 Context 的内容可以是普通文本，也可以是执行描述。Pt 产出的是结构化上下文文档，LLM 做推理。
 
 ### 0.5 聚合点数据驱动（modName 注册表 + generic fallback）
+
+> 本节描述 compile 内部的聚合模块分发机制。Agent 注入适配机制见 §0.11。
 
 v9 的核心扩展机制：**`### Modules` 是聚合标题列表，compile 按 modName 驱动分发，未注册 modName 用 generic fallback 自动聚合**。
 
@@ -434,11 +453,12 @@ Pt 读取 Context 时：
 | **Domain** | 异构领域知识，内容层模块，H2 段开放（Scene/Trigger/Manual/...），Type 标签区分内容性质 |
 | **Domain Type** | Domain 上的标签（term/workflow/stack/扩展），区分各 H2 段内部内容格式 |
 | **H2 段** | Domain 内的内容模块（`## Scene`/`## Trigger`/`## Manual`/扩展），是聚合点的供给侧 |
-| **Blueprint** | Agent 端注入点结构，结构层模块，H2=注入点，定义 target + Modules 聚合点 + Compilation |
+| **Blueprint** | Agent 端注入点结构，结构层模块，H2=注入点（人类自定义名），target 映射 Agent 技术注入点，agent 声明用哪个 AgentAdapter，Modules 聚合点 + Compilation |
 | **Profile** | 业务端实例，配置层模块，引用 Blueprint + 选 Domains（全局 + 注入点追加） |
-| **注入点** | Blueprint 的 H2，对应 Pi Agent 的一个上下文注入位置（system_prompt / context_message / 扩展） |
+| **注入点** | Blueprint 的 H2（人类自定义语义名），由 target 字段映射到 AgentAdapter 的技术注入点 |
 | **聚合模块** | Blueprint 注入点下的 `### Modules` 列表项，指向参与本注入点的 Domain H2 段名（聚合标题） |
-| **target** | Blueprint 注入点的字段，映射语义名到 Pi 技术注入点（system_prompt / context_message） |
+| **target** | Blueprint 注入点的字段，映射语义注入点名到 AgentAdapter 技术注入点（Pi: system_prompt/context_message） |
+| **agent** | Blueprint YAML 字段，声明用哪个 AgentAdapter（默认 `pi`） |
 | **Trigger** | Domain 的 H2 段（`## Trigger`），索引——告诉 LLM 何时参考本 Domain 的手册；聚合到会话知识注入点 |
 | **Manual** | Domain 的 H2 段（`## Manual`），详细内容；聚合到参考手册注入点，触发时注入 |
 | **me Domain** | 用户会话知识 Domain（v9 新增），Scene 段放用户背景/目标/偏好，补"我"视角 |
@@ -452,11 +472,13 @@ Pt 读取 Context 时：
 | **全局 domains** | Profile YAML frontmatter 的 domains 列表，自动分发到所有注入点 |
 | **注入点追加** | Profile 注入点 H2 下的 `### Domains` 列表，只给该注入点贡献 |
 | **聚合点数据驱动** | `### Modules` 是聚合标题列表，compile 按 modName 注册表分发 + generic fallback |
-| **Channel** | （预留）Domain 连接外部知识源的通道，未来实现 |
+| **AgentAdapter** | 适配不同 Agent 的注入机制（PiAdapter / 未来 CodexAdapter），Pt 核心调 Adapter 接口不感知 Agent API |
+| **SourceAdapter** | 适配不同知识源格式（oxnAdapter / 未来 yamlAdapter），Pt 核心不感知来源格式 |
+| **Channel** | （预留）Domain 连接外部知识源的 Connector，未来实现 |
 
 ### 0.10 v8 → v9 变更说明
 
-v9 保留 v8 的核心（异构上下文编译器定位、H2=注入点、Context 缓存），重新分配层职责 + 新增 Trigger 索引机制。以下是具体变化：
+v9 保留 v8 的核心（异构上下文编译器定位、H2=注入点、Context 缓存），重新分配层职责 + 新增 Trigger 索引机制 + AgentAdapter 抽象。以下是具体变化：
 
 #### 变化 1：职责重分配（Channel → Blueprint，Blueprint → Profile）
 
@@ -522,6 +544,35 @@ v9 保留 v8 的核心（异构上下文编译器定位、H2=注入点、Context
 
 **根因**：LLM 作为共同设计者需要理解用户意图，缺少"我"视角导致每次要花很多轮解释。
 
+#### 变化 8：注入点名人类自定义（不写死）
+
+| 维度 | v8 | v9 |
+|---|---|---|
+| 注入点名 | 代码硬编码 `会话知识\|对话记忆`（parse 判断文件类型） | Blueprint H2 人类自定义，不由代码写死 |
+| target 值 | 代码硬编码 `"system_prompt"\|"context_message"` 判断 | AgentAdapter 解释 target，Pt 核心不硬编码 |
+| 文件类型判断 | 用注入点名正则匹配 | 用 frontmatter 字段（`type`/`agent`/`blueprint`） |
+| 自定义注入点名 | 不支持（必须叫会话知识/对话记忆） | 支持（会话知识/背景知识/操作手册/...均可） |
+
+**根因**：v8 把注入点名当代码标识符用，违背"资产层用语义名、代码层用技术名"原则。v9 彻底数据驱动——注入点名是 Blueprint 的 H2（人类定义），target 是 AgentAdapter 的技术注入点名（Agent 解释）。
+
+#### 变化 9：AgentAdapter 抽象（Blueprint 声明 Agent）
+
+| 维度 | v8 | v9 |
+|---|---|---|
+| Agent 绑定 | 硬编码 Pi（`pi.on("before_agent_start")` 直接调） | Blueprint `agent` 字段声明，AgentAdapter 解释 |
+| 注入逻辑 | index.ts 直接调 Pi API | PiAdapter 封装 Pi API，Pt 核心调 Adapter 接口 |
+| 加新 Agent | 改 index.ts（重写注入逻辑） | 加新 AgentAdapter（不改 compile/render 核心） |
+
+**根因**：v8 直接调 Pi API，跟 Pi 强耦合。v9 抽出 AgentAdapter 接口——Pt 核心调 `adapter.inject(ctx, blueprint)`，具体怎么注入由 Adapter 实现。加 Codex/OpenCode 支持只加 Adapter，不改核心。依赖反转，同 SourceAdapter（知识源）同构。
+
+#### Channel 命名调整
+
+| 维度 | v8 | v9 |
+|---|---|---|
+| 定位 | 编译上下文通道（已实现的结构层） | 预留——Domain 连接外部知识源的 **Connector**（未来实现） |
+
+v8 Channel 已被 Blueprint（结构层）吸收。v9 的 Channel 是全新的预留概念——未来 Domain 通过 Channel（Connector）连接外部知识源（GitHub/Notion/文件系统/...），Channel 内部用 Connector 机制拉取外部数据填充 Domain 的 H2 段。
+
 #### 不变的部分
 
 - Pt 定位（异构上下文编译器，核心产物是 Context）
@@ -530,8 +581,73 @@ v9 保留 v8 的核心（异构上下文编译器定位、H2=注入点、Context
 - Schema/adapter 依赖反转（§6）
 - 三段式编译架构（parse/compile/render）
 - Context 缓存 hash 失效策略
-- target 字段映射语义名→Pi 技术名
 - render 按 target 分发（不硬编码模块名）
+
+### 0.11 Agent 适配器（AgentAdapter）
+
+**AgentAdapter 适配不同 Agent 的注入机制**。Blueprint 声明用哪个 Agent（`agent: pi`），Pt 编译后调用对应 AgentAdapter 把 Context 注入到该 Agent。Pt 核心调 Adapter 接口，不直接调 Agent API——加新 Agent 只加 Adapter，不改 compile/render 核心。
+
+#### 为什么需要 AgentAdapter
+
+v8 直接调 Pi API（`pi.on("before_agent_start")` + `pi.on("input")`），跟 Pi 强耦合。如果未来要支持 Codex、OpenCode 等 Agent，要重写整个 index.ts 的注入逻辑。v9 抽出 AgentAdapter 接口——依赖反转，同 SourceAdapter（知识源格式）同构。
+
+#### AgentAdapter 接口
+
+```typescript
+export interface AgentAdapter {
+  /** Agent 名（pi / codex / opencode / ...） */
+  name: string;
+  /** 该 Agent 支持的技术注入点 target 名（Pi: system_prompt, context_message） */
+  supportedTargets: string[];
+  /** 启动时注册：把 Context 注入到 Agent（session_start 调用） */
+  registerInject(api: AgentAPI, ctx: Context, blueprint: Blueprint): void;
+  /** 轮次级触发：参考手册注入（input 事件调用） */
+  triggerManual?(ctx: Context, blueprint: Blueprint, name: string, args: string): string | null;
+  /** 查询可用手册（/pt flows 用） */
+  listManuals?(ctx: Context, blueprint: Blueprint): Array<{ name: string; hint?: string; domain: string }>;
+}
+```
+
+**关键设计**：AgentAdapter 解释 target 字段——PiAdapter 把 `target: system_prompt` 映射到 `pi.on("before_agent_start")`，CodexAdapter 把同名 target（或 Codex 自己的 target 名）映射到 Codex 的注入机制。Pt 核心不硬编码 `"system_prompt"` 字符串判断。
+
+#### MVP 策略
+
+当前只实现 **PiAdapter**（封装现有 index.ts 的 Pi 注入逻辑），但接口先定义好：
+
+```typescript
+const agentAdapters: Record<string, AgentAdapter> = {
+  pi: new PiAdapter(),         // 当前实现
+  // 未来: codex: new CodexAdapter(), opencode: new OpenCodeAdapter(), ...
+};
+```
+
+加 Codex 支持 = 加 `CodexAdapter` 类 + 在注册表加一行，**不改 compile/render/transpile 核心**。Blueprint 改 `agent: codex` 即可用。
+
+#### AgentAPI 抽象
+
+AgentAdapter 不直接依赖 Pi 的 `ExtensionAPI`——通过 **AgentAPI** 接口隔离（只暴露 Adapter 需要的方法：on 事件、registerCommand、getFlag、ui.notify 等）。这样 CodexAdapter 不会被 Pi API 污染。MVP 阶段 AgentAPI 可以是 Pi ExtensionAPI 的子集类型别名，后续再抽象。
+
+#### 与 SourceAdapter 的对称性
+
+| 适配器 | 适配什么 | 接口 | MVP 实现 | 扩展方式 |
+|---|---|---|---|---|
+| **SourceAdapter** | 知识源格式（MD/YAML/DB） | `load(cwd, name) → SchemaBundle` | oxnAdapter（MD） | 加 adapter 类 |
+| **AgentAdapter** | Agent 注入机制（Pi/Codex） | `registerInject/triggerManual` | PiAdapter | 加 adapter 类 |
+
+两者都是依赖反转——Pt 核心定义接口，具体实现可插拔。Pt 的扩展性集中在两套适配器：左边吃异构知识源，右边接异构 Agent。
+
+#### 数据流（含 AgentAdapter）
+
+```
+知识源(OXN/YAML/DB) ──SourceAdapter──→ Domain IR ─┐
+                                                    │
+                                    Blueprint ──→ Profile ──[compile]──→ Context
+                                    (agent: pi)                          │
+                                        ↓                               ↓
+                                   AgentAdapter(pi) ←───────────────────┘
+                                        ↓
+                                   Pi Agent (before_agent_start / input)
+```
 
 ---
 
