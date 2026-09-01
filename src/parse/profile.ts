@@ -24,12 +24,13 @@
 //   - d5
 
 import { join } from "node:path";
+import { PROFILES_DIR, SUFFIX_PROFILE } from "../constants.js";
 import type { InjectionPointInstance, Profile } from "../schema.js";
-import { extractDomainsList, readAsset, sArr } from "./shared.js";
+import { extractDomainsList, readAsset, sArr, type Section } from "./shared.js";
 
 /** 读 profiles/<fileName>.md → Profile { name, blueprint, domains, injectionPoints } */
 export async function parseProfile(cwd: string, fileName: string): Promise<Profile> {
-  const asset = await readAsset(join(cwd, ".pt/assets/profiles", fileName));
+  const asset = await readAsset(join(cwd, PROFILES_DIR, fileName));
 
   const blueprint = typeof asset.frontmatter.blueprint === "string"
     ? asset.frontmatter.blueprint
@@ -40,7 +41,7 @@ export async function parseProfile(cwd: string, fileName: string): Promise<Profi
   // injectionPoints：每个 H2 = 注入点实例化（只读 ### Domains 追加列表）
   const injectionPoints: InjectionPointInstance[] = [];
   for (const [h2Name, section] of Object.entries(asset.sections)) {
-    const appendDomains = extractDomainsList(section as never);
+    const appendDomains = extractDomainsList(section);
     injectionPoints.push({ name: h2Name, domains: appendDomains });
   }
 
@@ -54,5 +55,5 @@ export async function parseProfile(cwd: string, fileName: string): Promise<Profi
 
 function stripProfileSuffix(fileBase: string): string {
   // v9 命名约定：<name>.profile.md → 去 .profile 后缀
-  return fileBase.replace(/\.profile$/, "");
+  return fileBase.replace(new RegExp(`${SUFFIX_PROFILE}$`), "");
 }

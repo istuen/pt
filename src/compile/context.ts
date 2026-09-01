@@ -16,24 +16,29 @@
 //   - 加新聚合标题（### Modules 加新项）= 改 Blueprint，不用改代码；generic fallback 自动处理
 //   - Trigger 段聚合在 system_prompt 注入点，作为索引段
 //   - Profile domains 自动分发：YAML 全局 domains + 注入点追加
+//
+// Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
 
+import { MOD_MANUAL, MOD_SCENE, MOD_TRIGGER } from "../constants.js";
 import type {
   Blueprint,
   Context as ContextIR,
   Domain,
+  FlowTemplate,
   InjectionPointConfig,
   InjectionPointInstance,
   Profile,
   Rule,
   StructureLayout,
 } from "../schema.js";
-
-// ==================== 共享类型 ====================
-
-interface FlowTemplateLite {
-  name: string;
-  argumentHint?: string;
-}
+import {
+  isFlowTemplateArray,
+  isNamedItemArray,
+  isRuleArray,
+  isTermArray,
+  isTriggerItemArray,
+  isWorkflowScene,
+} from "./type-guards.js";
 
 // ==================== Context 编译入口 ====================
 
@@ -135,16 +140,16 @@ function dispatchInjectionPoint(
 
 type ModuleRenderer = (d: Domain, content: unknown, mode?: StructureLayout["mode"]) => string;
 
-/** modName → renderer。已注册：Scene / Trigger / Manual。
+/** modName → renderer。已注册：Scene/Trigger/Manual。
  *  扩展：调 registerModuleRenderer("xxx", fn) 加一行 + 一个函数即可，不动主循环。
  *  加新聚合标题（Blueprint.Modules 加项）不注册 = 走 generic fallback（自动按 H3 + name/desc 输出）。 */
 const moduleRenderers: Record<string, ModuleRenderer> = {
-  Scene: renderSceneModule,
-  Trigger: renderTriggerModule,
-  Manual: renderManualModule,
+  [MOD_SCENE]: renderSceneModule,
+  [MOD_TRIGGER]: renderTriggerModule,
+  [MOD_MANUAL]: renderManualModule,
 };
 
-/** 扩展接口：加新 modName 只加一行注册 + 一个 renderer 函数。 */
+/** 扩展接口：加新 modName 只加一行 + 一个 renderer 函数。 */
 export function registerModuleRenderer(modName: string, fn: ModuleRenderer): void {
   moduleRenderers[modName] = fn;
 }
@@ -155,12 +160,13 @@ export function registerModuleRenderer(modName: string, fn: ModuleRenderer): voi
  *  hybrid mode 下 rule 也可从 Scene 抽——但 v9 规则在 Manual 段，Scene 段只承载场景元数据。 */
 function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout["mode"]): string {
   const lines: string[] = [`### 模块「${d.name}」`];
+
   switch (d.type) {
     case "term": {
-      const terms = (content as Array<{ name: string; desc: string }> | undefined) ?? [];
-      if (terms.length > 0) {
+      if (!isTermArray(content)) return "";
+      if (content.length > 0) {
         lines.push("", "**术语**");
-        for (const t of terms) {
+        for (const t of content) {
           if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
           else lines.push(`- **${t.name}**`);
         }
@@ -168,11 +174,11 @@ function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout[
       break;
     }
     case "workflow": {
-      const scene = content as { externals?: Array<{ name: string; path: string }> } | undefined;
-      const exts = scene?.externals ?? [];
-      if (exts.length > 0) {
+      if (!isWorkflowScene(content)) return "";
+      const externals = content.externals ?? [];
+      if (externals.length > 0) {
         lines.push("", "**外部数据**");
-        for (const ext of exts) lines.push(`- ${ext.name}：\`${ext.path}\``);
+        for (const ext of externals) lines.push(`- ${ext.name}：\`${ext.path}\``);
       }
       break;
     }
@@ -192,10 +198,10 @@ function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout[
 /** Trigger 段聚合：把所有 Domain 的 Trigger 项合并成索引。
  *  v9 关键：Trigger 是索引，告诉 LLM "有什么手册可查 + 何时查"。不加模块标题——索引段是平的。 */
 function renderTriggerModule(d: Domain, content: unknown): string {
-  const items = (content as Array<{ name: string; desc?: string; hint?: string }> | undefined) ?? [];
-  if (items.length === 0) return "";
+  if (!isTriggerItemArray(content)) return "";
+  if (content.length === 0) return "";
   const lines: string[] = [];
-  for (const t of items) {
+  for (const t of content) {
     if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
     else lines.push(`- **${t.name}**`);
     if (t.hint) lines.push(`  ${t.hint}`);
@@ -209,18 +215,19 @@ function renderTriggerModule(d: Domain, content: unknown): string {
  *  v9：context_message 注入点（参考手册）主要消费 Manual 段。 */
 function renderManualModule(d: Domain, content: unknown): string {
   const lines: string[] = [`### 模块「${d.name}」`, ""];
+
   switch (d.type) {
     case "workflow": {
-      const tpls = (content as Array<FlowTemplateLite> | undefined) ?? [];
-      for (const t of tpls) {
+      if (!isFlowTemplateArray(content)) return "";
+      for (const t of content) {
         const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
         lines.push(`- **/${t.name}**${hint}`);
       }
       break;
     }
     case "term": {
-      const rules = (content as Rule[]) ?? [];
-      for (const r of rules) {
+      if (!isRuleArray(content)) return "";
+      for (const r of content) {
         if (r.type === "invariant") lines.push(`- [ ] ${r.check}`);
         else if (r.type === "ban" && r.items && r.items.length > 0) {
           lines.push(`- [ ] ${r.check}：${r.items.join(" / ")}`);
@@ -242,14 +249,11 @@ function renderManualModule(d: Domain, content: unknown): string {
 /** Generic fallback：原样输出 H3 标题 + 列表项，不解析内容格式。
  *  加新聚合标题（如 ### Modules 加 ## Glossary）不用注册 renderer，自动用 fallback 聚合。 */
 function renderGenericModule(_d: Domain, content: unknown): string {
-  if (!Array.isArray(content)) return "";
+  if (!isNamedItemArray(content)) return "";
   const lines: string[] = [];
   for (const item of content) {
-    if (item && typeof item === "object" && "name" in item) {
-      const t = item as { name: string; desc?: string };
-      if (t.desc) lines.push(`- **${t.name}**：${t.desc}`);
-      else lines.push(`- **${t.name}**`);
-    }
+    if (item.desc) lines.push(`- **${item.name}**：${item.desc}`);
+    else lines.push(`- **${item.name}**`);
   }
   return lines.join("\n");
 }
@@ -291,8 +295,13 @@ export function computeSourceHash(
 function stableStringify(obj: unknown): string {
   if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
   if (Array.isArray(obj)) return "[" + obj.map(stableStringify).join(",") + "]";
-  const keys = Object.keys(obj as Record<string, unknown>).sort();
-  return "{" + keys.map((k) => `${JSON.stringify(k)}:${stableStringify((obj as Record<string, unknown>)[k])}`).join(",") + "}";
+  if (!isRecord(obj)) return JSON.stringify(obj);
+  const keys = Object.keys(obj).sort();
+  return "{" + keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",") + "}";
+}
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return !!x && typeof x === "object" && !Array.isArray(x);
 }
 
 /** FNV-1a 32-bit hash，足够用于缓存标识。 */

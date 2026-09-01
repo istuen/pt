@@ -28,28 +28,30 @@
 //   ## Compilation
 //   cache-dir: .pt/contexts/cache/
 //   split: single-file
+//
+// Tech Debt T6: 用 constants + type guard（pt-quality #1/#4/#5）
 
 import { join } from "node:path";
+import { BLUEPRINTS_DIR, CACHE_DIR, SUFFIX_BLUEPRINT } from "../constants.js";
 import type {
   Blueprint,
   CacheSplitStrategy,
   CompilationConfig,
   InjectionPointConfig,
-  InjectionTarget,
   StructureLayout,
 } from "../schema.js";
 import {
   extractFieldValue,
   extractModulesList,
   readAsset,
-  s,
+  type Section,
 } from "./shared.js";
 
 const VALID_MODES: ReadonlyArray<StructureLayout["mode"]> = ["byDomain", "byType", "hybrid"];
 
 /** 读 blueprints/<fileName>.md → Blueprint { name, agent, injectionPoints, compilation } */
 export async function parseBlueprint(cwd: string, fileName: string): Promise<Blueprint> {
-  const asset = await readAsset(join(cwd, ".pt/assets/blueprints", fileName));
+  const asset = await readAsset(join(cwd, BLUEPRINTS_DIR, fileName));
 
   const agent = typeof asset.frontmatter.agent === "string" ? asset.frontmatter.agent : "pi";
 
@@ -72,46 +74,41 @@ export async function parseBlueprint(cwd: string, fileName: string): Promise<Blu
 }
 
 /** 把一个 H2 段解析为 InjectionPointConfig（v9 Blueprint 直接拥有，逻辑同 v8 Channel）。 */
-function parseInjectionPointFromSection(
-  h2Name: string,
-  section: { raw: string; items: { name: string; fields: Record<string, unknown> }[] },
-): InjectionPointConfig {
-  const targetRaw = extractFieldValue(section as never, "target") || "system_prompt";
-  const modeRaw = extractFieldValue(section as never, "mode");
-  const modules = extractModulesList(section as never);
+function parseInjectionPointFromSection(h2Name: string, section: Section): InjectionPointConfig {
+  const targetRaw = extractFieldValue(section, "target") || "system_prompt";
+  const modeRaw = extractFieldValue(section, "mode");
+  const modules = extractModulesList(section);
 
-  const mode = modeRaw && VALID_MODES.includes(modeRaw as StructureLayout["mode"])
-    ? (modeRaw as StructureLayout["mode"])
-    : undefined;
+  const mode: StructureLayout["mode"] | undefined =
+    modeRaw && isValidMode(modeRaw) ? modeRaw : undefined;
 
+  // target 未严格收窄（扩展 InjectionTarget 可含任意字符串，如未来 Agent 扩展）
   const ip: InjectionPointConfig = {
     name: h2Name,
-    target: targetRaw as InjectionTarget,
+    target: targetRaw,
     modules,
   };
   if (mode) ip.mode = mode;
   return ip;
 }
 
+function isValidMode(x: string): x is StructureLayout["mode"] {
+  return (VALID_MODES as readonly string[]).includes(x);
+}
+
 /** 解析 ## Compilation 段 → CompilationConfig。 */
-function parseCompilationFromSection(section: { raw: string; items: { name: string; fields: Record<string, unknown> }[] } | undefined): CompilationConfig {
+function parseCompilationFromSection(section: Section | undefined): CompilationConfig {
   if (!section) {
-    return { cacheDir: ".pt/contexts/cache/", split: "single-file" };
+    return { cacheDir: CACHE_DIR, split: "single-file" };
   }
-  const cacheDir = extractFieldValue(section as never, "cache-dir") || ".pt/contexts/cache/";
-  const splitRaw = extractFieldValue(section as never, "split") || "single-file";
-  return {
-    cacheDir,
-    split: (splitRaw === "by-injection-point" ? "by-injection-point" : "single-file") as CacheSplitStrategy,
-  };
+  const cacheDir = extractFieldValue(section, "cache-dir") || CACHE_DIR;
+  const splitRaw = extractFieldValue(section, "split") || "single-file";
+  const split: CacheSplitStrategy = splitRaw === "by-injection-point" ? "by-injection-point" : "single-file";
+  return { cacheDir, split };
 }
 
 function stripBlueprintSuffix(fileBase: string): string {
   // v9 命名约定：<name>.blueprint.md → 去 .blueprint 后缀
   // v8 兼容：去 .scene/.manual 后缀
-  return fileBase.replace(/\.blueprint$/, "").replace(/\.(scene|manual)$/, "");
+  return fileBase.replace(new RegExp(`${SUFFIX_BLUEPRINT}$`), "").replace(/\.(scene|manual)$/, "");
 }
-
-// ==================== 共享辅助 ====================
-
-export { s };

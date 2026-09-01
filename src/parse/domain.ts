@@ -18,12 +18,13 @@
 //     ...
 
 import { join } from "node:path";
+import { DOMAINS_DIR } from "../constants.js";
 import type { Domain, ExternalRef, FlowStep, FlowTemplate, Rule, Term, ToolRef } from "../schema.js";
 import { readAsset, s, sArr, type Item } from "./shared.js";
 
 /** 读 domains/<fileName>.md → Domain { name, type, modules: Record<H2名, 内容> } */
 export async function parseDomain(cwd: string, fileName: string): Promise<Domain> {
-  const asset = await readAsset(join(cwd, ".pt/assets/domains", fileName));
+  const asset = await readAsset(join(cwd, DOMAINS_DIR, fileName));
   const type = typeof asset.frontmatter.type === "string" ? asset.frontmatter.type : "term";
 
   // H2 段名 → 段内容的解析：按 type 分发；未知 type 走通用 fallback（term 形态）。
@@ -122,7 +123,10 @@ function toFlowTemplates(items: Item[], sectionRaw: string): FlowTemplate[] {
       externals: [],
     };
     const vars = sArr(item.fields.vars);
-    if (vars.length > 0) (tpl as FlowTemplate & { _vars?: string[] })._vars = vars;
+    if (vars.length > 0) {
+      // _vars 字段是 render 层附加的，不是 schema 字段——透传不收窄
+      Object.assign(tpl, { _vars: vars });
+    }
     return tpl;
   });
 }

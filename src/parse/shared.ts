@@ -71,16 +71,9 @@ export async function readAsset(path: string): Promise<Asset> {
   // v9：用 frontmatter 字段区分 Profile（blueprint）/ Blueprint（agent）/ Domain（type），
   //     不再依赖 H2 注入点名（注入点名是自定义的语义名）
   let kind: AssetKind | undefined;
-  if (typeof fm.kind === "string") {
-    kind = fm.kind as AssetKind;
-  } else if (typeof fm.type === "string") {
-    kind = fm.type as AssetKind;
-  } else if (typeof fm.entity === "string") {
-    kind = fm.entity as AssetKind;
-  } else if (typeof fm.blueprint === "string") {
-    kind = "profile";
-  } else if (typeof fm.agent === "string") {
-    kind = "blueprint";
+  const kindFromFm = inferKindFromFrontmatter(fm);
+  if (kindFromFm) {
+    kind = kindFromFm;
   } else {
     kind = inferKind(body);
   }
@@ -338,4 +331,23 @@ function inferKind(body: string): AssetKind {
   if (/^##\s+Slots\b/m.test(body)) return "workflow";
   if (/^##\s+Tools\b/m.test(body)) return "stack";
   return "domain";
+}
+
+/** 从 frontmatter 推断 asset kind（type guard：返 undefined 表示 frontmatter 不包含足够信息）。 */
+function inferKindFromFrontmatter(fm: Record<string, unknown>): AssetKind | undefined {
+  const validKinds: ReadonlyArray<AssetKind> = [
+    "domain", "blueprint", "profile",
+    "term", "workflow", "stack", "glossary",
+    "scene", "manual", "channel",
+  ];
+  const candidates = ["kind", "type", "entity"] as const;
+  for (const key of candidates) {
+    const v = fm[key];
+    if (typeof v === "string" && (validKinds as readonly string[]).includes(v)) {
+      return v as AssetKind;
+    }
+  }
+  if (typeof fm.blueprint === "string") return "profile";
+  if (typeof fm.agent === "string") return "blueprint";
+  return undefined;
 }

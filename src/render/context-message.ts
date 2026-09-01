@@ -6,7 +6,12 @@
 //
 // /manual:<domain-name> 触发：从 Blueprint 的 context_message 注入点引用的 Domain 里查 Manual 段
 // /<flow-name> <args> 触发：展开 workflow-Domain 的 FlowTemplate（v8 逻辑保留）
+//
+// Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
+// Tech Debt T2: 用 constants 模块名常量（pt-quality #5）
 
+import { MOD_MANUAL } from "../constants.js";
+import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
 import type { Blueprint, Context, Domain, FlowStep, FlowTemplate } from "../schema.js";
 
 /** FlowTemplate + 元数据（adapter 附加的 _vars）。_vars 优先于 argument-hint fallback。 */
@@ -40,8 +45,8 @@ export function renderContextMessage(
     const domainName = name.slice("manual:".length).trim();
     const d = domains.find((x) => x.name === domainName);
     if (!d) return null;
-    const manual = d.modules["Manual"];
-    if (!manual) return null;
+    const manual = d.modules[MOD_MANUAL];
+    if (manual === undefined) return null;
     return renderDomainManual(d, manual);
   }
 
@@ -50,8 +55,8 @@ export function renderContextMessage(
     const domainName = rest.trim();
     const d = domains.find((x) => x.name === domainName);
     if (!d) return null;
-    const manual = d.modules["Manual"];
-    if (!manual) return null;
+    const manual = d.modules[MOD_MANUAL];
+    if (manual === undefined) return null;
     return renderDomainManual(d, manual);
   }
 
@@ -65,25 +70,25 @@ export function renderContextMessage(
  * 渲染 Domain 的 Manual 段内容（term→Rule checklist / workflow→FlowTemplate 列表）。
  *  复用 renderManualModule 的格式逻辑。
  */
-function renderDomainManual(d: Domain, content: unknown): string {
+function renderDomainManual(d: Domain, content: unknown): string | null {
   const lines: string[] = [`# /manual:${d.name}`, ""];
 
   switch (d.type) {
     case "workflow": {
-      const tpls = (content as Array<FlowTemplateLite> | undefined) ?? [];
-      if (tpls.length === 0) return "";
+      if (!isFlowTemplateArray(content)) return null;
+      if (content.length === 0) return null;
       lines.push("## 可用手册");
-      for (const t of tpls) {
+      for (const t of content) {
         const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
         lines.push(`- **/${t.name}**${hint}`);
       }
       break;
     }
     case "term": {
-      const rules = (content as Array<RuleLite> | undefined) ?? [];
-      if (rules.length === 0) return "";
+      if (!isRuleArray(content)) return null;
+      if (content.length === 0) return null;
       lines.push("## 规范清单");
-      for (const r of rules) {
+      for (const r of content) {
         if (r.type === "invariant") lines.push(`- [ ] ${r.check}`);
         else if (r.type === "ban" && r.items && r.items.length > 0) {
           lines.push(`- [ ] ${r.check}：${r.items.join(" / ")}`);
@@ -92,21 +97,10 @@ function renderDomainManual(d: Domain, content: unknown): string {
       break;
     }
     default:
-      return "";
+      return null;
   }
 
   return lines.join("\n");
-}
-
-interface FlowTemplateLite {
-  name: string;
-  argumentHint?: string;
-}
-
-interface RuleLite {
-  type: "ban" | "invariant";
-  check: string;
-  items?: string[];
 }
 
 /**
@@ -188,19 +182,21 @@ export function findFlowInBlueprint(
   domains: Array<{ name: string; type: string; modules: Record<string, unknown> }>,
   tplName: string,
 ): BoundableTemplate | undefined {
-  // 验证 Blueprint 里有 target=context_message 的注入点（间接确认 input 事件该由本 Blueprint 接管）
+  // 验证 Blueprint 里有 target=context_message 的注入点（间接确认 input 事件该由本实例覆盖接管）
   const hasContextMsgIp = blueprint.injectionPoints.some((ip) => ip.target === "context_message");
   if (!hasContextMsgIp) return undefined;
 
   for (const d of domains) {
     if (d.type !== "workflow") continue;
-    const tpls = (d.modules["Manual"] as Array<FlowTemplate> | undefined) ?? [];
-    const hit = tpls.find((t) => t.name === tplName);
+    const manual = d.modules[MOD_MANUAL];
+    if (!isFlowTemplateArray(manual)) continue;
+    const hit = manual.find((t) => t.name === tplName);
     if (hit) {
-      const bt = hit as FlowTemplate & { _vars?: string[] };
-      const vars = (bt as { vars?: unknown }).vars;
-      if (Array.isArray(vars)) {
-        const strs = vars.filter((x): x is string => typeof x === "string");
+      const bt: BoundableTemplate = { ...hit };
+      // 兼容：args 里 vars 字段（如 frontmatter 残留）
+      const varsField = (bt as unknown as { vars?: unknown }).vars;
+      if (Array.isArray(varsField)) {
+        const strs = varsField.filter((x): x is string => typeof x === "string");
         if (strs.length > 0) bt._vars = strs;
       }
       return bt;

@@ -8,6 +8,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { FULL_DIR, MOD_MANUAL, PROFILES_DIR, RAW_DIR } from "./constants.js";
 import { getAgentAdapter } from "./agent/index.js";
 import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
 import { findFlowInBlueprint } from "./render/context-message.js";
@@ -107,7 +108,9 @@ export default function (pi: ExtensionAPI): void {
       await transpileActive(ctx.cwd, picked);
       // 注册 AgentAdapter 注入（封装 before_agent_start + input）
       if (activeAdapter && cachedContext && cachedBlueprint) {
-        activeAdapter.registerInject(pi as unknown as import("./schema.js").AgentAPI, cachedContext, cachedBlueprint);
+        // Pi ExtensionAPI 是 AgentAPI 的超集（多 registerCommand/registerFlag 等），
+        // 用结构类型 (structural typing) 直接传给 AgentAPI——TS duck-types 兼容
+        activeAdapter.registerInject(toAgentAPI(pi), cachedContext, cachedBlueprint);
       }
       ctx.ui.setStatus("pt", `pt: ${picked}`);
     } catch (e) {
@@ -145,7 +148,7 @@ export default function (pi: ExtensionAPI): void {
       if (!name) {
         const names = await listProfiles(ctx.cwd);
         if (names.length === 0) {
-          ctx.ui.notify("未找到任何 Profile（.pt/assets/profiles/*.profile.md）", "warning");
+          ctx.ui.notify(`未找到任何 Profile（${PROFILES_DIR}/*.profile.md）`, "warning");
           return;
         }
         if (!ctx.hasUI) {
@@ -171,7 +174,7 @@ export default function (pi: ExtensionAPI): void {
         const flowCount = cachedBundles?.reduce((acc, b) => {
           let n = 0;
           for (const d of b.domains) if (d.type === "workflow") {
-            const tpls = (d.modules["Manual"] as unknown[] | undefined) ?? [];
+            const tpls = Array.isArray(d.modules[MOD_MANUAL]) ? d.modules[MOD_MANUAL] : [];
             n += tpls.length;
           }
           return acc + n;
@@ -221,7 +224,7 @@ export default function (pi: ExtensionAPI): void {
           ctx.ui.notify("无 segment 可显示", "warning");
           return;
         }
-        const dir = join(ctx.cwd, ".pt", "raws");
+        const dir = join(ctx.cwd, RAW_DIR);
         await mkdir(dir, { recursive: true });
         const file = join(dir, `segment-${Date.now()}.md`);
         await writeFile(file, cachedSegment, "utf8");
@@ -237,7 +240,7 @@ export default function (pi: ExtensionAPI): void {
         if (!cachedSegment) {
           ctx.ui.notify("警告：无 cachedSegment（未加载 Profile）。用 /pt-context <name> 选择", "warning");
         }
-        const dir = join(ctx.cwd, ".pt", "fulls");
+        const dir = join(ctx.cwd, FULL_DIR);
         await mkdir(dir, { recursive: true });
         const file = join(dir, `prompt-${Date.now()}.md`);
         await writeFile(file, full, "utf8");
@@ -250,12 +253,23 @@ export default function (pi: ExtensionAPI): void {
   });
 }
 
+/** 将 Pi ExtensionAPI 转换为 AgentAPI（结构类型子集，运行时透明）。
+ *  Pi ExtensionAPI 是 AgentAPI 的超集，多余方法（registerCommand/registerFlag 等）不暴露给 Adapter。 */
+function toAgentAPI(pi: ExtensionAPI): import("./schema.js").AgentAPI {
+  return {
+    on: (event, handler) => pi.on(event as Parameters<ExtensionAPI["on"]>[0], handler as Parameters<ExtensionAPI["on"]>[1]),
+    registerCommand: (name, spec) => pi.registerCommand(name, spec as Parameters<ExtensionAPI["registerCommand"]>[1]),
+    registerFlag: (name, spec) => pi.registerFlag(name, spec as Parameters<ExtensionAPI["registerFlag"]>[1]),
+    getFlag: (name) => pi.getFlag(name),
+  };
+}
+
 // 暴露 activeProfile 用于调试（未来可挂 /pt status）
 export function _debugActive(): { profile: string | null; segmentLen: number; flowCount: number; cacheHit: boolean } {
   const flowCount = cachedBundles?.reduce((acc, b) => {
     let n = 0;
     for (const d of b.domains) if (d.type === "workflow") {
-      const tpls = (d.modules["Manual"] as unknown[] | undefined) ?? [];
+      const tpls = Array.isArray(d.modules[MOD_MANUAL]) ? d.modules[MOD_MANUAL] : [];
       n += tpls.length;
     }
     return acc + n;

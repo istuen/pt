@@ -6,7 +6,7 @@
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { SUFFIX_MD, blueprintsDir, domainsDir, profilesDir } from "../constants.js";
+import { BLUEPRINTS_DIR, DOMAINS_DIR, PROFILES_DIR, SUFFIX_MD } from "../constants.js";
 import type { Blueprint, Domain, Profile, SchemaBundle, SourceAdapter } from "../schema.js";
 import { findBlueprint, findProfile } from "../schema.js";
 import { parseBlueprint } from "./blueprint.js";
@@ -62,17 +62,17 @@ export const mdAdapter: SourceAdapter = {
 // ==================== 目录枚举辅助 ====================
 
 async function loadAllDomains(cwd: string): Promise<Domain[]> {
-  const dir = join(cwd, domainsDir());
+  const dir = join(cwd, DOMAINS_DIR);
   return loadDir(dir, SUFFIX_MD, (f) => parseDomain(cwd, f));
 }
 
 async function loadAllBlueprints(cwd: string): Promise<Blueprint[]> {
-  const dir = join(cwd, blueprintsDir());
+  const dir = join(cwd, BLUEPRINTS_DIR);
   return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(cwd, f));
 }
 
 async function loadAllProfiles(cwd: string): Promise<Profile[]> {
-  const dir = join(cwd, profilesDir());
+  const dir = join(cwd, PROFILES_DIR);
   return loadDir(dir, SUFFIX_MD, (f) => parseProfile(cwd, f));
 }
 

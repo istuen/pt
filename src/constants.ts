@@ -12,13 +12,13 @@
 export const ASSETS_DIR = ".pt/assets";
 
 /** Domain md 目录（type=term/workflow/stack/扩展） */
-export const domainsDir = () => `${ASSETS_DIR}/domains`;
+export const DOMAINS_DIR = `${ASSETS_DIR}/domains`;
 
 /** Blueprint md 目录（v9 结构层——agent + injectionPoints + Compilation） */
-export const blueprintsDir = () => `${ASSETS_DIR}/blueprints`;
+export const BLUEPRINTS_DIR = `${ASSETS_DIR}/blueprints`;
 
 /** Profile md 目录（v9 配置层——blueprint + domains + injectionPoints） */
-export const profilesDir = () => `${ASSETS_DIR}/profiles`;
+export const PROFILES_DIR = `${ASSETS_DIR}/profiles`;
 
 /** Context 物理缓存目录（Blueprint.compilation.cacheDir 默认值） */
 export const CACHE_DIR = ".pt/contexts/cache";

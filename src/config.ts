@@ -6,6 +6,7 @@
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { PROFILES_DIR } from "./constants.js";
 
 /** 读项目 settings.json 的指定 dotted key。文件不存在/解析失败 → undefined */
 export async function readProjectSetting<T = unknown>(
@@ -21,16 +22,21 @@ export async function readProjectSetting<T = unknown>(
     return undefined;
   }
   return dottedKey.split(".").reduce<unknown>((acc, k) => {
-    if (acc && typeof acc === "object" && k in acc) {
-      return (acc as Record<string, unknown>)[k];
+    if (isRecord(acc) && k in acc) {
+      return acc[k];
     }
     return undefined;
   }, json) as T | undefined;
 }
 
+/** 判断 unknown 是否为索引签名对象。 */
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return !!x && typeof x === "object" && !Array.isArray(x);
+}
+
 /** 列出 .pt/assets/profiles/*.profile.md 下的 Profile 名（v9：去 .profile 后缀）。 */
 export async function listProfiles(cwd: string): Promise<string[]> {
-  const dir = join(cwd, ".pt", "assets", "profiles");
+  const dir = join(cwd, PROFILES_DIR);
   try {
     const files = await readdir(dir);
     const profiles: string[] = [];

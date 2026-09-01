@@ -5,7 +5,12 @@
 //   - context_message 触发：api.on("input") 拦截 /manual:xxx 和 /<flow-name>
 //
 // Pt 核心只调 AgentAdapter 接口，不直接调 Pi API。加新 Agent 只加 Adapter。
+//
+// Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
+// Tech Debt T2: 用 constants 模块名常量（pt-quality #5）
 
+import { AGENT_PI, MOD_MANUAL } from "../constants.js";
+import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
 import type {
   AgentAdapter,
   AgentAPI,
@@ -18,7 +23,7 @@ import { renderSystemPrompt } from "../render/system-prompt.js";
 
 /** PiAdapter：封装 Pi Agent 的注入机制。 */
 export class PiAdapter implements AgentAdapter {
-  name = "pi";
+  name = AGENT_PI;
   supportedTargets = ["system_prompt", "context_message"];
 
   private ctx: Context | null = null;
@@ -40,16 +45,18 @@ export class PiAdapter implements AgentAdapter {
 
     // system_prompt 注入：每轮追加 segment
     api.on("before_agent_start", async (...args: unknown[]) => {
-      const event = args[0] as { systemPrompt: string } | undefined;
-      if (!seg || !event) return undefined;
+      if (!seg) return undefined;
+      const event = args[0];
+      if (!isSystemPromptEvent(event)) return undefined;
       const final = event.systemPrompt + "\n\n## 当前任务上下文\n\n" + seg;
       return { systemPrompt: final };
     });
 
     // context_message 触发：/manual:xxx + /<flow-name>
     api.on("input", async (...args: unknown[]) => {
-      const event = args[0] as { text: string } | undefined;
-      if (!event || !this.ctx || !this.blueprint) return { action: "continue" };
+      if (!this.ctx || !this.blueprint) return { action: "continue" };
+      const event = args[0];
+      if (!isInputEvent(event)) return { action: "continue" };
       const result = renderContextMessage(this.ctx, this.blueprint, this.domains, event.text);
       if (result === null) return { action: "continue" };
       return { action: "transform", text: result };
@@ -59,30 +66,28 @@ export class PiAdapter implements AgentAdapter {
   /** 查询可用手册（/pt flows 用）。
    *  v9：遍历 Blueprint 的 context_message 注入点 → 引用 Domain → 找 FlowTemplate + term 的 Manual Rule。 */
   listManuals(
-    ctx: Context,
+    _ctx: Context,
     blueprint: Blueprint,
     domains: Domain[],
   ): Array<{ name: string; hint?: string; domain: string }> {
     const flows: Array<{ name: string; hint?: string; domain: string }> = [];
-    void ctx;
 
     for (const ip of blueprint.injectionPoints) {
       if (ip.target !== "context_message") continue;
       // ip.modules 是 modName 列表（"Manual"）；domains 是 Profile 注入点引用的 Domain 集
       // 这里用全集 domains 简化——renderContextMessage 也走全集
       for (const d of domains) {
-        const manual = d.modules["Manual"];
-        if (!manual || !Array.isArray(manual)) continue;
+        const manual = d.modules[MOD_MANUAL];
+        if (manual === undefined) continue;
         if (d.type === "workflow") {
-          for (const t of manual as Array<{ name: string; argumentHint?: string }>) {
+          if (!isFlowTemplateArray(manual)) continue;
+          for (const t of manual) {
             flows.push({ name: t.name, hint: t.argumentHint, domain: d.name });
           }
         } else if (d.type === "term") {
-          for (const r of manual as Array<{ name?: string; check: string }>) {
-            // term-Domain 的 Rule[] 也作为"手册"暴露——/manual:<domain> 注入该 Domain 全部 Manual
-            // 这里用 /manual:<domain> 形式聚合 term-Domain 而非单条 Rule
-            if (r.name) flows.push({ name: r.name, hint: r.check, domain: d.name });
-          }
+          if (!isRuleArray(manual)) continue;
+          // term-Domain 的 Rule[] 作为 /manual:<domain> 暴露
+          flows.push({ name: `/manual:${d.name}`, hint: `${manual.length} 条规范`, domain: d.name });
         }
       }
     }
@@ -96,4 +101,14 @@ export class PiAdapter implements AgentAdapter {
       return true;
     });
   }
+}
+
+// ==================== Pi ExtensionAPI 事件 type guards ====================
+
+function isSystemPromptEvent(x: unknown): x is { systemPrompt: string } {
+  return !!x && typeof x === "object" && typeof (x as { systemPrompt?: unknown }).systemPrompt === "string";
+}
+
+function isInputEvent(x: unknown): x is { text: string } {
+  return !!x && typeof x === "object" && typeof (x as { text?: unknown }).text === "string";
 }
