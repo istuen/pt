@@ -1,35 +1,48 @@
 // src/render/cache.ts — Context 文件读写 + hash 校验
 //
-// Phase 7.6：Context 物理文件缓存（.pt/contexts/cache/*.context.md）。
-//   - saveContext(ctx): 写文件（含 sourceHash 头）
-//   - loadContext(cwd, name): 读文件，比对 sourceHash，命中返缓存，未命中返 null
+// Phase 8.5：v8 缓存配置从 Blueprint.Compilation 取（替代 v7 硬编码 .pt/contexts/cache）。
+//   - cacheDir：从 Blueprint.compilation.cacheDir 读
+//   - split：single-file / by-injection-point（本步只实现 single-file，by-injection-point 留 TODO）
 //
 // 失效策略：sourceHash = hash(Domains + Channel + Blueprint) 组合。
 // 三者任一变化即失效重编译。
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Context } from "../schema.js";
+import type { CompilationConfig, Context } from "../schema.js";
 
-const CACHE_DIR = ".pt/contexts/cache";
-
-/** 把 Context IR 序列化并写入 .pt/contexts/cache/<name>.context.md。
+/** 把 Context IR 序列化并写入 <cacheDir>/<name>.context.md。
  *  文件头：source-hash: <hash>（缓存失效依据）。 */
-export async function saveContext(cwd: string, ctx: Context): Promise<string> {
-  const dir = join(cwd, CACHE_DIR);
+export async function saveContext(cwd: string, ctx: Context, compilation: CompilationConfig): Promise<string> {
+  const dir = join(cwd, compilation.cacheDir);
   await mkdir(dir, { recursive: true });
+
+  if (compilation.split === "by-injection-point") {
+    // TODO：v8.5 留作扩展——按注入点拆多文件，本步先实现 single-file
+    // 实现要点：每个注入点一个 <name>.<ipName>.md，frontmatter 含 ipName 标记
+  }
+
+  // single-file：默认路径
   const file = join(dir, `${ctx.name}.context.md`);
   const body = serializeContext(ctx);
   await writeFile(file, body, "utf8");
   return file;
 }
 
-/** 读 .pt/contexts/cache/<name>.context.md 并校验 sourceHash。
+/** 读 <cacheDir>/<name>.context.md 并校验 sourceHash。
  *  - 文件不存在 → 返 null（首次加载）
  *  - 文件存在但 hash 不一致 → 返 null（需重编译覆盖）
  *  - 命中 → 返 Context IR */
-export async function loadContext(cwd: string, name: string, expectedHash: string): Promise<Context | null> {
-  const file = join(cwd, CACHE_DIR, `${name}.context.md`);
+export async function loadContext(
+  cwd: string,
+  name: string,
+  expectedHash: string,
+  compilation: CompilationConfig,
+): Promise<Context | null> {
+  // v8：按 compilation.split 决定文件名
+  //   - single-file：<name>.context.md
+  //   - by-injection-point：<name>.<ipName>.md（多文件）→ 本步未实现，按 single-file fallback
+  const file = join(cwd, compilation.cacheDir, `${name}.context.md`);
   let raw: string;
   try {
     raw = await readFile(file, "utf8");
