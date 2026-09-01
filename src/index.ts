@@ -1,44 +1,58 @@
-// src/index.ts — Pi 扩展入口（v7）
-// Pi ExtensionAPI 用法见 pt-plugin-design.md §0 与 §5。
+// src/index.ts — Pi 扩展入口（v9）
 //
-// v7 user 面命令：--pt-context（flag）/ /pt-context（命令），对应"激活 Blueprint → 编译 Context"。
-//   "blueprint" 在 v7 是配置层概念（Channel + Domains + trigger + boundaries），内部变量名保留 blueprint 字样；
-//   用户面命令改名 pt-context，强调产物是 Context（编译后的上下文文件）。
+// v9 用户面命令：--pt-context（flag）/ /pt-context（命令），对应"激活 Profile → 编译 Context"。
+//   "profile" 在 v9 是配置层概念（引用 Blueprint + 选 Domains），用户面命令强调产物是 Context。
+//
+// 注入用 AgentAdapter（默认 Pi）封装 before_agent_start + input 事件。
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { detectSingleScene, listScenes, readProjectSetting } from "./config.js";
+import { getAgentAdapter } from "./agent/index.js";
+import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
+import { findFlowInBlueprint } from "./render/context-message.js";
 import { loadAndTranspile } from "./transpile.js";
-import { bindFlowTemplate, findFlowInBundle } from "./render/index.js";
-import type { SchemaBundle } from "./schema.js";
+import type { AgentAdapter, Context, Blueprint, Domain, SchemaBundle } from "./schema.js";
 
 // === per-session 内存态（每进程隔离 = 每会话隔离） ===
-let activeBlueprint: string | null = null;
+let activeProfile: string | null = null;
 let cachedSegment: string | null = null;
-/** 缓存 SchemaBundle（含 domains/channels/blueprints），给 input handler 用 */
+/** 缓存 SchemaBundle（含 domains/blueprints/profiles），给 input handler 找 FlowTemplate 用 */
 let cachedBundles: SchemaBundle[] | null = null;
 let lastCwd: string = "";
 /** 缓存上一次 before_agent_start 后的最终 systemPrompt（供 /pt full 读取） */
 let lastBuiltPrompt: string | null = null;
 /** 上一次编译是否命中缓存 */
 let lastCacheHit: boolean = false;
+/** AgentAdapter 实例（从 Blueprint.agent 取，默认 pi） */
+let activeAdapter: AgentAdapter | null = null;
+/** 编译产物（给 adapter + /pt flows 用） */
+let cachedContext: Context | null = null;
+let cachedBlueprint: Blueprint | null = null;
+let cachedDomains: Domain[] = [];
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** 转译当前选定的 Blueprint，结果写入 cachedSegment + cachedBundles；失败降级 */
-async function transpileActive(cwd: string, blueprintName: string): Promise<void> {
-  const result = await loadAndTranspile(cwd, blueprintName);
+/** 转译当前选定的 Profile，结果写入 cachedSegment + cachedBundles + adapter；失败降级 */
+async function transpileActive(cwd: string, profileName: string): Promise<void> {
+  const result = await loadAndTranspile(cwd, profileName);
   cachedSegment = result.segment;
   cachedBundles = result.bundles;
-  activeBlueprint = blueprintName;
+  cachedContext = result.context;
+  cachedBlueprint = result.blueprint;
+  cachedDomains = result.domains;
+  activeProfile = profileName;
   lastCacheHit = result.cacheHit;
+
+  // 设置 AgentAdapter 的编译产物（默认 pi）
+  activeAdapter = getAgentAdapter(result.blueprint.agent);
+  activeAdapter.setContext(result.context, result.blueprint, result.domains);
 }
 
-/** 切换 Blueprint：重转译 + 通知 */
-async function switchBlueprint(
+/** 切换 Profile：重转译 + 通知 */
+async function switchProfile(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   name: string,
@@ -57,9 +71,9 @@ async function switchBlueprint(
 function findFlow(name: string) {
   if (!cachedBundles) return undefined;
   for (const b of cachedBundles) {
-    const bp = b.blueprints.find((x) => x.name === b.activeBlueprint);
+    const bp = b.blueprints.find((x) => x.name === b.blueprints[0]?.name);
     if (!bp) continue;
-    const tpl = findFlowInBundle(bp, b.domains, name);
+    const tpl = findFlowInBlueprint(bp, b.domains, name);
     if (tpl) return tpl;
   }
   return undefined;
@@ -68,11 +82,11 @@ function findFlow(name: string) {
 export default function (pi: ExtensionAPI): void {
   // 启动时 flag（CLI 优先）
   pi.registerFlag("pt-context", {
-    description: "启动时激活的 Blueprint 名（编译成 Context 注入 System Prompt）",
+    description: "启动时激活的 Profile 名（编译成 Context 注入 System Prompt）",
     type: "string",
   });
 
-  // ========== session_start：读默认 blueprint + 转译 + footer 状态 ==========
+  // ========== session_start：读默认 profile + 转译 + 注册 adapter ==========
   pi.on("session_start", async (_event, ctx) => {
     lastCwd = ctx.cwd;
     try {
@@ -80,17 +94,21 @@ export default function (pi: ExtensionAPI): void {
       const flagVal = typeof flag === "string" && flag.trim() ? flag.trim() : undefined;
 
       const fromSettings = await readProjectSetting<string>(ctx.cwd, "au.pt-context");
-      const auto = await detectSingleScene(ctx.cwd);
+      const auto = await detectSingleProfile(ctx.cwd);
 
       const picked = flagVal ?? fromSettings ?? auto;
 
       if (!picked) {
         ctx.ui.setStatus("pt", "pt: 无 context");
-        ctx.ui.notify("Pt：未找到 Blueprint。用 /pt-context <name> 选择，或在 .pi/settings.json 设 au.pt-context。", "info");
+        ctx.ui.notify("Pt：未找到 Profile。用 /pt-context <name> 选择，或在 .pi/settings.json 设 au.pt-context。", "info");
         return;
       }
 
       await transpileActive(ctx.cwd, picked);
+      // 注册 AgentAdapter 注入（封装 before_agent_start + input）
+      if (activeAdapter && cachedContext && cachedBlueprint) {
+        activeAdapter.registerInject(pi as unknown as import("./schema.js").AgentAPI, cachedContext, cachedBlueprint);
+      }
       ctx.ui.setStatus("pt", `pt: ${picked}`);
     } catch (e) {
       ctx.ui.notify(`Pt 加载失败：${errMsg(e)}`, "error");
@@ -100,41 +118,24 @@ export default function (pi: ExtensionAPI): void {
     }
   });
 
-  // ========== before_agent_start：每轮注入 cachedSegment + 缓存最终 prompt ==========
-  pi.on("before_agent_start", async (event) => {
-    if (!cachedSegment) return undefined;
-    const finalPrompt = event.systemPrompt + "\n\n## 当前任务上下文\n\n" + cachedSegment;
-    lastBuiltPrompt = finalPrompt;
-    return { systemPrompt: finalPrompt };
-  });
-
-  // ========== input（Phase 7）：Pt 接管 FlowTemplate 展开 ==========
-  // Pt 只拦截 cachedBundles 里声明过的 /name，其余 /name 放行给 Pi 原生 $1 $2。
-  pi.on("input", async (event) => {
-    const match = event.text.match(/^\/(\S+)\s*(.*)$/);
-    if (!match) return { action: "continue" };
-    const [, tplName, args] = match;
-
-    const tpl = findFlow(tplName);
-    if (!tpl) return { action: "continue" };  // 非 Pt 管的，放行给 Pi 原生
-
-    const expanded = bindFlowTemplate(tpl, args);
-    return { action: "transform", text: expanded };
-  });
-
   // ========== session_shutdown：清内存态 ==========
   pi.on("session_shutdown", async () => {
     cachedSegment = null;
     cachedBundles = null;
-    activeBlueprint = null;
+    activeProfile = null;
     lastBuiltPrompt = null;
+    activeAdapter = null;
+    cachedContext = null;
+    cachedBlueprint = null;
+    cachedDomains = [];
   });
 
   // ========== /pt-context 命令：即时切换 ==========
   pi.registerCommand("pt-context", {
-    description: "切换当前 Blueprint（编译成 Context 注入 System Prompt），即时重转译（无参则弹出选择器）",
+    description: "切换当前 Profile（编译成 Context 注入 System Prompt），即时重转译（无参则弹出选择器）",
     getArgumentCompletions: async (prefix) => {
-      const names = await listScenes(lastCwd);
+      const cwd = lastCwd || process.cwd();  // Q1 修复：fallback 到 process.cwd()
+      const names = await listProfiles(cwd);
       const items = names.map((n) => ({ value: n, label: n }));
       const hit = items.filter((i) => i.value.startsWith(prefix));
       return hit.length > 0 ? hit : null;
@@ -142,21 +143,21 @@ export default function (pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const name = args.trim();
       if (!name) {
-        const names = await listScenes(ctx.cwd);
+        const names = await listProfiles(ctx.cwd);
         if (names.length === 0) {
-          ctx.ui.notify("未找到任何 Blueprint（.pt/assets/blueprints/*.blueprint.md）", "warning");
+          ctx.ui.notify("未找到任何 Profile（.pt/assets/profiles/*.profile.md）", "warning");
           return;
         }
         if (!ctx.hasUI) {
           ctx.ui.notify("/pt-context（无参）在非交互模式不可用，请指定名称", "warning");
           return;
         }
-        const picked = await ctx.ui.select("选择 Blueprint", names);
+        const picked = await ctx.ui.select("选择 Profile", names);
         if (!picked) return;
-        await switchBlueprint(pi, ctx, picked);
+        await switchProfile(pi, ctx, picked);
         return;
       }
-      await switchBlueprint(pi, ctx, name);
+      await switchProfile(pi, ctx, name);
     },
   });
 
@@ -176,11 +177,12 @@ export default function (pi: ExtensionAPI): void {
           return acc + n;
         }, 0) ?? 0;
         const domainCount = cachedBundles?.reduce((acc, b) => acc + b.domains.length, 0) ?? 0;
-        const channelCount = cachedBundles?.reduce((acc, b) => acc + b.channels.length, 0) ?? 0;
-        const bpCount = cachedBundles?.reduce((acc, b) => acc + b.blueprints.length, 0) ?? 0;
+        const blueprintCount = cachedBundles?.reduce((acc, b) => acc + b.blueprints.length, 0) ?? 0;
+        const profileCount = cachedBundles?.reduce((acc, b) => acc + b.profiles.length, 0) ?? 0;
         const lines = [
-          `pt context: ${activeBlueprint ?? "(未激活)"}`,
-          `pt domains: ${domainCount}, channels: ${channelCount}, blueprints: ${bpCount}, flows: ${flowCount}`,
+          `pt profile: ${activeProfile ?? "(未激活)"}`,
+          `pt agent: ${activeAdapter?.name ?? "(none)"}`,
+          `pt domains: ${domainCount}, blueprints: ${blueprintCount}, profiles: ${profileCount}, flows: ${flowCount}`,
           `pt segment length: ${cachedSegment?.length ?? 0} chars`,
           `pt cache hit: ${lastCacheHit ? "yes" : "no"}`,
           `pt last built prompt: ${lastBuiltPrompt ? `${lastBuiltPrompt.length} chars` : "(未跑过 turn)"}`,
@@ -194,31 +196,16 @@ export default function (pi: ExtensionAPI): void {
       }
 
       if (sub === "flows") {
-        if (!cachedBundles || cachedBundles.length === 0) {
-          ctx.ui.notify("无激活 Blueprint，先用 /pt-context <name> 激活", "warning");
+        if (!cachedBundles || cachedBundles.length === 0 || !activeAdapter) {
+          ctx.ui.notify("无激活 Profile，先用 /pt-context <name> 激活", "warning");
           return;
         }
-        const flows: Array<{ name: string; hint?: string; domain: string }> = [];
-        for (const b of cachedBundles) {
-          const bp = b.blueprints.find((x) => x.name === b.activeBlueprint);
-          if (!bp) continue;
-          // v8：遍历 blueprint.injectionPoints 里 target=context_message 的注入点的 domains
-          for (const ip of bp.injectionPoints) {
-            for (const dn of ip.domains) {
-              const d = b.domains.find((x) => x.name === dn);
-              if (!d || d.type !== "workflow") continue;
-              const tpls = (d.modules["Manual"] as Array<{ name: string; argumentHint?: string }> | undefined) ?? [];
-              for (const t of tpls) {
-                flows.push({ name: t.name, hint: t.argumentHint, domain: d.name });
-              }
-            }
-          }
-        }
+        const flows = activeAdapter.listManuals?.(cachedContext!, cachedBlueprint!, cachedDomains) ?? [];
         if (flows.length === 0) {
-          ctx.ui.notify("当前 Blueprint 无可触发手册（target=context_message 注入点无 workflow-type Domain）", "info");
+          ctx.ui.notify("当前 Profile 无可触发手册（context_message 注入点无 workflow-type Domain）", "info");
         } else {
           const lines = flows.map((f) => `  /${f.name} ${f.hint ?? ""}  ← ${f.domain}`);
-          ctx.ui.notify(`可用手册（输入 /手册名 参数 触发 Context Message）:\n${lines.join("\n")}`, "info");
+          ctx.ui.notify(`可用手册（输入 /手册名 参数 或 /manual:<domain-name> 触发 Context Message）:\n${lines.join("\n")}`, "info");
         }
         return;
       }
@@ -237,14 +224,12 @@ export default function (pi: ExtensionAPI): void {
       }
 
       if (sub === "full") {
-        // 现拼：用当前 cachedSegment + base systemPrompt 合成，不依赖 lastBuiltPrompt。
-        // 这样切换 Blueprint 后立即 /pt full 就能拿到新产物，不用先发对话触发 before_agent_start。
         const base = ctx.getSystemPrompt();
         const full = cachedSegment
           ? base + "\n\n## 当前任务上下文\n\n" + cachedSegment
           : base;
         if (!cachedSegment) {
-          ctx.ui.notify("警告：无 cachedSegment（未加载 Blueprint）。用 /pt-context <name> 选择", "warning");
+          ctx.ui.notify("警告：无 cachedSegment（未加载 Profile）。用 /pt-context <name> 选择", "warning");
         }
         const dir = join(ctx.cwd, ".pt", "fulls");
         await mkdir(dir, { recursive: true });
@@ -259,8 +244,8 @@ export default function (pi: ExtensionAPI): void {
   });
 }
 
-// 暴露 activeBlueprint 用于调试（未来可挂 /pt status）
-export function _debugActive(): { blueprint: string | null; segmentLen: number; flowCount: number; cacheHit: boolean } {
+// 暴露 activeProfile 用于调试（未来可挂 /pt status）
+export function _debugActive(): { profile: string | null; segmentLen: number; flowCount: number; cacheHit: boolean } {
   const flowCount = cachedBundles?.reduce((acc, b) => {
     let n = 0;
     for (const d of b.domains) if (d.type === "workflow") {
@@ -269,5 +254,5 @@ export function _debugActive(): { blueprint: string | null; segmentLen: number; 
     }
     return acc + n;
   }, 0) ?? 0;
-  return { blueprint: activeBlueprint, segmentLen: cachedSegment?.length ?? 0, flowCount, cacheHit: lastCacheHit };
+  return { profile: activeProfile, segmentLen: cachedSegment?.length ?? 0, flowCount, cacheHit: lastCacheHit };
 }
