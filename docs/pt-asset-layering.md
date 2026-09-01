@@ -1,22 +1,25 @@
 # Pt 分层模型与转译架构
 
-> **阅读指引**：本文档 §0 是语义锚定（**v8 模型**，2026-08-31 定稿），所有后续章节以 §0 为准。§1-§11 是历史演进章节（v1-v7），保留作背景，存在语义演进痕迹——遇到与 §0 冲突处，以 §0 为准。
+> **阅读指引**：本文档 §0 是语义锚定（**v9 模型**，2026-09-01 定稿），所有后续章节以 §0 为准。§1-§11 是历史演进章节（v1-v8），保留作背景，存在语义演进痕迹——遇到与 §0 冲突处，以 §0 为准。
 >
-> 关联文档：`docs/pt-prompt-optimization.md`（转译产物优化，已落地阶段 1+2+3）、`docs/pt-dev-phases.md`（开发执行计划，含 v7 重构 Phase）。
+> 关联文档：`docs/pt-prompt-optimization.md`（转译产物优化）、`docs/pt-dev-phases.md`（开发执行计划）、`docs/pt-dev-phases-v8.md`（v8 实现执行描述，已执行完毕）。
 >
 > 本文回答三个问题：
-> 1. Pt 处理什么、产出什么、各概念如何分流？（§0 语义定义 — v8 四层模型）
+> 1. Pt 处理什么、产出什么、各概念如何分流？（§0 语义定义 — v9 四层模型）
 > 2. Pt 与来源（OXN 等）的依赖关系如何反转？（§6 Schema/adapter）
-> 3. 转译通道如何分段？（§11 前端/中端/后端，v7 改名 Domain/Layout/Render）
+> 3. 转译通道如何分段？（§11 前端/中端/后端）
 >
-> 结论：**Domain → Channel → Blueprint → Context 四层模型 + H2=注入点 + 模块级 Domain 引用 + Context 缓存策略可配置**。
+> 结论：**Domain → Blueprint → Profile → Context 四层模型 + 聚合点数据驱动 + Profile Domains 自动分发 + Trigger 索引驱动参考手册**。
 >
-> **v8 相对 v7 的变化**（详见 §0.9）：
-> - **Channel H2 = 注入点**（显式映射 Pi 上下文位置，替代 v7 的隐式 Modules+render 硬编码）
-> - **Blueprint 按注入点选 Domain**（模块级引用，替代 v7 的粗粒度全量引用）
-> - **Blueprint 管编译方式**（缓存目录 + 拆分策略，替代 v7 硬编码 cache.ts）
-> - **Trigger/Boundaries 在 Blueprint 注入点下**（替代 v7 Blueprint 顶级字段）
-> - **Pt 核心是 Context（异构上下文编译器）**（替代 v7 "多来源转译器"定位）
+> **v9 相对 v8 的变化**（详见 §0.10）：
+> - **职责重分配**：v8 Channel（结构层）→ v9 Blueprint（Agent 端结构）；v8 Blueprint（配置层）→ v9 Profile（业务端实例）
+> - **Channel 保留为未来** Domain 连接外部知识源的通道（当前不实现）
+> - **Trigger 段移到 Domain**（H2 段，不在 Profile/Blueprint）
+> - **Boundaries 丢弃**（Trigger 索引 + Scene axioms 替代流程 DAG）
+> - **聚合点数据驱动**：`### Modules` 是聚合标题列表，compile 按 modName 注册表分发 + generic fallback，加新聚合标题不改代码
+> - **Profile Domains 自动分发**：YAML 全局 domains + 注入点 ### Domains 追加
+> - **"对话记忆" → "参考手册"** 改名（语义更准确）
+> - **新增 me Domain** 概念（会话知识补"我"视角）
 
 ---
 
@@ -24,254 +27,359 @@
 
 本节是 Pt 的语义基准，定义 Pt 处理什么、产出什么、各概念如何分流。后续架构章节均以此为准。
 
-> **v8 模型**（2026-08-31 定稿）。v7 的 Domain/Channel/Blueprint/Context 四层保留，但重新定义 Channel 与 Blueprint 的职责：**Channel H2 = 注入点，Blueprint = 注入点选 Domain + 编译方式**。详见 §0.9 变更说明。
+> **v9 模型**（2026-09-01 定稿）。v8 的四层保留为三层实现 + 一层预留：**Domain（内容层）→ Blueprint（结构层）→ Profile（配置层）→ Context（产物层）**，Channel 保留为未来 Domain 连接外部知识源的通道。职责重新分配：v8 Channel（结构层）→ v9 Blueprint（Agent 端结构）；v8 Blueprint（配置层）→ v9 Profile（业务端实例）。详见 §0.10 变更说明。
 
-**Pt 的本质是「异构上下文编译器」**——核心产物是 Context（编译后目标上下文）。Domain 是异构领域知识（term/workflow/stack 异构源），Channel 是编译上下文通道，Blueprint 是异构领域知识编译上下文通道蓝图，Context 是编译后目标上下文。Pt 把异构的领域知识按 Channel 定义的注入点编译成统一的目标上下文，供 Pi Agent 各注入位置消费。
+**Pt 的本质是「异构上下文编译器」**——核心产物是 Context（编译后目标上下文）。Domain 是异构领域知识（人类业务端，H2 段开放：Scene/Trigger/Manual/...），Blueprint 是 Agent 端注入点结构（定义有哪些上下文场景 + 每个场景聚合什么模块 + 编译方式），Profile 是业务端实例（引用 Blueprint + 选哪些 Domain），Context 是编译后目标上下文。Pt 把异构的领域知识按 Blueprint 定义的注入点编译成统一的目标上下文，供 Pi Agent 各注入位置消费。
 
-Pt 的语义分四层，每层是有边界的模块，各自管理其内容文件：
+Pt 的语义分四层（三层实现 + 一层预留），每层是有边界的模块，各自管理其内容文件：
 
-| 层 | 名 | v8 语义 | 载体 | 复用性 |
-|---|---|---|---|---|
-| **内容层** | **Domain** | **异构领域知识**——按 H2 切模块，Type 标签区分内容性质 | `domains/*.md` | 跨 Channel/Blueprint 复用 |
-| **结构层** | **Channel** | **编译上下文通道**——H2=注入点，定义注入点聚合哪些 H2 + 注入到 Pi 哪里 | `channels/*.md` | 跨项目复用 |
-| **配置层** | **Blueprint** | **异构领域知识编译上下文通道蓝图**——按注入点选 Domain + 编译方式 + Trigger/Boundaries | `blueprints/*.md` | 每场景一份 |
-| **产物层** | **Context** | **编译后目标上下文**——按注入点聚合多 Domain 内容，物理文件 + hash 缓存 | `.pt/contexts/cache/*.context.md` | 缓存复用 |
+| 层 | 名 | v9 语义 | 载体 | 归属 | 复用性 |
+|---|---|---|---|---|---|
+| **内容层** | **Domain** | **异构领域知识**——H2 段开放（Scene/Trigger/Manual/...），Type 标签区分内容性质 | `domains/*.md` | 人类业务端 | 跨项目 |
+| **结构层** | **Blueprint** | **Agent 端注入点结构**——H2=注入点，定义 target + 聚合模块 + Compilation | `blueprints/*.md` | Agent 端 | 跨项目复用 |
+| **配置层** | **Profile** | **业务端实例**——引用 Blueprint + 选 Domains（YAML 全局 + 注入点追加） | `profiles/*.md` | 业务端 | 项目级 |
+| **产物层** | **Context** | **编译后目标上下文**——按注入点聚合多 Domain 内容，物理文件 + hash 缓存 | `.pt/contexts/cache/*.context.md` | — | 缓存复用 |
+| （预留） | **Channel** | Domain 连接外部知识源的通道（未来实现） | — | 连接层 | — |
 
-**核心关系**（Domain + Channel 在 Blueprint 处合并，编译出 Context）：
+**核心关系**（Domain + Blueprint 在 Profile 处合并，编译出 Context）：
 
 ```
 外部内容源 → Domain ─┐
-                      ├──→ Blueprint ──[compile]──→ Context
-           Channel ──┘    （选 Domain +
-                            编译方式）
+                      ├──→ Profile ──[compile]──→ Context
+           Blueprint ─┘    （引用 Blueprint +
+                            选 Domains）           （.pt/contexts/
+                                                     cache/）
 ```
 
-Domain 和 Channel 都是可独立复用的模块；Blueprint 把一个 Channel 和按注入点选定的 Domain 组合成真正可执行的通道，并声明编译方式（缓存目录、拆分策略）；Context 是这次组合编译出的产物文件。
+Domain 和 Blueprint 都是可独立复用的模块；Profile 引用一个 Blueprint 和选定的 Domain 组合成真正可执行的实例，编译出 Context。**Blueprint 是 Agent 端的设计（可跨项目复用），Profile 是业务端的实例化（项目级，选哪些知识填进去）**。
 
 ### 0.1 内容层：Domain（异构领域知识）
 
-**Domain 承载异构领域知识**。一个 Domain = 一个 md 文件，内部用 **H2 二级标题**划分内容模块。H2 段名是开放的——`## Scene`、`## Manual`、`## Term`、`## Glossary`、未来扩展均可。
+**Domain 承载异构领域知识**。一个 Domain = 一个 md 文件，内部用 **H2 二级标题**划分内容模块。H2 段名是开放的——`## Scene`、`## Trigger`、`## Manual`、`## Term`、`## Glossary`、未来扩展均可。
 
-Domain 的 H2 段是**聚合点的供给侧**——Channel 决定哪些 H2 段进哪个注入点，Domain 只管提供内容。一个 Domain 可以同时贡献多个注入点（如 `## Scene` 进会话知识注入点、`## Manual` 进对话记忆注入点），也可以只贡献一个。
+Domain 的 H2 段是**聚合点的供给侧**——Blueprint 的 `### Modules` 决定哪些 H2 段进哪个注入点，Domain 只管提供内容。一个 Domain 可以同时贡献多个注入点（如 `## Scene` + `## Trigger` 进会话知识注入点、`## Manual` 进参考手册注入点），也可以只贡献一个。
 
-**关键**：Domain 不感知注入点。同一个 Domain 被不同 Blueprint 引用时，可能贡献不同的 H2 段——Blueprint 决定引用该 Domain 的哪些 H2 段。详见 §0.3 Blueprint 的模块级引用。
+**关键**：Domain 不感知注入点。同一个 Domain 被不同 Profile 引用时，可能贡献不同的 H2 段——Profile 的 Domains 列表 + Blueprint 的 Modules 列表共同决定引用该 Domain 的哪些 H2 段。详见 §0.6 Domains 分发机制。
+
+#### v9 新增 H2 段：Trigger（索引）
+
+v8 的 Trigger 是 Blueprint 注入点下的实例级文本（"这个注入点何时激活"）。v9 把 Trigger 移到 Domain 内，作为 **H2 段**——是**索引**，告诉 LLM "什么时候该参考本 Domain 的手册内容"。
+
+```markdown
+# pt-quality Domain
+## Scene
+### quality-index
+- desc: 技术规范在 Manual 段...
+
+## Trigger
+### pt-quality-trigger
+- desc: 改 Pt 代码时参考；含 9 条技术规范（modules-type-safety 等）
+- hint: /manual:pt-quality 查看完整规范
+
+## Manual
+### modules-type-safety
+- slot: global
+- type: invariant
+- check: Domain.modules 读取必须用 type guard
+```
+
+**Trigger 段的聚合**：会话知识注入点的 `### Modules` 含 `Trigger` 时，compile 从该注入点引用的 Domain 提取 `## Trigger` 段，聚合成索引段——LLM 每轮看到索引，知道"有什么手册可查 + 何时查"。Trigger 段下的内容格式不固定（when/what/how 非强制），只要其下的 H3 + 列表项都会被聚合。
+
+#### v9 新增 Domain：me（用户会话知识）
+
+v8 的会话知识只有系统知识（Pt 是什么），缺少"我"（用户视角）——LLM 作为共同设计者需要理解用户的背景、目标、偏好才能更好推理。v9 新增 `me` Domain 类型概念（type: term），Scene 段放用户背景 + 目标 + 协作偏好。
+
+```markdown
+# me Domain
+---
+type: term
+name: me
+---
+## Scene
+### user-profile
+- desc: 软件开发者，偏好类型安全、模块化架构、数据驱动设计
+### pt-goal
+- desc: Pt 要成为异构上下文编译器，把领域知识编译成 Pi 的 System Prompt + Context Message
+### collab-mode
+- desc: 共同设计者——用户提需求/决策，LLM 推理设计内容并产出代码/文档
+```
+
+Profile 的会话知识注入点引用 `me`，跟系统知识 Domain 并列——LLM 每轮同时看到"系统是什么"和"用户要什么"。
 
 #### Domain Type 标签
 
-Domain 通过 frontmatter `type` 区分承载内容性质（term/workflow/stack/扩展）。Type 决定**各 H2 段内部的内容格式**（term 的 `## Scene` 是公理列表，workflow 的 `## Scene` 是手册清单 + 数据源），不决定 H2 段有哪些。Pt 核心按 type 分发 renderer，加新 type = 加 renderer，不动 Schema/主循环（扩展性实测通过）。
+Domain 通过 frontmatter `type` 区分承载内容性质（term/workflow/stack/扩展）。Type 决定**各 H2 段内部的内容格式**（term 的 `## Scene` 是公理列表，workflow 的 `## Scene` 是手册清单 + 数据源），不决定 H2 段有哪些。各 H2 段的 renderer 内部按 type 特化取内容格式（见 §0.5 聚合点数据驱动）。
 
 #### H2 段 × Type 正交
 
 两个正交维度：
-- **H2 段名** = 内容模块类型（Scene/Manual/Term/扩展）——决定内容**去哪个聚合点**
+- **H2 段名** = 内容模块类型（Scene/Trigger/Manual/扩展）——决定内容**去哪个聚合点**
 - **Domain Type** = 内容性质标签（term/workflow/stack/扩展）——决定各 H2 段内部**内容格式**
 
 ```
-Domain「pt-concepts」（type: term）
-  ├─ ## Scene   → 公理列表（What：是什么）   → 供 Blueprint 选进会话知识注入点
-  ├─ ## Manual  → 定理列表（Why：为什么）     → 供 Blueprint 选进对话记忆注入点
-  └─ ## Term    → 术语表（内部模块，可被其他模块引用）
+Domain「pt-quality」（type: term）
+  ├─ ## Scene    → 公理列表（What：是什么）      → 供会话知识注入点聚合
+  ├─ ## Trigger  → 索引（When：何时查手册）      → 供会话知识注入点聚合（索引段）
+  └─ ## Manual   → 规范列表（How：怎么做）       → 供参考手册注入点聚合（触发时注入）
 ```
 
-**type 决定 H2 段内部格式，H2 段名决定内容去向**——两者独立扩展。加新 type = 加 renderer；加新 H2 段 = Domain 加 H2 + Channel 声明对应注入点。
+**type 决定 H2 段内部格式，H2 段名决定内容去向**——两者独立扩展。加新 type = 各 modName renderer 内部加 type 分支；加新 H2 段 = Domain 加 H2 + Blueprint Modules 加项（不改代码，generic fallback 自动聚合，见 §0.5）。
 
-### 0.2 结构层：Channel（编译上下文通道）
+### 0.2 结构层：Blueprint（Agent 端注入点结构）
 
-**Channel 是编译上下文通道**——定义有哪些注入点、每个注入点聚合哪些 H2 段（聚合点）、注入到 Pi 的哪个上下文位置、用什么聚合方式。Channel 可跨项目复用——比如「开发知识」这个通道结构在多个项目里都适用，只是具体 Domain 不同。
+**Blueprint 是 Agent 端的注入点结构设计**——定义有哪些上下文场景（注入点）、每个注入点聚合哪些 H2 段（聚合模块）、注入到 Pi 的哪个上下文位置（target）、用什么聚合方式（mode）、怎么编译（Compilation）。Blueprint 可跨项目复用——比如「开发知识」这个结构在多个项目里都适用，只是具体 Domain 不同。
 
-**Channel 的核心设计：H2 = 注入点**。Channel 的每个 H2 二级标题对应 Pi Agent 的一个上下文注入位置（system_prompt / context_message / 未来扩展）。H2 名用**语义名**（会话知识/对话记忆），由 `target` 字段映射到 Pi 技术注入点——代码适配 Pi，资产用语义。
+**Blueprint 的核心设计：H2 = 注入点**。Blueprint 的每个 H2 二级标题对应 Pi Agent 的一个上下文注入位置（system_prompt / context_message / 未来扩展）。H2 名用**语义名**（会话知识/参考手册），由 `target` 字段映射到 Pi 技术注入点——代码适配 Pi，资产用语义。
 
-**Channel 只管结构，不含具体 Domain、不含 Trigger/Boundaries**。选 Domain 和写 Trigger/Boundaries 是 Blueprint（配置层）的职责。
+**Blueprint 只管结构，不含具体 Domain、不含 Trigger/Boundaries**。选 Domain 是 Profile（配置层）的职责；Trigger 在 Domain 内（H2 段）；Boundaries v9 丢弃（见 §0.10）。
 
-Channel 的结构与配置都用 MD 标题层级表达，YAML 只放文档级元信息（name）。
+Blueprint 的结构与配置用 MD 标题层级表达，YAML 只放文档级元信息（name）。
 
 ```markdown
 ---
-name: pt-dev
+name: dev-knowledge
 ---
 
-# pt-dev (channel)
+# dev-knowledge (blueprint)
 
 ## 会话知识
 target: system_prompt
 mode: hybrid
 ### Modules
 - Scene
+- Trigger
 
-## 对话记忆
+## 参考手册
 target: context_message
 ### Modules
 - Manual
+
+## Compilation
+cache-dir: .pt/contexts/cache/
+split: single-file
 ```
 
 **字段职责**：
-- `## 会话知识` / `## 对话记忆`：H2 = 注入点（语义名，可任意命名）
+- `## 会话知识` / `## 参考手册`：H2 = 注入点（语义名，可任意命名）
 - `target`：Pi 注入位置（`system_prompt` / `context_message`，代码层映射）
 - `mode`：聚合方式（byDomain / byType / hybrid，仅对 system_prompt 类注入点有意义）
-- `### Modules`：H3 = 聚合点，列出参与本注入点的 Domain H2 段名
-- 无符号序号项 = Domain 的 H2 段名（如 `- Scene` 指向 Domain 的 `## Scene` 段）
+- `### Modules`：H3 = 聚合模块列表，列出参与本注入点的 Domain H2 段名（聚合标题）
+- 无符号序号项 = Domain 的 H2 段名（如 `- Scene` 指向 Domain 的 `## Scene` 段，`- Trigger` 指向 `## Trigger` 段）
+- `## Compilation`：编译方式（缓存目录 + 拆分策略，详见 §0.8）
 
 #### 为什么 H2 = 注入点（不是 Modules 列表）
 
-v7 用 `## Modules` 列表声明含哪些模块，但"模块去哪个注入点"是隐式约定（写在注释里，render 代码硬编码 `ctx.modules["Scene"]`）。v8 把注入点提升为 H2——显式声明，render 通用化：
+v7 用 `## Modules` 列表声明含哪些模块，但"模块去哪个注入点"是隐式约定（render 代码硬编码 `ctx.modules["Scene"]`）。v8 把注入点提升为 H2——显式声明，render 通用化。v9 继承此设计（从 v8 Channel 移到 Blueprint）：
 
 ```
 v7: Channel.modules = ["Scene", "Manual"]
     render 硬编码: Scene → system_prompt, Manual → context_message
     问题: 加新注入点要改 render 代码
 
-v8: Channel.injectionPoints = [
-      { name: "会话知识", target: system_prompt, modules: [Scene], mode: hybrid },
-      { name: "对话记忆", target: context_message, modules: [Manual] }
+v9: Blueprint.injectionPoints = [
+      { name: "会话知识", target: system_prompt, modules: [Scene, Trigger], mode: hybrid },
+      { name: "参考手册", target: context_message, modules: [Manual] }
     ]
     render 通用: 按 target 分发，不硬编码模块名
-    加新注入点 = Channel 加 H2，不改 render
+    加新注入点 = Blueprint 加 H2，不改 render
 ```
 
-#### Channel 复用性
+#### Blueprint 复用性
 
-一个 Channel 可被多个 Blueprint 引用。因为 Trigger/Boundaries 在 Blueprint 里（不在 Channel），同一个 Channel 可以服务不同触发条件的场景——例如 `dev-knowledge` Channel 被 `pt` 和 `glossary-test` 两个 Blueprint 共用，各自填不同的 Trigger 和 Domain 选择。
+一个 Blueprint 可被多个 Profile 引用。因为 Blueprint 不含 Domain 选择、不含 Trigger（都在 Profile/Domain），同一个 Blueprint 可以服务不同项目——例如 `dev-knowledge` Blueprint 被 `pt` 和 `pt-writing` 两个 Profile 共用，各自填不同的 Domain。
 
-### 0.3 配置层：Blueprint（异构领域知识编译上下文通道蓝图）
+### 0.3 配置层：Profile（业务端实例）
 
-**Blueprint 用 Channel + 按注入点选 Domain 构建一个真正的通道**，并声明编译方式。一个 Channel 可被多个 Blueprint 引用（跨项目复用），每个 Blueprint 填入自己的 Domain 组合、Trigger/Boundaries、缓存策略。
+**Profile 引用一个 Blueprint + 选哪些 Domain，构建一个真正的实例**。Profile 是项目级的——每个项目/场景一份 Profile，填入自己的 Domain 组合。
 
-**v8 核心变化：模块级 Domain 引用**。v7 的 `## Domains` 是粗粒度全量列表——一个 Domain 的所有 H2 段都参与编译。v8 按注入点分别列 Domain——可以精确控制"pt-quality 只贡献对话记忆，不污染会话知识"。
+**v9 核心设计：Domains 自动分发**。Profile 的 YAML frontmatter 有全局 `domains` 列表，自动分发到所有注入点；注入点 H2 下的 `### Domains` 是追加列表，只给该注入点贡献。两者合并后，compile 按 Blueprint 的 `### Modules` 自动判断每个 Domain 贡献哪些 H2 段（有则贡献，无则跳过）。详见 §0.6。
 
-**v8 核心变化：Trigger/Boundaries 在注入点下**。v7 把 Trigger/Boundaries 放 Blueprint 顶级字段，塞进 Scene 模块。v8 把它们放在对应注入点的 H2 下——Trigger 是"这个注入点何时激活"，Boundaries 是"这个注入点的执行步骤图"，跟注入点同生。
+**Profile 不含 Trigger/Boundaries**。Trigger 在 Domain 内（H2 段）；Boundaries v9 丢弃。
 
-Blueprint 的配置用 MD 标题层级表达，YAML 只放文档级元信息。
+Profile 的配置用 MD 标题层级 + YAML frontmatter 表达。
 
 ```markdown
 ---
-name: pt-dev
+name: pt
+blueprint: dev-knowledge
+domains: [pt-concepts, pt-architecture, me, pt-transpile]
 ---
 
-# pt-dev (blueprint)
-
-## Channel
-
-pt-dev
+# pt (profile)
 
 ## 会话知识
-
 ### Domains
-- pt-architecture
-- pt-stack
-- pt-concepts
-
-### Trigger
-当用户要开发/修改 Pt 自身（改 IR、改资产、扩展 Domain Type、加 Channel/Blueprint）时按以下流程回答；其余对话正常响应，勿套用本流程。
-
-### Boundaries
-### identify-task
-- deps: []
-- desc: 识别开发任务类型（改 schema / 改 asset / 扩 type / 加 channel / 加 blueprint）
-
-### cite-stack
-- deps: [identify-task]
-- desc: 按任务类型从 pt-stack 引用相关技术栈
-
-### execute
-- deps: [cite-stack]
-- desc: 按流程执行（tsc → verify → commit）
-
-## 对话记忆
-
-### Domains
-- pt-dev-flow
-- pt-collab
 - pt-quality
+- pt-collab
 
-## Compilation
-
-cache-dir: .pt/contexts/cache/
-split: by-injection-point
+## 参考手册
+### Domains
+- pt-quality
+- pt-collab
 ```
 
 **字段职责**：
-- `## Channel`：引用哪个 Channel（结构复用）
-- `## 会话知识` / `## 对话记忆`：H2 = 注入点（与 Channel 的 H2 同名，实例化该注入点）
-  - `### Domains`：参与本注入点的 Domain 列表（模块级引用——只贡献该注入点聚合的 H2 段）
-  - `### Trigger`：本注入点的触发条件（实例级）
-  - `### Boundaries`：本注入点的流程节点 DAG（实例级）
-- `## Compilation`：编译方式（缓存目录 + 拆分策略，详见 §0.7）
+- YAML `name`：Profile 名（项目级标识）
+- YAML `blueprint`：引用哪个 Blueprint（结构复用）
+- YAML `domains`：全局 Domain 列表，自动分发到所有注入点（有匹配 H2 段则贡献）
+- `## 会话知识` / `## 参考手册`：H2 = 注入点（与 Blueprint 的 H2 同名，实例化该注入点）
+  - `### Domains`：追加到本注入点的 Domain 列表（只贡献该注入点）
 
-#### 模块级 Domain 引用的价值
+#### 全局 domains vs 注入点追加
 
-v7 粗粒度：`## Domains: [pt-architecture, pt-stack, pt-dev-flow, pt-collab]`——所有 Domain 的所有 H2 段都参与。这导致：
-- term-Domain 的 Manual 段被忽略（compileManualModule 只处理 workflow）
-- 无法说"pt-quality 只贡献对话记忆"
-- 加新 Domain 类型时污染所有注入点
+全局 `domains` 是"基集"——这些 Domain 自动分发到所有注入点，compile 按 Blueprint Modules 判断它贡献哪些 H2 段（无该段则跳过）。注入点 `### Domains` 是"追加"——只给该注入点贡献。
 
-v8 模块级：每个注入点下分别列 Domain。同一个 Domain 可以出现在多个注入点下（如 pt-concepts 在会话知识下贡献 Scene，在对话记忆下贡献 Manual），也可以只出现在一个注入点下（如 pt-quality 只在对话记忆下）。
+这样 Domain 列一次（全局），不必在每个注入点重复写；需要精确控制时用注入点追加。例如 `pt-concepts` 只需写一次在全局，它自动贡献会话知识的 Scene 段（因为它有 `## Scene`），不会贡献参考手册的 Manual 段（因为它没有 `## Manual` 或不需要）。
 
-#### Trigger/Boundaries 为什么在 Blueprint 而不在 Channel
+#### Profile 不跨项目复用
 
-Trigger/Boundaries 是**实例级内容**——pt、pt-dev、glossary-test 各有不同的触发条件和流程步骤。如果把它们放 Channel，每个 Blueprint 都要一个独占 Channel，复用性被牺牲。放 Blueprint 注入点下：Channel 保持"结构模板"纯粹性，Blueprint 做实例化。
+Profile 是项目级的——`pt` Profile 只在 pt 项目用，`pt-writing` Profile 只在 pt-writing 项目用。跨项目复用的是 Blueprint（结构）和 Domain（知识）。
 
 ### 0.4 产物层：Context（编译后目标上下文）
 
-**Context 是 Blueprint 编译后的输出**——按注入点聚合多 Domain 内容，是 Pt 的核心产物。Context 是**物理文件**（`.pt/contexts/cache/`），缓存复用，避免每次重新编译。
+**Context 是 Profile 编译后的输出**——按注入点聚合多 Domain 内容，是 Pt 的核心产物。Context 是**物理文件**（`.pt/contexts/cache/`），缓存复用，避免每次重新编译。
 
-v8 的 Context 结构按注入点组织（与 Channel 的 H2 对应）：
+v9 的 Context 结构按注入点组织（与 Blueprint 的 H2 对应）：
 
 ```markdown
-# pt-dev.context.md  （Blueprint「pt-dev」编译后的 Context）
+# pt-dev.context.md  （Profile「pt-dev」编译后的 Context）
 
 ## 会话知识
-  （所有引用 Domain 的 ## Scene 段聚合，按 Channel.mode 编排）
-  > 当用户要开发/修改 Pt 自身时...（Trigger）
-  ### 全局约束
-  - [ ] ...
-  ### 流程
-  ① identify-task — ...
+  （全局+追加 Domain 的 Scene + Trigger 段聚合，按 Blueprint.mode 编排）
   ### 模块「pt-architecture」
   **术语**
   - **三段式编译架构**：...
+  ### 参考手册索引
+  - **pt-quality**：改 Pt 代码时参考；含 9 条技术规范
+    /manual:pt-quality 查看完整规范
+  - **pt-collab**：协作检查清单，验收时参考
 
-## 对话记忆
-  （所有引用 Domain 的 ## Manual 段聚合）
-  ### 可用手册
-  - /modify-schema ...
-  - /modify-asset ...
-  ### 规范
-  - **modules-type-safety**：...
+## 参考手册
+  （Domain 的 Manual 段聚合，触发时注入）
+  ### 模块「pt-quality」
+  - [ ] modules-type-safety
+  - [ ] path-constant
+  ...
 ```
 
-**Context 的注入点对应 Pi Agent 不同地方的 Prompt**，由 Channel 的 `target` 字段映射：
-- `## 会话知识`（target: system_prompt）→ 注入 System Prompt（`before_agent_start`）
-- `## 对话记忆`（target: context_message）→ 注入 Context Message（`input` 事件 transform）
-- 未来扩展注入点（如 after_tool_call）→ Channel 加新 H2 + 新 target
+**Context 的注入点对应 Pi Agent 不同位置的 Prompt**，由 Blueprint 的 `target` 字段映射：
+- `## 会话知识`（target: system_prompt）→ 注入 System Prompt（`before_agent_start`，每轮）
+- `## 参考手册`（target: context_message）→ 触发时注入 Context Message（`input` 事件 transform）
+- 未来扩展注入点 → Blueprint 加新 H2 + 新 target
 
-**内容由 Domain 定义**，因此 Context 的内容可以是普通文本，也可以是执行描述（协助 LLM 推理或告知 LLM 如何执行）。Pt 产出的是结构化上下文文档，LLM 做推理。
+**会话知识每轮注入 systemPrompt**（含 Scene axioms + Trigger 索引），LLM 看到索引知道"有什么手册可查"。**参考手册不每轮注入**——用户 `/manual:xxx` 或 LLM 判断需要时触发，内容作为 Context Message 注入（省 token，compact 时进消息流会被压缩）。
 
-### 0.5 H2 = 注入点映射（显式化）
+**内容由 Domain 定义**，因此 Context 的内容可以是普通文本，也可以是执行描述。Pt 产出的是结构化上下文文档，LLM 做推理。
 
-v8 的核心抽象：**Channel 的 H2 = Pi 注入点**。这是从 v7 隐式约定到 v8 显式声明的转变。
+### 0.5 聚合点数据驱动（modName 注册表 + generic fallback）
 
-| 层 | H2 名 | 含义 | target 映射 |
-|---|---|---|---|
-| Channel | `## 会话知识` | 注入点定义（结构层） | `target: system_prompt` |
-| Blueprint | `## 会话知识` | 注入点实例化（选 Domain + Trigger） | 继承 Channel 的 target |
-| Context | `## 会话知识` | 编译产物（聚合后的内容） | render 按 target 注入 Pi |
+v9 的核心扩展机制：**`### Modules` 是聚合标题列表，compile 按 modName 驱动分发，未注册 modName 用 generic fallback 自动聚合**。
 
-三层 H2 同名，语义递进：Channel 定义注入点 → Blueprint 实例化注入点 → Context 产出注入点内容。render 阶段按 Channel 的 target 字段决定 Context 的每个 H2 注入到 Pi 的哪里——不硬编码模块名。
+#### 机制
 
-**注入点语义名 vs 技术名**：
-- 资产层（Channel/Blueprint/Context md）用语义名（会话知识/对话记忆），人可读
-- 代码层（schema.ts/render）用技术名（system_prompt/context_message），映射到 Pi API
-- Channel 的 `target` 字段是两者的桥梁
+```
+Blueprint.会话知识.Modules = [Scene, Trigger]
+Blueprint.参考手册.Modules = [Manual]
 
-### 0.6 完整数据流
+compile 遍历注入点的 Modules 列表:
+  for modName in ipConfig.modules:
+    for d in refDomains:
+      content = d.modules[modName]      // Domain 的 H2 段内容
+      if content === undefined: continue  // Domain 无该段则跳过
+      renderer = moduleRenderers[modName] ?? renderGenericModule
+      parts.push(renderer(d, content))
+```
+
+- `moduleRenderers`：注册表，`Record<modName, ModuleRenderer>`
+- 已注册 modName（Scene/Trigger/Manual）：用特化 renderer（按 type 取内容格式）
+- 未注册 modName（如未来加 `Glossary`）：用 generic fallback（原样输出 `### H3标题` + 列表项）
+
+#### 为什么数据驱动
+
+v8 的 renderer 按 **type 分发**（`domainSceneRenderers[type]`），内部 `if (modName === "Scene")` 硬编码——加新 modName 要改 renderer 代码。v9 改为按 **modName 分发**，renderer 内部按 type 特化：
+
+```
+v8: domainSceneRenderers[type] → renderer 内 if(modName===Scene) if(modName===Manual)
+    加 Trigger: 要改所有 renderer 加 if(modName===Trigger)  ← 违背"不改代码"
+
+v9: moduleRenderers[modName] → renderer 内按 type 特化
+    加 Trigger: 注册 moduleRenderers["Trigger"] = renderTriggerModule  ← 一行注册
+    加未注册 modName: 不用注册, generic fallback 自动聚合  ← 零改动
+```
+
+**加新聚合标题（H2 段类型）**：Domain 加 `## NewSection` 段 + Blueprint Modules 加 `- NewSection` 项 → generic fallback 自动聚合，不改代码。要特化才 `registerModuleRenderer("NewSection", fn)`。
+
+#### renderer 签名
+
+```typescript
+type ModuleRenderer = (d: Domain, content: unknown, mode?: string) => string;
+
+const moduleRenderers: Record<string, ModuleRenderer> = {
+  Scene: renderSceneModule,       // 按 type 取 axioms（term→Term[], workflow→externals, stack→...）
+  Trigger: renderTriggerModule,   // 渲染索引（### name + desc/hint 列表项）
+  Manual: renderManualModule,     // 按 type 取内容（workflow→FlowTemplate[], term→Rule[]）
+};
+
+function renderGenericModule(d: Domain, content: unknown): string {
+  // 原样输出 ### H3标题 + 列表项，不解析内容格式
+}
+```
+
+### 0.6 Profile Domains 分发机制
+
+Profile 的 Domains 列表有两层：YAML 全局 + 注入点追加。compile 自动分发。
+
+#### 分发规则
+
+某注入点的最终 Domain 集 = (全局 domains ∩ 该注入点有匹配 H2 段) ∪ (该注入点 ### Domains 追加)
+
+```
+Profile pt:
+  YAML domains: [pt-concepts, pt-architecture, me, pt-transpile]   ← 全局基集
+  ## 会话知识 ### Domains: [pt-quality, pt-collab]                 ← 会话知识追加
+  ## 参考手册 ### Domains: [pt-quality, pt-collab]                 ← 参考手册追加
+
+Blueprint dev-knowledge:
+  ## 会话知识 Modules: [Scene, Trigger]
+  ## 参考手册 Modules: [Manual]
+
+分发结果:
+  会话知识的 Domain 集:
+    pt-concepts    (全局, 有 ## Scene → 贡献 Scene)
+    pt-architecture(全局, 有 ## Scene → 贡献 Scene)
+    me             (全局, 有 ## Scene → 贡献 Scene)
+    pt-transpile   (全局, 有 ## Scene → 贡献 Scene; 无 ## Trigger → 跳过 Trigger)
+    pt-quality     (追加, 有 ## Trigger → 贡献 Trigger; 无 ## Scene → 跳过 Scene)
+    pt-collab      (追加, 有 ## Trigger → 贡献 Trigger)
+
+  参考手册的 Domain 集:
+    pt-concepts    (全局, 无 ## Manual → 跳过)
+    pt-architecture(全局, 有 ## Manual → 贡献 Manual)
+    me             (全局, 无 ## Manual → 跳过)
+    pt-transpile   (全局, 有 ## Manual → 贡献 Manual)
+    pt-quality     (追加, 有 ## Manual → 贡献 Manual)
+    pt-collab      (追加, 有 ## Manual → 贡献 Manual)
+```
+
+**规则**：Domain 有该注入点 Modules 列出的 H2 段 → 贡献；没有 → 跳过。全局 domains 自动判断，注入点追加也自动判断。**Domains 写一次（全局），需要精确控制时用追加**。
+
+#### 为什么不全用注入点分别列（v8 方式）
+
+v8 按注入点分别列 Domain，显式但重复——同一个 Domain 在多个注入点出现时要写多次。v9 的全局 + 追加：常用 Domain 写一次全局自动分发，需要精确控制时用追加。灵活性 + 简洁性兼顾。
+
+#### 为什么不全用 YAML 全局（不允注入点追加）
+
+纯 YAML 全局虽然写一次最简，但不够灵活——无法说"pt-quality 只贡献会话知识的 Trigger + 参考手册的 Manual，不自动分发到其他注入点"。注入点追加允许精确控制，换取灵活性。
+
+### 0.7 完整数据流
 
 ```
 ┌─ 编译期（session_start 或 /pt-context 切换时）────────────────┐
 │                                                                │
-│  Channel（注入点结构）─┐                                        │
-│                        ├──→ Blueprint ──[compile]──→ Context   │
-│  Domain[] ────────────┘    （按注入点选 Domain +                │
-│                             编译方式）        （.pt/contexts/    │
+│  Blueprint（注入点结构）─┐                                      │
+│                          ├──→ Profile ──[compile]──→ Context   │
+│  Domain[] ──────────────┘    （引用 Blueprint +                 │
+│                               选 Domains）     （.pt/contexts/   │
 │                                                  cache/）       │
 │                                                          ↓      │
 │                                                     hash 缓存    │
@@ -280,27 +388,28 @@ v8 的核心抽象：**Channel 的 H2 = Pi 注入点**。这是从 v7 隐式约�
 ┌─ 注入期 ──────────────────────────────────────────────────────┐
 │                                                                │
 │  Context.## 会话知识  ──→ render 按 target=system_prompt        │
+│     （含 Scene axioms + Trigger 索引）                          │
 │                          → 注入 System Prompt（每轮 before_agent）│
-│  Context.## 对话记忆  ──→ render 按 target=context_message       │
-│                          → 待命（用户 /name args 或 LLM 自选触发）│
+│  Context.## 参考手册  ──→ render 按 target=context_message       │
+│                          → 待命（用户 /manual:xxx 触发）         │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
-                           ↓ 用户 `/name args`
+                           ↓ 用户 `/manual:xxx` 或 LLM 判断需要
 ┌─ 实例化期（轮次级）───────────────────────────────────────────┐
 │                                                                │
-│  Context.## 对话记忆 + 参数 ──→ Context Message ──→ input 事件   │
-│  （binder 展开模板，产出操作手册实例）                           │
+│  Context.## 参考手册 + 参数 ──→ Context Message ──→ input 事件   │
+│  （binder 展开模板 / Rule[] 聚合，产出手册实例）                  │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 ```
 
-### 0.7 缓存与失效
+### 0.8 缓存与失效
 
-Context 是物理文件，缓存复用。**失效策略：hash(Domains + Channel + Blueprint) 组合哈希**——三者任一变化即失效重编译。
+Context 是物理文件，缓存复用。**失效策略：hash(Domains + Blueprint + Profile) 组合哈希**——三者任一变化即失效重编译。
 
 ```
 Context 文件头记录源 hash：
-  source-hash: <Domains 内容哈希 + Channel 内容哈希 + Blueprint 内容哈希>
+  source-hash: <Domains 内容哈希 + Blueprint 内容哈希 + Profile 内容哈希>
 
 Pt 读取 Context 时：
   1. 重算当前源的 hash
@@ -309,92 +418,120 @@ Pt 读取 Context 时：
   4. 不一致 → 重新编译，覆盖文件
 ```
 
-#### 缓存拆分策略（v8 新增，Blueprint.Compilation 配置）
-
-v7 只支持单文件缓存（一个 Blueprint 一个 `.context.md`）。v8 由 Blueprint 的 `## Compilation` 段配置拆分策略：
+#### 缓存拆分策略（Blueprint.Compilation 配置）
 
 | 策略 | 文件结构 | 失效粒度 | 何时用 |
 |---|---|---|---|
 | `single-file` | `pt-dev.context.md`（含所有注入点） | 整体（改任一注入点全失效） | 默认，Context 小 |
-| `by-injection-point` | `pt-dev.会话知识.md` + `pt-dev.对话记忆.md` | 注入点级（改对话记忆不影响会话知识缓存） | Context 大或多注入点 |
+| `by-injection-point` | `pt-dev.会话知识.md` + `pt-dev.参考手册.md` | 注入点级 | Context 大或多注入点 |
 
-`by-injection-point` 的价值：当多个 H2 同注一个注入点时合并成一个文件；改一个注入点的内容只重编译该注入点的缓存文件，其他注入点缓存保留。
+默认 `single-file`，Blueprint 可选配 `by-injection-point`。
 
-默认 `single-file`，Blueprint 可选配 `by-injection-point`——不过早优化，但留扩展点。
+### 0.9 术语速查
 
-### 0.8 术语速查
-
-| 术语 | v8 定义 |
+| 术语 | v9 定义 |
 |---|---|
-| **Domain** | 异构领域知识，内容层模块，用 H2 切模块，Type 标签区分内容性质 |
+| **Domain** | 异构领域知识，内容层模块，H2 段开放（Scene/Trigger/Manual/...），Type 标签区分内容性质 |
 | **Domain Type** | Domain 上的标签（term/workflow/stack/扩展），区分各 H2 段内部内容格式 |
-| **H2 段** | Domain 内的内容模块（`## Scene`/`## Manual`/`## Term`/扩展），是聚合点的供给侧 |
-| **Channel** | 编译上下文通道，结构层模块，H2=注入点，定义注入点聚合哪些 H2 + target 映射 + mode |
-| **注入点** | Channel 的 H2，对应 Pi Agent 的一个上下文注入位置（system_prompt / context_message / 扩展） |
-| **聚合点** | Channel 注入点下的 `### Modules` 列表项，指向参与本注入点的 Domain H2 段名 |
-| **target** | Channel 注入点的字段，映射语义名到 Pi 技术注入点（system_prompt / context_message） |
-| **Blueprint** | 异构领域知识编译上下文通道蓝图，配置层模块，按注入点选 Domain + Trigger/Boundaries + 编译方式 |
-| **模块级 Domain 引用** | Blueprint 按注入点分别列 Domain（v8 新增，替代 v7 粗粒度全量引用） |
-| **Compilation** | Blueprint 的编译方式段（cache-dir + split 策略，v8 新增） |
+| **H2 段** | Domain 内的内容模块（`## Scene`/`## Trigger`/`## Manual`/扩展），是聚合点的供给侧 |
+| **Blueprint** | Agent 端注入点结构，结构层模块，H2=注入点，定义 target + Modules 聚合点 + Compilation |
+| **Profile** | 业务端实例，配置层模块，引用 Blueprint + 选 Domains（全局 + 注入点追加） |
+| **注入点** | Blueprint 的 H2，对应 Pi Agent 的一个上下文注入位置（system_prompt / context_message / 扩展） |
+| **聚合模块** | Blueprint 注入点下的 `### Modules` 列表项，指向参与本注入点的 Domain H2 段名（聚合标题） |
+| **target** | Blueprint 注入点的字段，映射语义名到 Pi 技术注入点（system_prompt / context_message） |
+| **Trigger** | Domain 的 H2 段（`## Trigger`），索引——告诉 LLM 何时参考本 Domain 的手册；聚合到会话知识注入点 |
+| **Manual** | Domain 的 H2 段（`## Manual`），详细内容；聚合到参考手册注入点，触发时注入 |
+| **me Domain** | 用户会话知识 Domain（v9 新增），Scene 段放用户背景/目标/偏好，补"我"视角 |
+| **参考手册** | v9 注入点名（v8 "对话记忆"改名，target=context_message），按需触发的手册内容 |
 | **Context** | 编译后目标上下文，产物层文件，按注入点聚合多 Domain 内容，缓存复用 |
-| **Context Message** | Context 的对话记忆注入点（target=context_message）注入 input 事件的产物 |
-| **System Prompt** | Context 的会话知识注入点（target=system_prompt）注入 before_agent_start 的产物（Pi 精确术语） |
-| **binder** | 把 Context 对话记忆注入点里 workflow-Domain 的 steps 模板用参数填充，产出 Context Message 实例 |
-| **source-hash** | Context 缓存失效依据，hash(Domains + Channel + Blueprint) 组合 |
-| **拆分策略** | Context 缓存文件的拆分方式（single-file / by-injection-point，v8 新增） |
+| **Context Message** | Context 的参考手册注入点（target=context_message）注入 input 事件的产物 |
+| **System Prompt** | Context 的会话知识注入点（target=system_prompt）注入 before_agent_start 的产物 |
+| **binder** | 把参考手册注入点里 workflow-Domain 的 FlowTemplate 用参数填充，产出 Context Message 实例 |
+| **source-hash** | Context 缓存失效依据，hash(Domains + Blueprint + Profile) 组合 |
+| **拆分策略** | Context 缓存文件的拆分方式（single-file / by-injection-point） |
+| **全局 domains** | Profile YAML frontmatter 的 domains 列表，自动分发到所有注入点 |
+| **注入点追加** | Profile 注入点 H2 下的 `### Domains` 列表，只给该注入点贡献 |
+| **聚合点数据驱动** | `### Modules` 是聚合标题列表，compile 按 modName 注册表分发 + generic fallback |
+| **Channel** | （预留）Domain 连接外部知识源的通道，未来实现 |
 
-### 0.9 v7 → v8 变更说明
+### 0.10 v8 → v9 变更说明
 
-v8 保留 v7 的四层模型（Domain/Channel/Blueprint/Context），重新定义 Channel 与 Blueprint 的职责。以下是具体变化：
+v9 保留 v8 的核心（异构上下文编译器定位、H2=注入点、Context 缓存），重新分配层职责 + 新增 Trigger 索引机制。以下是具体变化：
 
-#### 变化 1：Channel H2 = 注入点（显式化）
+#### 变化 1：职责重分配（Channel → Blueprint，Blueprint → Profile）
 
-| 维度 | v7 | v8 |
+| 维度 | v8 | v9 |
 |---|---|---|
-| 注入点声明 | `## Modules` 列表（隐式） | `## 会话知识` / `## 对话记忆` H2（显式） |
-| 注入点映射 | render 硬编码 `ctx.modules["Scene"]` | Channel 的 `target` 字段，render 通用化 |
-| 加新注入点 | 改 render 代码 | Channel 加 H2（不改 render） |
-| mode 位置 | `## Layout` 段 | 注入点 H2 下的 `mode` 字段 |
+| 结构层（Agent 端） | Channel（H2=注入点, target, Modules） | **Blueprint**（吸收 v8 Channel 的 target/Modules + v8 Blueprint 的 Compilation） |
+| 配置层（业务端） | Blueprint（选 Domain + Trigger/Boundaries + Compilation） | **Profile**（引用 Blueprint + 选 Domains） |
+| 预留层 | — | **Channel**（保留为未来 Domain 连接外部知识源的通道） |
 
-#### 变化 2：Blueprint 按注入点选 Domain（模块级引用）
+**根因**：v8 把 Agent 端结构（target/Modules）放 Channel，把业务端实例（选 Domain + Trigger）放 Blueprint，但 Compilation 也是 Agent 端的——职责混淆。v9 按"Agent 端 vs 业务端"清晰分：Blueprint 是 Agent 端设计（可跨项目复用），Profile 是业务端实例（项目级）。
 
-| 维度 | v7 | v8 |
+#### 变化 2：Trigger 段移到 Domain
+
+| 维度 | v8 | v9 |
 |---|---|---|
-| Domain 引用 | `## Domains` 粗粒度全量列表 | 每个注入点下 `### Domains` 分别列 |
-| 粒度 | 一个 Domain 的所有 H2 段都参与 | 精确控制某 Domain 只贡献某注入点 |
-| term-Manual 问题 | compileManualModule 只处理 workflow，term 的 Manual 被忽略 | 模块级引用强制定义清楚，无死代码 |
+| 位置 | Blueprint 注入点下的 `### Trigger`（实例级文本） | **Domain 的 H2 段** `## Trigger`（索引，聚合到会话知识） |
+| 语义 | "这个注入点何时激活" | "什么时候该参考本 Domain 的手册" |
+| 作用 | 塞进 Scene 模块 | 聚合成索引段，LLM 每轮看到"有什么手册可查" |
 
-#### 变化 3：Trigger/Boundaries 在 Blueprint 注入点下
+**根因**：v8 Trigger 是实例级（每个 Profile 不同），但"何时参考 pt-quality"是 pt-quality 自身的属性，不该每个 Profile 重写。移到 Domain 内，跟手册内容紧邻维护。
 
-| 维度 | v7 | v8 |
+#### 变化 3：Boundaries 丢弃
+
+| 维度 | v8 | v9 |
 |---|---|---|
-| 位置 | Blueprint 顶级字段 | Blueprint 注入点 H2 下（`### Trigger` / `### Boundaries`） |
-| 语义 | 实例级内容，塞进 Scene 模块 | 跟注入点同生（"这个注入点何时激活"） |
-| Channel 复用 | Trigger 在 Blueprint，Channel 可复用 | 同 v7（Trigger 仍在 Blueprint，不在 Channel） |
+| 机制 | Blueprint 注入点下的 `### Boundaries`（流程节点 DAG） | **丢弃** |
+| 替代 | — | Trigger 索引（LLM 知道何时查手册）+ Scene axioms（概念引导） |
 
-#### 变化 4：Blueprint 管编译方式
+**根因**：Boundaries 的本质是"引导 LLM 按步骤做"，但 Trigger 索引已让 LLM 知道"有什么手册可查 + 何时查"，加上 Scene axioms 的概念引导，足够。流程步骤（如 identify-task → cite-stack → execute）可拆进 Domain 的 Scene 段作为 axioms 描述，不需要独立 DAG 结构。MVP 最简。
 
-| 维度 | v7 | v8 |
+#### 变化 4：聚合点数据驱动（modName 注册表 + generic fallback）
+
+| 维度 | v8 | v9 |
 |---|---|---|
-| 缓存目录 | 硬编码 `.pt/contexts/cache/`（cache.ts） | Blueprint `## Compilation.cache-dir` 可配置 |
-| 拆分策略 | 只支持 single-file | 新增 `by-injection-point`（注入点级失效） |
+| renderer 分发 | 按 type 分发（`domainSceneRenderers[type]`） | 按 modName 分发（`moduleRenderers[modName]`） |
+| 加新聚合标题 | 改 renderer 代码（加 `if(modName===...)` 分支） | 不改代码（generic fallback 自动聚合）/ 一行注册 |
+| 内部特化 | renderer 内 modName 硬编码 | renderer 内 type 特化 |
 
-#### 变化 5：Pt 定位重定义
+**根因**：v8 renderer 按 type 分发，内部 modName 硬编码——加 Trigger 聚合标题要改所有 renderer。v9 改为 modName 驱动 + generic fallback，加新聚合标题零改动。
 
-| 维度 | v7 | v8 |
+#### 变化 5：Profile Domains 自动分发（全局 + 注入点追加）
+
+| 维度 | v8 | v9 |
 |---|---|---|
-| 定位 | 多来源转译器（Polyglot Transpiler） | 异构上下文编译器 |
-| 核心产物 | systemPrompt 段 | Context（编译后目标上下文） |
-| 扩展方向 | 更多转译规则 | 更多异构源 + 更多注入点 |
+| Domain 引用 | Blueprint 每个注入点下 `### Domains` 分别列（显式但重复） | Profile YAML 全局 `domains` + 注入点 `### Domains` 追加 |
+| 重复 | 同一 Domain 多注入点出现要写多次 | 全局写一次，自动分发 |
+| 精确控制 | 天然支持（每注入点分别列） | 注入点追加（只给该注入点贡献） |
+
+**根因**：v8 方式显式但重复；v9 全局 + 追加兼顾简洁与灵活。
+
+#### 变化 6："对话记忆" → "参考手册"改名
+
+| 维度 | v8 | v9 |
+|---|---|---|
+| 注入点名 | 对话记忆 | 参考手册 |
+| 语义 | 偏"记忆对话" | 准确——是给 LLM 参考的手册，按需查 |
+
+#### 变化 7：新增 me Domain 概念
+
+| 维度 | v8 | v9 |
+|---|---|---|
+| 会话知识内容 | 只有系统知识（Pt 是什么） | 系统知识 + **用户知识**（me Domain：我是谁、目标、偏好） |
+
+**根因**：LLM 作为共同设计者需要理解用户意图，缺少"我"视角导致每次要花很多轮解释。
 
 #### 不变的部分
 
-- 四层模型名（Domain/Channel/Blueprint/Context）
+- Pt 定位（异构上下文编译器，核心产物是 Context）
+- H2=注入点显式化（v8 引入，v9 继承）
 - Domain 的 H2 段开放性 + Type 正交
 - Schema/adapter 依赖反转（§6）
-- 三段式编译架构（parse/compile/render，§11）
+- 三段式编译架构（parse/compile/render）
 - Context 缓存 hash 失效策略
-- renderer 注册制扩展机制
+- target 字段映射语义名→Pi 技术名
+- render 按 target 分发（不硬编码模块名）
 
 ---
 

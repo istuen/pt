@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Pt (Polyglot Transpiler) — Pi Extension Architecture",
+    "output": "pt-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [1180, 700],
+    "views": [
+      {
+        "id": "build-pipeline",
+        "label": "Build pipeline",
+        "focus": ["oxn-adapter", "parse", "schema-ir", "compile", "ctx-cache", "render", "sysprompt"],
+        "note": "Follow the parse → compile → render + cache path that turns OXN assets into a System Prompt segment."
+      },
+      {
+        "id": "session-lifecycle",
+        "label": "Session lifecycle",
+        "focus": ["pi-settings", "pi-ext", "oxn-assets", "sysprompt"],
+        "note": "See how project settings and assets are picked up at session_start and injected every turn via before_agent_start."
+      },
+      {
+        "id": "manual-and-debug",
+        "label": "Manual trigger + debug surface",
+        "focus": ["pi-ext", "parse", "schema-ir", "render", "debug-out"],
+        "note": "The /name FlowTemplate binding path (via input handler) plus the /pt status · flows · raw · full debug commands."
+      }
+    ]
+  },
+  "components": [
+    { "id": "oxn-assets", "type": "external", "label": "OXN Assets", "sublabel": ".pt/assets/*.md", "pos": [40, 60], "size": [200, 70], "tag": "blueprint / channel / domain" },
+    { "id": "pi-settings", "type": "external", "label": "Pi Settings", "sublabel": ".pi/settings.json", "pos": [300, 60], "size": [200, 70], "tag": "au.pt-context key" },
+    { "id": "pi-ext", "type": "frontend", "label": "Pi ExtensionAPI", "sublabel": "session · agent · input", "pos": [300, 180], "size": [200, 80] },
+    { "id": "oxn-adapter", "type": "backend", "label": "oxnAdapter", "sublabel": "SourceAdapter registry", "pos": [40, 320], "size": [200, 80], "tag": "load(cwd, blueprint)" },
+    { "id": "parse", "type": "backend", "label": "Parse", "sublabel": "blueprint · channel · domain", "pos": [300, 320], "size": [200, 80] },
+    { "id": "schema-ir", "type": "database", "label": "Schema IR", "sublabel": "Domain · Channel · Blueprint · Context", "pos": [600, 320], "size": [200, 80] },
+    { "id": "compile", "type": "backend", "label": "Compile", "sublabel": "compileContext + computeSourceHash", "pos": [300, 460], "size": [200, 80] },
+    { "id": "ctx-cache", "type": "database", "label": "Context Cache", "sublabel": ".pt/contexts/*.json", "pos": [600, 460], "size": [200, 80] },
+    { "id": "render", "type": "backend", "label": "Render", "sublabel": "system-prompt · context-message · cache", "pos": [300, 600], "size": [200, 80] },
+    { "id": "sysprompt", "type": "cloud", "label": "System Prompt", "sublabel": "injected segment", "pos": [600, 600], "size": [200, 80], "tag": "## 当前任务上下文" },
+    { "id": "pi-llm", "type": "external", "label": "Pi LLM", "sublabel": "downstream consumer", "pos": [860, 600], "size": [200, 80] },
+    { "id": "debug-out", "type": "messagebus", "label": "/pt Debug", "sublabel": ".pt/raws · .pt/fulls", "pos": [940, 180], "size": [200, 80], "tag": "status · flows · raw · full" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Pt Extension Process", "wraps": ["oxn-adapter", "parse", "schema-ir", "compile", "ctx-cache", "render"], "pad": 10 },
+    { "kind": "region", "label": "Pi Host", "wraps": ["pi-ext", "sysprompt", "pi-llm"] }
+  ],
+  "connections": [
+    { "id": "assets-to-adapter", "from": "oxn-assets", "to": "oxn-adapter", "label": "read .md", "labelAt": [140, 144] },
+    { "id": "settings-to-ext", "from": "pi-settings", "to": "pi-ext", "label": "au.pt-context", "labelAt": [400, 144] },
+    { "id": "ext-to-adapter", "from": "pi-ext", "to": "oxn-adapter", "label": "session_start", "fromSide": "bottom", "toSide": "top", "labelAt": [200, 295] },
+    { "id": "adapter-to-parse", "from": "oxn-adapter", "to": "parse", "label": "dispatch", "labelDy": -44 },
+    { "id": "parse-to-schema", "from": "parse", "to": "schema-ir", "label": "build IR" },
+    { "id": "schema-to-compile", "from": "schema-ir", "to": "compile", "label": "Context IR", "fromSide": "bottom", "toSide": "top" },
+    { "id": "compile-to-cache", "from": "compile", "to": "ctx-cache", "label": "save / load · hit → skip", "variant": "dashed", "fromSide": "right", "toSide": "left", "labelAt": [550, 446] },
+    { "id": "compile-to-render", "from": "compile", "to": "render", "label": "Context", "labelDy": 24 },
+    { "id": "render-to-sysprompt", "from": "render", "to": "sysprompt", "label": "renderSystemPrompt", "labelDy": 64 },
+    { "id": "sysprompt-to-llm", "from": "sysprompt", "to": "pi-llm", "label": "before_agent_start", "labelDy": 64 },
+    { "id": "ext-to-debug", "from": "pi-ext", "to": "debug-out", "label": "/pt status · flows · raw · full" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "v8 Pipeline", "items": ["parse → compile → render + cache", "OXN markdown → System Prompt segment"] }
+  ]
+}

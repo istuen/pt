@@ -1,0 +1,214 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Pt Runtime \u2014 Per-Turn Loop",
+    "output": "pt-runtime.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "per-turn-loop",
+        "label": "Per-turn inject loop",
+        "focus": [
+          "pi-turn",
+          "pt-inject",
+          "llm-respond",
+          "pt-transpile"
+        ],
+        "note": "Each turn: before_agent_start fires, Pt appends cachedSegment, LLM consumes the final prompt."
+      },
+      {
+        "id": "session-init",
+        "label": "Session init",
+        "focus": [
+          "pi-start",
+          "pt-transpile"
+        ],
+        "note": "On session_start, Pt calls loadAndTranspile which checks Context cache by sourceHash."
+      },
+      {
+        "id": "session-end",
+        "label": "Session end (cleanup)",
+        "focus": [
+          "pi-shutdown",
+          "pt-clear"
+        ],
+        "note": "On session_shutdown, Pt clears: cachedSegment, cachedBundles, activeBlueprint, lastBuiltPrompt, lastCacheHit, lastCwd."
+      }
+    ],
+    "viewBox": [
+      976,
+      560
+    ]
+  },
+  "lanes": [
+    {
+      "id": "pi",
+      "label": "Pi Host"
+    },
+    {
+      "id": "pt",
+      "label": "Pt Extension"
+    },
+    {
+      "id": "llm",
+      "label": "Downstream LLM"
+    }
+  ],
+  "phases": [
+    {
+      "id": "init",
+      "label": "Session init",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "turn",
+      "label": "Per-turn loop",
+      "fromCol": 2,
+      "toCol": 2,
+      "variant": "emphasis"
+    },
+    {
+      "id": "end",
+      "label": "Session end",
+      "fromCol": 3,
+      "toCol": 3,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "pi-start",
+    "pt-transpile",
+    "pt-inject",
+    "llm-respond"
+  ],
+  "nodes": [
+    {
+      "id": "pi-start",
+      "lane": "pi",
+      "col": 0,
+      "type": "cloud",
+      "label": "session_start",
+      "sublabel": "Pi event",
+      "tag": "once",
+      "width": 132,
+      "height": 48
+    },
+    {
+      "id": "pt-transpile",
+      "lane": "pt",
+      "col": 1,
+      "type": "backend",
+      "label": "loadAndTranspile",
+      "sublabel": "parse + compile + cache",
+      "tag": "first time + hash",
+      "width": 148,
+      "height": 48
+    },
+    {
+      "id": "pi-turn",
+      "lane": "pi",
+      "col": 2,
+      "type": "cloud",
+      "label": "before_agent_start",
+      "sublabel": "Pi event",
+      "tag": "per turn",
+      "width": 148,
+      "height": 48
+    },
+    {
+      "id": "pt-inject",
+      "lane": "pt",
+      "col": 2,
+      "type": "backend",
+      "label": "inject cachedSegment",
+      "sublabel": "append to systemPrompt",
+      "tag": "lastBuiltPrompt",
+      "width": 156,
+      "height": 48
+    },
+    {
+      "id": "llm-respond",
+      "lane": "llm",
+      "col": 2,
+      "type": "external",
+      "label": "LLM responds",
+      "sublabel": "consumes final prompt",
+      "width": 132,
+      "height": 48
+    },
+    {
+      "id": "pi-shutdown",
+      "lane": "pi",
+      "col": 3,
+      "type": "cloud",
+      "label": "session_shutdown",
+      "sublabel": "fires clear handler",
+      "tag": "cleanup",
+      "width": 140,
+      "height": 48
+    },
+    {
+      "id": "pt-clear",
+      "lane": "pt",
+      "col": 3,
+      "type": "backend",
+      "label": "clear in-memory state",
+      "sublabel": "segment \u00b7 bundles \u00b7 blueprint",
+      "width": 156,
+      "height": 48
+    }
+  ],
+  "edges": [
+    {
+      "id": "session-start",
+      "from": "pi-start",
+      "to": "pt-transpile",
+      "label": "session_start",
+      "variant": "emphasis"
+    },
+    {
+      "id": "transpile-inject",
+      "from": "pt-transpile",
+      "to": "pt-inject",
+      "label": "set cachedSegment",
+      "variant": "emphasis"
+    },
+    {
+      "id": "turn-inject",
+      "from": "pi-turn",
+      "to": "pt-inject",
+      "label": "before_agent_start",
+      "variant": "emphasis"
+    },
+    {
+      "id": "inject-llm",
+      "from": "pt-inject",
+      "to": "llm-respond",
+      "label": "systemPrompt",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "In-memory state (per session)",
+      "items": [
+        "cachedSegment - built segment, ready to inject",
+        "cachedBundles - SchemaBundle[] with FlowTemplates",
+        "activeBlueprint - lastBuiltPrompt - lastCacheHit - lastCwd"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Per-turn loop (the runtime core)",
+      "items": [
+        "before_agent_start fires once per turn",
+        "Pt injects cachedSegment into systemPrompt",
+        "lastBuiltPrompt is cached for /pt full",
+        "LLM responds -> next turn -> before_agent_start again"
+      ]
+    }
+  ]
+}
