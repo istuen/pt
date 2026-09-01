@@ -5,6 +5,7 @@ node_modules/
 .pt/contexts/cache/
 .pt/raws/
 .pt/fulls/
+.pt/logs/
 *.context.md
 
 # TypeScript compiled output (pi runs .ts directly via tsx)

@@ -44,22 +44,62 @@ export class PiAdapter implements AgentAdapter {
     const seg = this.segment ?? renderSystemPrompt(ctx, blueprint);
 
     // system_prompt 注入：每轮追加 segment
+    // v10.x：包 try/catch，运行时异常走 api.log.error + ui.notify，不再 swallow
     api.on("before_agent_start", async (...args: unknown[]) => {
-      if (!seg) return undefined;
-      const event = args[0];
-      if (!isSystemPromptEvent(event)) return undefined;
-      const final = event.systemPrompt + "\n\n## 当前任务上下文\n\n" + seg;
-      return { systemPrompt: final };
+      const t0 = Date.now();
+      try {
+        if (!seg) return undefined;
+        const event = args[0];
+        if (!isSystemPromptEvent(event)) return undefined;
+        const final = event.systemPrompt + "\n\n## 当前任务上下文\n\n" + seg;
+        api.log?.debug("agent:before_agent_start ok", {
+          originalLen: event.systemPrompt.length,
+          injectedLen: final.length,
+          deltaLen: final.length - event.systemPrompt.length,
+          durationMs: Date.now() - t0,
+        });
+        return { systemPrompt: final };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        api.log?.error("agent:before_agent_start failed", { err: msg, durationMs: Date.now() - t0 });
+        api.ui?.notify(`[pt] before_agent_start failed: ${msg}`, "error");
+        return undefined;  // 失败降级, 不影响主流程
+      }
     });
 
     // context_message 触发：/manual:xxx + /<flow-name>
+    // v10.x：包 try/catch，renderContextMessage 抛错不再 swallow
     api.on("input", async (...args: unknown[]) => {
-      if (!this.ctx || !this.blueprint) return { action: "continue" };
-      const event = args[0];
-      if (!isInputEvent(event)) return { action: "continue" };
-      const result = renderContextMessage(this.ctx, this.blueprint, this.domains, event.text);
-      if (result === null) return { action: "continue" };
-      return { action: "transform", text: result };
+      const t0 = Date.now();
+      try {
+        if (!this.ctx || !this.blueprint) return { action: "continue" };
+        const event = args[0];
+        if (!isInputEvent(event)) return { action: "continue" };
+        const result = renderContextMessage(this.ctx, this.blueprint, this.domains, event.text);
+        const durationMs = Date.now() - t0;
+        if (result === null) {
+          api.log?.debug("agent:input passthrough", {
+            inputPreview: event.text.slice(0, 80),
+            durationMs,
+          });
+          return { action: "continue" };
+        }
+        api.log?.info("agent:input transformed", {
+          inputPreview: event.text.slice(0, 80),
+          outputLen: result.length,
+          durationMs,
+        });
+        return { action: "transform", text: result };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        api.log?.error("agent:input render failed", {
+          err: msg,
+          input: args[0],
+          durationMs: Date.now() - t0,
+        });
+        api.ui?.notify(`[pt] input render failed: ${msg}`, "error");
+        return { action: "continue" };  // 失败降级: 不拦截 input, 让原文本过 LLM
+      }
     });
   }
 

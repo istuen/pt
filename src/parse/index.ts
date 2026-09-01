@@ -6,7 +6,7 @@
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { ASSETS_DIR, SUFFIX_MD } from "../constants.js";
+import { ASSETS_DIR, BUILTIN_ASSETS_DIR, SUFFIX_MD } from "../constants.js";
 import type { Blueprint, Domain, Profile, SchemaBundle, SourceAdapter, SourceAdapterContext } from "../schema.js";
 import { findBlueprint, findProfile } from "../schema.js";
 import { parseBlueprint } from "./blueprint.js";
@@ -22,14 +22,18 @@ export const mdAdapter: SourceAdapter = {
   name: "md",
 
   async load(cwd, profileName, adapterCtx): Promise<SchemaBundle> {
-    // 1. 枚举 domains/ 下所有 *.md → Domain[]
-    const domains = await loadAllDomains(cwd, adapterCtx);
+    // 1. 项目资产 + 内建资产（同名时项目覆盖内建）
+    const projectDomains = await loadAllDomains(cwd, adapterCtx);
+    const builtinDomains = await loadAllBuiltinDomains();
+    const domains = dedupByName(projectDomains, builtinDomains);
 
-    // 2. 枚举 blueprints/ 下所有 *.md → Blueprint[]（结构层）
-    const blueprints = await loadAllBlueprints(cwd, adapterCtx);
+    const projectBlueprints = await loadAllBlueprints(cwd, adapterCtx);
+    const builtinBlueprints = await loadAllBuiltinBlueprints();
+    const blueprints = dedupByName(projectBlueprints, builtinBlueprints);
 
-    // 3. 枚举 profiles/ 下所有 *.md → Profile[]（配置层，新增）
-    const profiles = await loadAllProfiles(cwd, adapterCtx);
+    const projectProfiles = await loadAllProfiles(cwd, adapterCtx);
+    const builtinProfiles = await loadAllBuiltinProfiles();
+    const profiles = dedupByName(projectProfiles, builtinProfiles);
 
     // 4. 找激活的 Profile（按 profileName）
     const active = findProfile(profiles, profileName);
@@ -50,7 +54,16 @@ export const mdAdapter: SourceAdapter = {
     // 5. 校验 Profile 引用的 Blueprint 必须存在（明确的错误提示）
     const bp = findBlueprint(blueprints, active.blueprint);
     if (!bp && active.blueprint) {
-      reportWarn(adapterCtx, `Profile "${active.name}" 引用了未知 Blueprint "${active.blueprint}"`);
+      // 把"可用 Blueprint 列表"塞进 details，让日志/UI 用户能看到怎么改
+      reportWarn(
+        adapterCtx,
+        `Profile "${active.name}" 引用了未知 Blueprint "${active.blueprint}"`,
+        {
+          profileName: active.name,
+          referencedBlueprint: active.blueprint,
+          availableBlueprints: blueprints.map((b) => b.name),
+        },
+      );
     }
 
     return {
@@ -67,19 +80,42 @@ export const mdAdapter: SourceAdapter = {
 async function loadAllDomains(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Domain[]> {
   const assetDir = adapterCtx?.assetDir ?? DEFAULT_ASSET_DIR;
   const dir = join(cwd, assetDir, "domains");
-  return loadDir(dir, SUFFIX_MD, (f) => parseDomain(cwd, assetDir, f), adapterCtx);
+  return loadDir(dir, SUFFIX_MD, (f) => parseDomain(dir, f), adapterCtx);
 }
 
 async function loadAllBlueprints(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Blueprint[]> {
   const assetDir = adapterCtx?.assetDir ?? DEFAULT_ASSET_DIR;
   const dir = join(cwd, assetDir, "blueprints");
-  return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(cwd, assetDir, f), adapterCtx);
+  return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(dir, f), adapterCtx);
 }
 
 async function loadAllProfiles(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Profile[]> {
   const assetDir = adapterCtx?.assetDir ?? DEFAULT_ASSET_DIR;
   const dir = join(cwd, assetDir, "profiles");
-  return loadDir(dir, SUFFIX_MD, (f) => parseProfile(cwd, assetDir, f), adapterCtx);
+  return loadDir(dir, SUFFIX_MD, (f) => parseProfile(dir, f), adapterCtx);
+}
+
+// ==================== 内建资产加载（src/builtin/assets/，随包发布） ====================
+
+async function loadAllBuiltinDomains(): Promise<Domain[]> {
+  const dir = join(BUILTIN_ASSETS_DIR, "domains");
+  return loadDir(dir, SUFFIX_MD, (f) => parseDomain(dir, f), undefined);
+}
+
+async function loadAllBuiltinBlueprints(): Promise<Blueprint[]> {
+  const dir = join(BUILTIN_ASSETS_DIR, "blueprints");
+  return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(dir, f), undefined);
+}
+
+async function loadAllBuiltinProfiles(): Promise<Profile[]> {
+  const dir = join(BUILTIN_ASSETS_DIR, "profiles");
+  return loadDir(dir, SUFFIX_MD, (f) => parseProfile(dir, f), undefined);
+}
+
+/** 合并两源资产：项目优先，内建补充（同名时项目覆盖内建）。 */
+function dedupByName<T extends { name: string }>(project: T[], builtin: T[]): T[] {
+  const projectNames = new Set(project.map((x) => x.name));
+  return [...project, ...builtin.filter((x) => !projectNames.has(x.name))];
 }
 
 async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Promise<T>, adapterCtx?: SourceAdapterContext): Promise<T[]> {
@@ -95,7 +131,7 @@ async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Pr
         return await parser(f);
       } catch (e) {
         // 错误通过 notify 回调上抛，index.ts 调 ctx.ui.notify（pt-quality #9）
-        reportError(adapterCtx, `parse ${dir}/${f} failed: ${errMsg(e)}`);
+        reportError(adapterCtx, `parse ${dir}/${f} failed: ${errMsg(e)}`, { file: f });
         return null;
       }
     }),
@@ -103,14 +139,18 @@ async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Pr
   return results.filter((r): r is T => r !== null);
 }
 
-/** adapterCtx 缺失/notify 未传 → fallback console（保持 debug 能看到错误）。 */
-function reportWarn(adapterCtx: SourceAdapterContext | undefined, msg: string): void {
+/** 三通道 fallback: log → notify → console（pt-quality #9 + 自定义细节）。
+ *  顺序：log 优先（持久 trace），再 notify（UI 瞬时），最后 console（debug 兜底）。
+ *  v10.x：增 details 参数，让 log/UI 用户能看到 structured 上下文。 */
+function reportWarn(adapterCtx: SourceAdapterContext | undefined, msg: string, details?: Record<string, unknown>): void {
+  if (adapterCtx?.log) adapterCtx.log.warn(msg, details);
   if (adapterCtx?.notify) adapterCtx.notify(msg, "warning");
-  else console.warn(`[pt] ${msg}`);
+  if (!adapterCtx?.log && !adapterCtx?.notify) console.warn(`[pt] ${msg}`);
 }
-function reportError(adapterCtx: SourceAdapterContext | undefined, msg: string): void {
+function reportError(adapterCtx: SourceAdapterContext | undefined, msg: string, details?: Record<string, unknown>): void {
+  if (adapterCtx?.log) adapterCtx.log.error(msg, details);
   if (adapterCtx?.notify) adapterCtx.notify(msg, "error");
-  else console.error(`[pt] ${msg}`);
+  if (!adapterCtx?.log && !adapterCtx?.notify) console.error(`[pt] ${msg}`);
 }
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
