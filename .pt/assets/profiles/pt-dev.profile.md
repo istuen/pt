@@ -1,18 +1,7 @@
 ---
 name: pt-dev
 blueprint: dev-knowledge
-domains: [pt-architecture, pt-stack, me]
+domains: [me, product-design, requirements, development, deployment, pt-quality, pt-collab]
 ---
 
 # pt-dev (profile)
-
-## 会话知识
-### Domains
-- pt-quality
-- pt-collab
-
-## 参考手册
-### Domains
-- pt-dev-flow
-- pt-collab
-- pt-quality

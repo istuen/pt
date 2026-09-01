@@ -1,9 +1,9 @@
 ---
 type: term
-name: pt-architecture
+name: product-design
 ---
 
-# pt-architecture
+# product-design
 
 ## Scene
 
@@ -39,6 +39,21 @@ name: pt-architecture
 
 ### 注入点→ Pi 位置映射（v9）
 - desc: Blueprint.injectionPoints[].target 字段是语义名（会话知识/参考手册）到 Pi 技术名（system_prompt/context_message）的桥梁。render 按 target 分发，不硬编码模块名。target=system_prompt 的注入点聚合内容 → System Prompt（before_agent_start，session 级）；target=context_message 的注入点聚合内容 → Context Message（input 事件 transform，轮次级）。
+
+### typescript
+- role: Pt 全部源码用 TypeScript（src/*.ts）；tsconfig.json include: ["src"]，target ES2022，module ESNext bundler。
+
+### pi-extension-api
+- role: Pi 提供的 ExtensionAPI（src/index.ts 入口）；用到的接口：registerFlag / registerCommand / on(session_start|before_agent_start|input|session_shutdown)。
+
+### tsx
+- role: 验证脚本运行器（verify-*.ts 用 `npx tsx` 直接执行，tsconfig.json allowImportingTsExtensions: true）。
+
+### md-asset-format
+- role: Domain / Blueprint / Profile 都是 markdown + YAML frontmatter；按 frontmatter 字段分发解析（type → Domain IR，agent → Blueprint IR，blueprint → Profile IR）。v9 资产：Blueprint H2=注入点（target + ### Modules），Profile 同名 H2 实例化注入点（追加 ### Domains），Profile YAML 全局 domains 自动分发到所有注入点。
+
+### git
+- role: 版本控制；每 Phase 一个 commit（Phase X.Y: ... 格式），baseline 可回退。
 
 ## Manual
 

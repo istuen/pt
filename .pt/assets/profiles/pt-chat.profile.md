@@ -1,11 +1,7 @@
 ---
-name: pt
+name: pt-chat
 blueprint: dev-knowledge
-domains: [pt-architecture, pt-transpile, pt-stack]
+domains: [me, product-design, asset-workflow]
 ---
 
-# pt (profile)
-
-## 参考手册
-### Domains
-- pt-transpile
+# pt-chat (profile)
