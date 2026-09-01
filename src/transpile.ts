@@ -9,10 +9,11 @@
 //     ↓
 //   render.systemPrompt(Context, Blueprint) → 给 AgentAdapter 注入 before_agent_start
 
-import { oxnAdapter } from "./parse/index.js";
+import { mdAdapter } from "./parse/index.js";
 import { compileContext } from "./compile/context.js";
 import { saveContext, loadContext } from "./render/cache.js";
 import { renderSystemPrompt } from "./render/system-prompt.js";
+import { AGENT_PI, CACHE_DIR } from "./constants.js";
 import { findBlueprint, findProfile } from "./schema.js";
 import type { Blueprint, Context, Domain, Profile, SchemaBundle, SourceAdapter } from "./schema.js";
 
@@ -34,12 +35,12 @@ export interface TranspileResult {
 }
 
 const EMPTY_CTX: Context = { name: "", sourceHash: "0", modules: {} };
-const EMPTY_BP: Blueprint = { name: "", agent: "pi", injectionPoints: [], compilation: { cacheDir: ".pt/contexts/cache/", split: "single-file" } };
+const EMPTY_BP: Blueprint = { name: "", agent: AGENT_PI, injectionPoints: [], compilation: { cacheDir: CACHE_DIR, split: "single-file" } };
 const EMPTY_PROFILE: Profile = { name: "", blueprint: "", domains: [], injectionPoints: [] };
 
-/** ============== Source Adapter 注册表（MVP 只有 OXN） ============== */
+/** ============== Source Adapter 注册表（MVP 只有 MD） ============== */
 const sourceAdapters: SourceAdapter[] = [
-  oxnAdapter,
+  mdAdapter,
   // 未来：yamlAdapter, dbAdapter, ...
 ];
 

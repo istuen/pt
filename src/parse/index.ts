@@ -6,15 +6,17 @@
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { SUFFIX_MD, blueprintsDir, domainsDir, profilesDir } from "../constants.js";
 import type { Blueprint, Domain, Profile, SchemaBundle, SourceAdapter } from "../schema.js";
 import { findBlueprint, findProfile } from "../schema.js";
 import { parseBlueprint } from "./blueprint.js";
 import { parseDomain } from "./domain.js";
 import { parseProfile } from "./profile.js";
 
-/** OXN adapter：按目录位置分发到 domain/blueprint/profile adapter，组装 SchemaBundle。 */
-export const oxnAdapter: SourceAdapter = {
-  name: "oxn",
+/** MD adapter：按目录位置分发到 domain/blueprint/profile adapter，组装 SchemaBundle。
+ *  v9 命名约定：适配的是 MD 文件格式（不再叫 OXN——OXN 是历史名）。 */
+export const mdAdapter: SourceAdapter = {
+  name: "md",
 
   async load(cwd, profileName): Promise<SchemaBundle> {
     // 1. 枚举 domains/ 下所有 *.md → Domain[]
@@ -60,18 +62,18 @@ export const oxnAdapter: SourceAdapter = {
 // ==================== 目录枚举辅助 ====================
 
 async function loadAllDomains(cwd: string): Promise<Domain[]> {
-  const dir = join(cwd, ".pt/assets/domains");
-  return loadDir(dir, ".md", (f) => parseDomain(cwd, f));
+  const dir = join(cwd, domainsDir());
+  return loadDir(dir, SUFFIX_MD, (f) => parseDomain(cwd, f));
 }
 
 async function loadAllBlueprints(cwd: string): Promise<Blueprint[]> {
-  const dir = join(cwd, ".pt/assets/blueprints");
-  return loadDir(dir, ".md", (f) => parseBlueprint(cwd, f));
+  const dir = join(cwd, blueprintsDir());
+  return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(cwd, f));
 }
 
 async function loadAllProfiles(cwd: string): Promise<Profile[]> {
-  const dir = join(cwd, ".pt/assets/profiles");
-  return loadDir(dir, ".md", (f) => parseProfile(cwd, f));
+  const dir = join(cwd, profilesDir());
+  return loadDir(dir, SUFFIX_MD, (f) => parseProfile(cwd, f));
 }
 
 async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Promise<T>): Promise<T[]> {
@@ -86,6 +88,7 @@ async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Pr
       try {
         return await parser(f);
       } catch (e) {
+        // 错误通过返回值传递，避免依赖 UI 层（T8 改造点）
         console.error(`[pt] parse ${dir}/${f} failed:`, e);
         return null;
       }

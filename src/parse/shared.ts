@@ -1,28 +1,32 @@
-// src/parse/shared.ts — 通用 MD 词法+语法（domain/channel/blueprint 共享）
+// src/parse/shared.ts — 通用 MD 词法+语法（domain/blueprint/profile 共享）
 //
 // Phase 7.3：从原 src/parse/{parser,types}.ts 抽公共部分。
-//   - Domain/Channel/Blueprint adapter 都按 H2 段解析，H3 子项 → Item。
+//   - Domain/Blueprint/Profile adapter 都按 H2 段解析，H3 子项 → Item。
 //   - 共享 frontmatter 解析、H2 段切分、H3 项解析、scalar 值解析。
 //   - 共享 Asset/Section/Item 类型。
 //
-// Phase 8.3：v8 适配 — 新增 extractFieldValue/extractModulesList 辅助函数，
-//   给 Channel H2=注入点解析 + Blueprint 按注入点解析用。
+// Phase 9.3：v9 适配 — Channel 删除（Channel 留作未来 Connector），inferKind 用 frontmatter 字段。
+//   AssetKind 去除 "channel"——但保留 type 值以防历史资源解析时遗留错误。
 
 import { readFile } from "node:fs/promises";
 
 // ==================== 类型（OXN 中间表示，Pt 核心不见） ====================
 
-/** OXN 内部 asset kind。
+/** MD 资产内部 kind（v9 适配）。
  *  - "domain"    : Content Domain（v7/v9 内容层）
  *  - "blueprint" : Blueprint（v7 配置层 / v9 结构层）
  *  - "profile"   : Profile（v9 配置层，新增）
- *  - "channel"   : Channel（v8 结构层，v9 删除但保留 type 防止历史资源识别异常）
  *  - "term" / "workflow" / "stack" / "glossary" : Domain type 标签（frontmatter.type）
- *  - "scene" / "manual" : v6 Struct kind 兼容（v7 资产迁移期残留） */
+ *  - "scene" / "manual" : v6 Struct kind 兼容（v7 资产迁移期残留）
+ *
+ *  v9 删除了 "channel"（Channel 留作未来 Connector，本版本不实现）——不再出现在 kind 联合中。
+ *  如解析到历史资源带 channel 段，frontmatter.kind 可 指 配 "channel"（保留为字符串兜底）。 */
 export type AssetKind =
-  | "domain" | "channel" | "blueprint" | "profile"
+  | "domain" | "blueprint" | "profile"
   | "term" | "workflow" | "stack" | "glossary"
-  | "scene" | "manual";
+  | "scene" | "manual"
+  // 兜底：v8 channel 历史资源可能含 frontmatter.kind: "channel"
+  | "channel";
 
 export interface Item {
   /** H3 标题（如 "文章"、"select-topic"） */
