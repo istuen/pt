@@ -13,7 +13,7 @@ name: pt-quality
 ## Scene
 
 ### quality-index
-- desc: 技术规范在 Manual 段；执行开发手册（modify-schema/modify-asset/add-domain-type）时自动带出对话记忆注入点。
+- desc: 技术规范在 Manual 段；执行开发手册（modify-schema/modify-asset/add-domain-type）时自动带出参考手册注入点。
 
 ## Manual
 
@@ -40,7 +40,7 @@ name: pt-quality
 ### module-name-constant
 - slot: global
 - type: invariant
-- check: 模块名 会话知识/对话记忆 必须用常量，不散落字符串字面量
+- check: 模块名 会话知识/参考手册 必须用常量，不散落字符串字面量
 
 ### naming-consistency
 - slot: global

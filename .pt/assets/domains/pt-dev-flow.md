@@ -5,6 +5,11 @@ name: pt-dev-flow
 
 # pt-dev-flow
 
+## Trigger
+### pt-dev-flow-trigger
+- desc: 执行开发任务时参考；含 modify-schema / modify-asset / add-domain-type 流程手册
+- hint: /manual:pt-dev-flow 查看完整手册
+
 ## Scene
 
 ### pt-source-tree
