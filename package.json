@@ -8,9 +8,9 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "verify": "tsx tests/verify/verify-phase9.ts && tsx tests/verify/verify-flows.ts",
-    "verify:phase9": "tsx tests/verify/verify-phase9.ts",
-    "verify:flows": "tsx tests/verify/verify-flows.ts"
+    "verify": "vitest run tests/verify/",
+    "verify:phase9": "vitest run tests/verify/phase9.test.ts",
+    "verify:flows": "vitest run tests/verify/flows.test.ts"
   },
   "pi": {
     "extensions": [
@@ -25,6 +25,7 @@
   "devDependencies": {
     "@types/node": "^26.4.0",
     "tsx": "^4.23.13",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^3.2.7"
   }
 }

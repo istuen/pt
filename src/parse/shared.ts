@@ -312,7 +312,7 @@ export function extractBareListUnderH3(section: Section | undefined, h3Name: str
       continue;
     }
     if (!inTarget) continue;
-    // 裸名行：`- Scene` / `- pt-concepts`（无冒号或冒号后无值）
+    // 裸名行：`- Scene` / `- pt-architecture`（无冒号或冒号后无值）
     const bare = line.match(/^\s*-\s+([^\s:]+)\s*$/);
     if (bare) {
       out.push(bare[1].trim());

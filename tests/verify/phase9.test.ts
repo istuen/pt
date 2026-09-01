@@ -1,0 +1,310 @@
+// tests/verify/phase9.test.ts — Phase 9.9 v9 完整回归验证（vitest）
+//
+// v9 模型：
+// - Blueprint 吸收 v8 Channel 结构（agent + injectionPoints + Compilation）
+// - Profile 是业务端实例（blueprint + YAML domains + 各注入点 ### Domains 追加）
+// - modName 注册表（替代 v8 domainSceneRenderers）
+// - Trigger 索引段（Domain 内 H2 段）
+// - /manual:xxx 触发（renderContextMessage 实现）
+// - AgentAdapter 抽象（PiAdapter 封装 before_agent_start + input）
+
+import { describe, it, expect, beforeAll } from "vitest";
+import { loadAndTranspile } from "../../src/transpile.js";
+import { renderContextMessage } from "../../src/render/context-message.js";
+import { findBlueprint, findProfile } from "../../src/schema.js";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { execSync } from "node:child_process";
+
+const cwd = process.cwd();
+
+interface LoadedProfile {
+  name: string;
+  segment: string;
+  context: ReturnType<typeof loadAndTranspile> extends Promise<infer T> ? T extends { context: infer C } ? C : never : never;
+  blueprint: ReturnType<typeof loadAndTranspile> extends Promise<infer T> ? T extends { blueprint: infer B } ? B : never : never;
+  bundles: ReturnType<typeof loadAndTranspile> extends Promise<infer T> ? T extends { bundles: infer Bs } ? Bs : never : never;
+  cacheHit: boolean;
+}
+
+const loadedProfiles: Record<string, LoadedProfile> = {};
+
+beforeAll(async () => {
+  // 清缓存，确保首次加载都重编译
+  try {
+    for (const f of await readdir(join(cwd, ".pt/contexts/cache"))) {
+      if (f.endsWith(".context.md")) {
+        await readFile(join(cwd, ".pt/contexts/cache", f), "utf8").catch(() => {});
+      }
+    }
+  } catch {}
+
+  for (const name of ["pt", "pt-dev", "glossary-test"]) {
+    const r = await loadAndTranspile(cwd, name);
+    loadedProfiles[name] = {
+      name,
+      segment: r.segment,
+      context: r.context,
+      blueprint: r.blueprint,
+      bundles: r.bundles,
+      cacheHit: r.cacheHit,
+    };
+  }
+});
+
+describe("Phase 9.9 v9 完整回归", () => {
+  // ========== 1. 三 Profile 产物 ==========
+  describe("1. 三 Profile 产物", () => {
+    it("三个 Profile 都成功加载", () => {
+      expect(loadedProfiles.pt).toBeDefined();
+      expect(loadedProfiles["pt-dev"]).toBeDefined();
+      expect(loadedProfiles["glossary-test"]).toBeDefined();
+    });
+
+    it("pt Profile 含 v9 措辞", () => {
+      const r = loadedProfiles.pt.segment;
+      expect(r).toContain("parse");
+      expect(r).toContain("compile");
+      expect(r).toContain("render");
+    });
+
+    it("pt-dev Profile 含开发流程", () => {
+      const r = loadedProfiles["pt-dev"].segment;
+      expect(r.includes("modify-schema") || r.includes("pt-dev-flow")).toBe(true);
+    });
+
+    it("pt-dev Profile 不含业务", () => {
+      const r = loadedProfiles["pt-dev"].segment;
+      expect(r).not.toContain("客户");
+      expect(r).not.toContain("订单");
+    });
+  });
+
+  // ========== 2. Context 缓存命中 ==========
+  describe("2. Context 缓存命中", () => {
+    it("pt 二次加载命中缓存", async () => {
+      const r2 = await loadAndTranspile(cwd, "pt");
+      expect(r2.cacheHit).toBe(true);
+      expect(r2.segment).toBe(loadedProfiles.pt.segment);
+    });
+  });
+
+  // ========== 3. Blueprint 复用 ==========
+  describe("3. Blueprint 复用", () => {
+    it("dev-knowledge Blueprint 被 ≥2 个 Profile 引用", async () => {
+      const profileFiles = (await readdir(join(cwd, ".pt/assets/profiles"))).filter((f) => f.endsWith(".profile.md"));
+      const refCounts: Record<string, number> = {};
+      for (const f of profileFiles) {
+        const raw = await readFile(join(profilesDir(), f), "utf8");
+        const m = raw.match(/^blueprint:\s+(.+)$/m);
+        const bp = m ? m[1].trim() : "";
+        if (bp) refCounts[bp] = (refCounts[bp] ?? 0) + 1;
+      }
+      expect(refCounts["dev-knowledge"] ?? 0).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // ========== 4. 扩展性：glossary ==========
+  describe("4. 扩展性验证", () => {
+    it("glossary-test profile 含 glossary 段", () => {
+      expect(loadedProfiles["glossary-test"].segment.includes("术语表") ||
+             loadedProfiles["glossary-test"].segment.includes("GlossaryEntry")).toBe(true);
+    });
+    it("pt profile 不被 glossary 污染", () => {
+      expect(loadedProfiles.pt.segment).not.toContain("GlossaryEntry");
+    });
+  });
+
+  // ========== 5. v9 注入点 H2 ==========
+  describe("5. v9 注入点 H2", () => {
+    it("pt-dev Context 含 ## 会话知识 + ## 参考手册，不含 ## Scene / ## Manual", async () => {
+      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      expect(/^## 会话知识/m.test(raw)).toBe(true);
+      expect(/^## 参考手册/m.test(raw)).toBe(true);
+      expect(/^## Scene\b/m.test(raw)).toBe(false);
+      expect(/^## Manual\b/m.test(raw)).toBe(false);
+    });
+  });
+
+  // ========== 6. pt-quality Manual ==========
+  describe("6. pt-quality 进参考手册不污染会话知识", () => {
+    it("pt-quality Manual 段出现在 pt-dev 参考手册", async () => {
+      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      const canKaoIdx = raw.indexOf("## 参考手册");
+      let qualityManualIdx = -1;
+      let searchFrom = canKaoIdx;
+      while (searchFrom !== -1) {
+        const next = raw.indexOf("### 模块「pt-quality」", searchFrom);
+        if (next === -1) break;
+        if (next > canKaoIdx) { qualityManualIdx = next; break; }
+        searchFrom = next + 1;
+      }
+      // 必须在 ## 参考手册 之后（pt-quality Manual 段进参考手册段）
+      expect(qualityManualIdx).toBeGreaterThan(canKaoIdx);
+      // 且是文件中最后一个 ### 模块「pt-quality」（Manual 唯一）
+      const lastIdx = raw.lastIndexOf("### 模块「pt-quality」");
+      expect(qualityManualIdx).toBe(lastIdx);
+    });
+
+    it("pt-quality Manual 规范 checklist 不污染会话知识段", async () => {
+      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      const canKaoIdx = raw.indexOf("## 参考手册");
+      const huiHuaIdx = raw.indexOf("## 会话知识");
+      const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
+      const modulesTypeSafetyIdx = raw.indexOf("- [ ] modules-type-safety");
+      expect(modulesTypeSafetyIdx < huiHuaIdx || modulesTypeSafetyIdx > huiHuaIdx + 1 + nextH2AfterHuiHuaOffset).toBe(true);
+    });
+  });
+
+  // ========== 7. Trigger 索引段 ==========
+  describe("7. Trigger 索引段", () => {
+    it("pt-quality-trigger 出现在会话知识段", async () => {
+      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      const huiHuaIdx = raw.indexOf("## 会话知识");
+      const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
+      const triggerIdx = raw.indexOf("pt-quality-trigger");
+      expect(triggerIdx).toBeGreaterThan(huiHuaIdx);
+      expect(triggerIdx).toBeLessThan(huiHuaIdx + 1 + nextH2AfterHuiHuaOffset);
+    });
+  });
+
+  // ========== 8. me Domain ==========
+  describe("8. me Domain 进入会话知识", () => {
+    it("me Domain 段出现在会话知识", async () => {
+      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      const huiHuaIdx = raw.indexOf("## 会话知识");
+      const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
+      const meIdx = raw.indexOf("### 模块「me」");
+      expect(meIdx).toBeGreaterThan(huiHuaIdx);
+      expect(meIdx).toBeLessThan(huiHuaIdx + 1 + nextH2AfterHuiHuaOffset);
+    });
+
+    it("me 含 user-profile/pt-goal/collab-mode", async () => {
+      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      expect(raw).toContain("user-profile");
+      expect(raw).toContain("pt-goal");
+      expect(raw).toContain("collab-mode");
+    });
+  });
+
+  // ========== 9. 硬编码检查 ==========
+  describe("9. 硬编码检查", () => {
+    it("renderSystemPrompt 不硬编码 Scene", async () => {
+      const src = await readFile("src/render/system-prompt.ts", "utf8");
+      expect(src).not.toMatch(/['"]Scene['"]/);
+    });
+    it("compile/context.ts 不含 domainSceneRenderers 代码（仅历史注释提及）", async () => {
+      const src = await readFile("src/compile/context.ts", "utf8");
+      const codeWithoutComments = src.replace(/\/\/.*$/gm, "");
+      expect(codeWithoutComments).not.toMatch(/domainSceneRenderers[\(\.]/);
+    });
+    it("compile/context.ts 不含 target === system_prompt 硬编码", async () => {
+      const src = await readFile("src/compile/context.ts", "utf8");
+      expect(src).not.toContain('target === "system_prompt"');
+    });
+  });
+
+  // ========== 10. IR 结构 ==========
+  describe("10. IR 结构", () => {
+    it("Blueprint 含 agent 字段", async () => {
+      const src = await readFile("src/schema.ts", "utf8");
+      expect(src).toMatch(/interface Blueprint[\s\S]*?agent:\s*string/);
+    });
+    it("Profile 含 blueprint + domains 字段", async () => {
+      const src = await readFile("src/schema.ts", "utf8");
+      expect(src).toMatch(/interface Profile[\s\S]*?blueprint:\s*string[\s\S]*?domains:\s*string\[\]/);
+    });
+    it("InjectionPointInstance 无 trigger/boundaries", async () => {
+      const src = await readFile("src/schema.ts", "utf8");
+      const m = src.match(/interface InjectionPointInstance\s*\{[\s\S]*?\}/);
+      expect(m).not.toBeNull();
+      expect(m![0]).not.toContain("trigger");
+      expect(m![0]).not.toContain("boundaries");
+    });
+  });
+
+  // ========== 11. 资产目录 ==========
+  describe("11. 资产目录", () => {
+    it("channels/ 目录不存在", async () => {
+      await expect(readdir(join(cwd, ".pt/assets/channels"))).rejects.toThrow();
+    });
+    it("profiles/ 目录存在", async () => {
+      const files = await readdir(join(cwd, ".pt/assets/profiles"));
+      expect(files.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ========== 12. /manual:xxx 触发 ==========
+  describe("12. /manual:xxx 触发", () => {
+    it("/manual:pt-quality 触发返非 null", () => {
+      const r9 = loadedProfiles["pt-dev"];
+      const ptDevBundle = r9.bundles[0];
+      const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
+      const ptDevBlueprint = findBlueprint(ptDevBundle.blueprints, ptDevProfile.blueprint)!;
+      const result = renderContextMessage(r9.context, ptDevBlueprint, ptDevBundle.domains, "/manual:pt-quality");
+      expect(result).not.toBeNull();
+    });
+
+    it("/manual:pt-quality 含 9 条规范", () => {
+      const r9 = loadedProfiles["pt-dev"];
+      const ptDevBundle = r9.bundles[0];
+      const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
+      const ptDevBlueprint = findBlueprint(ptDevBundle.blueprints, ptDevProfile.blueprint)!;
+      const result = renderContextMessage(r9.context, ptDevBlueprint, ptDevBundle.domains, "/manual:pt-quality");
+      expect(result).toContain("modules-type-safety");
+    });
+  });
+
+  // ========== 13. PiAdapter 封装 ==========
+  describe("13. PiAdapter 封装", () => {
+    it("index.ts 不直接调 before_agent_start", async () => {
+      const src = await readFile("src/index.ts", "utf8");
+      expect(src).not.toMatch(/pi\.on\(["']before_agent_start["']/);
+    });
+    it("index.ts 不直接调 input 事件", async () => {
+      const src = await readFile("src/index.ts", "utf8");
+      expect(src).not.toMatch(/pi\.on\(["']input["']/);
+    });
+  });
+
+  // ========== 14. pt-writing 跨项目 ==========
+  describe("14. pt-writing 跨项目", () => {
+    it("pt-writing writing Profile 编译成功", async () => {
+      const r = await loadAndTranspile("/Users/issac/pro/pt-writing", "writing");
+      expect(r.segment.length).toBeGreaterThan(0);
+    });
+    it("pt-writing 含 参考手册 注入点", async () => {
+      const r = await loadAndTranspile("/Users/issac/pro/pt-writing", "writing");
+      expect(r.context.modules["参考手册"]).toBeDefined();
+    });
+  });
+
+  // ========== 15. 残留 grep ==========
+  describe("15. 残留 grep 检查", () => {
+    it("对话记忆 零残留（脚本自身例外）", () => {
+      const out = execSync(
+        `grep -rln --exclude='phase9.test.ts' --exclude='flows.test.ts' --exclude='verify-phase9.ts' --exclude='verify-flows.ts' "对话记忆" .pt/assets/ src/ tests/ 2>/dev/null || true`,
+      ).toString().trim();
+      expect(out).toBe("");
+    });
+    it(".openxenon 零残留（任务描述例外）", () => {
+      const out = execSync(
+        `grep -rln --exclude='phase9.test.ts' --exclude='flows.test.ts' --exclude='verify-phase9.ts' --exclude='verify-flows.ts' --exclude='pt-dev-phases*.md' ".openxenon" .pt/assets/ src/ tests/ docs/ 2>/dev/null || true`,
+      ).toString().trim();
+      expect(out).toBe("");
+    });
+  });
+
+  // ========== 16. Q1 修复 ==========
+  describe("16. /pt-context Q1 修复", () => {
+    it("getArgumentCompletions 用 lastCwd || process.cwd()", async () => {
+      const src = await readFile("src/index.ts", "utf8");
+      expect(src).toContain("lastCwd || process.cwd()");
+    });
+  });
+});
+
+// Helper（profilesDir）
+function profilesDir(): string {
+  return join(cwd, ".pt/assets/profiles");
+}

@@ -21,14 +21,16 @@
 //     ...
 
 import { join } from "node:path";
-import { DOMAINS_DIR } from "../constants.js";
+import { ASSETS_DIR, DOMAINS_DIR } from "../constants.js";
 import type { Domain, Term } from "../schema.js";
 import { readAsset, type Item } from "./shared.js";
 import { getDomainSectionParser } from "./domain-renderers.js";
 
-/** 读 domains/<fileName>.md → Domain { name, type, modules: Record<H2名, 内容> } */
-export async function parseDomain(cwd: string, fileName: string): Promise<Domain> {
-  const asset = await readAsset(join(cwd, DOMAINS_DIR, fileName));
+/** 读 domains/<fileName>.md → Domain { name, type, modules: Record<H2名, 内容> }
+ *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。 */
+export async function parseDomain(cwd: string, assetDir: string, fileName: string): Promise<Domain> {
+  const dir = assetDir === ASSETS_DIR ? DOMAINS_DIR : join(assetDir, "domains");
+  const asset = await readAsset(join(cwd, dir, fileName));
   const type = typeof asset.frontmatter.type === "string" ? asset.frontmatter.type : "term";
 
   // H2 段名 → 段内容的解析：调注册表 parser，未注册走 fallback (Term[])

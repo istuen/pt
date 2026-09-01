@@ -6,12 +6,15 @@
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { BLUEPRINTS_DIR, DOMAINS_DIR, PROFILES_DIR, SUFFIX_MD } from "../constants.js";
+import { ASSETS_DIR, SUFFIX_MD } from "../constants.js";
 import type { Blueprint, Domain, Profile, SchemaBundle, SourceAdapter, SourceAdapterContext } from "../schema.js";
 import { findBlueprint, findProfile } from "../schema.js";
 import { parseBlueprint } from "./blueprint.js";
 import { parseDomain } from "./domain.js";
 import { parseProfile } from "./profile.js";
+
+/** 资产根目录（adapterCtx.assetDir 缺失时默认）。 */
+const DEFAULT_ASSET_DIR = ASSETS_DIR;
 
 /** MD adapter：按目录位置分发到 domain/blueprint/profile adapter，组装 SchemaBundle。
  *  v9 命名约定：适配的是 MD 文件格式（不再叫 OXN——OXN 是历史名）。 */
@@ -62,18 +65,21 @@ export const mdAdapter: SourceAdapter = {
 // ==================== 目录枚举辅助 ====================
 
 async function loadAllDomains(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Domain[]> {
-  const dir = join(cwd, DOMAINS_DIR);
-  return loadDir(dir, SUFFIX_MD, (f) => parseDomain(cwd, f), adapterCtx);
+  const assetDir = adapterCtx?.assetDir ?? DEFAULT_ASSET_DIR;
+  const dir = join(cwd, assetDir, "domains");
+  return loadDir(dir, SUFFIX_MD, (f) => parseDomain(cwd, assetDir, f), adapterCtx);
 }
 
 async function loadAllBlueprints(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Blueprint[]> {
-  const dir = join(cwd, BLUEPRINTS_DIR);
-  return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(cwd, f), adapterCtx);
+  const assetDir = adapterCtx?.assetDir ?? DEFAULT_ASSET_DIR;
+  const dir = join(cwd, assetDir, "blueprints");
+  return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(cwd, assetDir, f), adapterCtx);
 }
 
 async function loadAllProfiles(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Profile[]> {
-  const dir = join(cwd, PROFILES_DIR);
-  return loadDir(dir, SUFFIX_MD, (f) => parseProfile(cwd, f), adapterCtx);
+  const assetDir = adapterCtx?.assetDir ?? DEFAULT_ASSET_DIR;
+  const dir = join(cwd, assetDir, "profiles");
+  return loadDir(dir, SUFFIX_MD, (f) => parseProfile(cwd, assetDir, f), adapterCtx);
 }
 
 async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Promise<T>, adapterCtx?: SourceAdapterContext): Promise<T[]> {

@@ -242,10 +242,13 @@ export interface SchemaBundle {
 
 // ==================== Source Adapter 接口（依赖反转后） ====================
 
-/** Adapter load 上下文（v9.1: 传 notify 上去代替 console.error，符合 pt-quality #9）。 */
+/** Adapter load 上下文（v9.1: 传 notify 上去代替 console.error，符合 pt-quality #9）。
+ *  v10.x：增 assetDir 让测试夹具可指向 tests/fixtures/assets 而不污染 .pt/assets/。 */
 export interface SourceAdapterContext {
   /** 错误/警告通知回调（可选；不传则走 console fallback）。 */
   notify?: (msg: string, level: "warning" | "error") => void;
+  /** 资产根目录覆盖（默认 `.pt/assets`）。测试夹具可传 `tests/fixtures/assets`。 */
+  assetDir?: string;
 }
 
 /** 反转后的 SourceAdapter：load() 返回 SchemaBundle 而非 string。
