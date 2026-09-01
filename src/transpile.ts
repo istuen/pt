@@ -50,17 +50,28 @@ export async function loadAndTranspile(
   profileName: string,
   adapterCtx?: SourceAdapterContext,
 ): Promise<TranspileResult> {
+  adapterCtx?.log?.debug("transpile:start", { profileName, adapterCount: sourceAdapters.length });
+
   // 1. parse：并行调所有 adapter 拿 SchemaBundle
   const segs = await Promise.all(
     sourceAdapters.map((a) =>
       a.load(cwd, profileName, adapterCtx).catch((e) => {
-        reportError(adapterCtx, `adapter ${a.name} failed: ${errMsg(e)}`);
+        reportError(adapterCtx, `adapter ${a.name} failed: ${errMsg(e)}`, { adapter: a.name });
         return null;
       }),
     ),
   );
   const bundles = segs.filter((b): b is SchemaBundle => b !== null);
+  adapterCtx?.log?.info("transpile:parse done", {
+    profileName,
+    bundleCount: bundles.length,
+    profileCount: bundles.reduce((a, b) => a + b.profiles.length, 0),
+    blueprintCount: bundles.reduce((a, b) => a + b.blueprints.length, 0),
+    domainCount: bundles.reduce((a, b) => a + b.domains.length, 0),
+  });
+
   if (bundles.length === 0) {
+    adapterCtx?.log?.warn("transpile:no bundles", { profileName });
     return {
       segment: "",
       bundles: [],
@@ -84,21 +95,39 @@ export async function loadAndTranspile(
 
   for (const bundle of bundles) {
     const profile = findProfile(bundle.profiles, bundle.activeProfile);
-    if (!profile) continue;
+    if (!profile) {
+      adapterCtx?.log?.debug("transpile:skip bundle — profile not found", { activeProfile: bundle.activeProfile });
+      continue;
+    }
     const blueprint = findBlueprint(bundle.blueprints, profile.blueprint);
     if (!blueprint) {
-      reportWarn(adapterCtx, `Profile "${profile.name}" 引用未知 Blueprint "${profile.blueprint}"`);
+      reportWarn(
+        adapterCtx,
+        `Profile "${profile.name}" 引用未知 Blueprint "${profile.blueprint}"`,
+        {
+          profileName: profile.name,
+          referencedBlueprint: profile.blueprint,
+          availableBlueprints: bundle.blueprints.map((b) => b.name),
+        },
+      );
       continue;
     }
     const ctx = compileContext(profile, blueprint, bundle.domains);
+    adapterCtx?.log?.debug("transpile:compile done", {
+      profileName: profile.name,
+      sourceHashPrefix: ctx.sourceHash.slice(0, 8),
+      moduleCount: Object.keys(ctx.modules).length,
+    });
 
     // 3. cache：load 命中 → 用缓存（跳过写入），未命中 → save
     const cached = await loadContext(cwd, ctx.name, ctx.sourceHash, blueprint.compilation);
     let used: Context;
     if (cached) {
       anyHit = true;
+      adapterCtx?.log?.info("transpile:cache hit", { contextName: ctx.name });
       used = cached;
     } else {
+      adapterCtx?.log?.info("transpile:cache miss → save", { contextName: ctx.name });
       await saveContext(cwd, ctx, blueprint.compilation);
       used = ctx;
     }
@@ -114,6 +143,12 @@ export async function loadAndTranspile(
   // 4. 注入版剥 asset 分隔注释
   const segment = segments.join("\n\n").replace(/<!-- =====[^\n]*-->\n?/g, "").trim();
 
+  adapterCtx?.log?.info("transpile:done", {
+    profileName: lastActiveProfile,
+    segmentLen: segment.length,
+    cacheHit: anyHit,
+  });
+
   return {
     segment,
     bundles,
@@ -128,14 +163,17 @@ export async function loadAndTranspile(
 
 // ==================== 辅助 ====================
 
-function reportWarn(adapterCtx: SourceAdapterContext | undefined, msg: string): void {
+/** 三通道 fallback: log → notify → console。v10.x：增 details 让 log/UI 用户能看到 structured 上下文。 */
+function reportWarn(adapterCtx: SourceAdapterContext | undefined, msg: string, details?: Record<string, unknown>): void {
+  if (adapterCtx?.log) adapterCtx.log.warn(msg, details);
   if (adapterCtx?.notify) adapterCtx.notify(msg, "warning");
-  else console.warn(`[pt] ${msg}`);
+  if (!adapterCtx?.log && !adapterCtx?.notify) console.warn(`[pt] ${msg}`);
 }
 
-function reportError(adapterCtx: SourceAdapterContext | undefined, msg: string): void {
+function reportError(adapterCtx: SourceAdapterContext | undefined, msg: string, details?: Record<string, unknown>): void {
+  if (adapterCtx?.log) adapterCtx.log.error(msg, details);
   if (adapterCtx?.notify) adapterCtx.notify(msg, "error");
-  else console.error(`[pt] ${msg}`);
+  if (!adapterCtx?.log && !adapterCtx?.notify) console.error(`[pt] ${msg}`);
 }
 
 function errMsg(e: unknown): string {

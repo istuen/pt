@@ -249,12 +249,22 @@ export interface SchemaBundle {
 // ==================== Source Adapter 接口（依赖反转后） ====================
 
 /** Adapter load 上下文（v9.1: 传 notify 上去代替 console.error，符合 pt-quality #9）。
- *  v10.x：增 assetDir 让测试夹具可指向 tests/fixtures/assets 而不污染 .pt/assets/。 */
+ *  v10.x：增 assetDir 让测试夹具可指向 tests/fixtures/assets 而不污染 .pt/assets/。
+ *  v10.x：增 log 让 adapter 把 trace 持久化到 .pt/logs/pt.log（PtLogger 提供）。 */
 export interface SourceAdapterContext {
   /** 错误/警告通知回调（可选；不传则走 console fallback）。 */
   notify?: (msg: string, level: "warning" | "error") => void;
   /** 资产根目录覆盖（默认 `.pt/assets`）。测试夹具可传 `tests/fixtures/assets`。 */
   assetDir?: string;
+  /** 持久化日志 writer（可选；不传则不写盘，仅走 notify）。
+   *  形态参考 PtLogger.toWriter()——debug/info/warn/error 四方法。
+   *  adapter 拿到后只需按级别调用，无需关心文件路径。 */
+  log?: {
+    debug(msg: string, ctx?: Record<string, unknown>): void;
+    info(msg: string, ctx?: Record<string, unknown>): void;
+    warn(msg: string, ctx?: Record<string, unknown>): void;
+    error(msg: string, ctx?: Record<string, unknown>): void;
+  };
 }
 
 /** 反转后的 SourceAdapter：load() 返回 SchemaBundle 而非 string。
@@ -275,7 +285,9 @@ export interface AgentUI {
 }
 
 /** Agent 注入 API 的最小接口（AgentAdapter 用，不直接依赖 Pi ExtensionAPI）。
- *  v9.1 (P1.1)：加 ui 可选能力——adapter 可报错 / 设状态，不必。 */
+ *  v9.1 (P1.1)：加 ui 可选能力——adapter 可报错 / 设状态，不必。
+ *  v10.x：加 log 可选能力——adapter 内的 try/catch 异常可走 logger。
+ *  注：log 接口与 SourceAdapterContext.log 同形，便于 toAgentAPI 复用同一个 logger。 */
 export interface AgentAPI {
   on(event: string, handler: (...args: unknown[]) => unknown): void;
   registerCommand(name: string, spec: unknown): void;
@@ -283,6 +295,13 @@ export interface AgentAPI {
   getFlag(name: string): unknown;
   /** v9.1 可选 UI：index.ts 传入 Pi ctx.ui 适配后的对象。Adapter 可选。 */
   ui?: AgentUI;
+  /** v10.x 可选 log：per-session PtLogger 适配。Adapter 可选。 */
+  log?: {
+    debug(msg: string, ctx?: Record<string, unknown>): void;
+    info(msg: string, ctx?: Record<string, unknown>): void;
+    warn(msg: string, ctx?: Record<string, unknown>): void;
+    error(msg: string, ctx?: Record<string, unknown>): void;
+  };
 }
 
 /** Agent 适配器——适配不同 Agent 的注入机制。
