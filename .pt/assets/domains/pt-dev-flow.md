@@ -16,8 +16,8 @@ name: pt-dev-flow
 - desc: 资产目录（domains/ + channels/ + blueprints/）
 
 ### pt-cache-tree
-- path: .pt/cache/
-- desc: Context 物理缓存目录（*.context.md，含 source-hash 头）
+- path: .pt/contexts/cache/
+- desc: Context 物理缓存目录（*.context.md，含 source-hash 头；cacheDir 从 Blueprint.compilation.cacheDir 读）
 
 ## Manual
 
@@ -35,8 +35,8 @@ name: pt-dev-flow
 - argument-hint: (无)
 - intent: 改资产（md 文件）的标准流程
 - vars: []
-- step: 改目标 .md — frontmatter（type/name）+ H2 段（Scene/Manual/Term/扩展）
-- step: 删 .pt/cache/*.context.md 对应 Blueprint 的缓存（强制重编译）
+- step: 改目标 .md — frontmatter（type/name）+ H2 段（Scene/Manual/Term/扩展）；v8 资产 H2 = 注入点，Channel/Blueprint 同步改
+- step: 删 `<cacheDir>/*.context.md` 对应 Blueprint 的缓存（强制重编译）
 - step: 跑 .pt/verify-phase77.ts — 验证产物语义等价（字数允许变但结构要对）
 - step: 若结构差异大（>30% 字数变化），diff 对比 v6 baseline（.pt/baseline-phase2-*.md 系列）溯源
 - step: git commit — 一个 commit 一类资产改动（Domain 一组 / Channel / Blueprint）

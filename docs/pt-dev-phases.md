@@ -11,13 +11,13 @@
 
 ### 当前在哪
 
-- **Phase 0-7 完成**，v7 模型已落地（Domain → Channel → Blueprint → Context 四层 + 三段式叙事恢复）。
-- git baseline：`ffa721e` → `571b45d` → `9fca537` → `be5d4c3` → `d723b17`（设计）→ `b1e7216`（7.1）→ `de755a4`（7.2）→ `9def229`（7.3）→ `339aa76`（7.4）→ `c48bb89`（7.5）→ `4c15e58`（7.6）→ `47fe44f`（7.7）。可 `git revert` 回退。
-- **v7 当前状态**：三段式目录（parse/compile/render）成立、Schema 清理无 v6 名词、Channel 复用（4 个 Blueprint 共用 project-dev）、Context 缓存生效（hash 命中跳过重编译）、glossary 扩展性未破。
+- **Phase 0-8 完成**，v8 模型已落地（H2=注入点 + 模块级 Domain 引用 + Compilation 配置）。
+- git baseline：`8251378`（v8 §0 文档定稿）→ `d506a89`（Phase 8 执行描述）→ 8.1-8.8 八个 Phase commit。可 `git revert` 回退。
+- **v8 当前状态**：Channel H2=注入点、Blueprint 按注入点选 Domain、Context 文件 H2=注入点名、Compilation 配置可读、新增 pt-quality Domain（9 条技术规范）。
 
 ### 待办
 
-**已完结（v7）**：Phase 7（v7 模型重构 + 文档同步）。
+**已完结（v8）**：Phase 8（v8 模型实现 + 文档同步）。
 
 **非阻塞（后续可选）：**
 
@@ -29,9 +29,9 @@
 
 | 文档 | 读哪段 | 为什么 |
 |---|---|---|
-| `pt-asset-layering.md` | **§0（v7 四层模型）** | v7 语义基准：Domain→Channel→Blueprint→Context + Context Message + 固定注入约定 |
-| `pt-dev-phases.md` | **§Phase 7 步骤 7.1-7.8** + 验收标准 + 风险 | 要执行的改动面和验证判据 |
-| 代码 | `schema.ts` / `frontend/oxn/adapter.ts` / `backend/prompt.ts` | v6 当前实现，重构的起点（7.1 后迁入 src/） |
+| `pt-asset-layering.md` | **§0（v8 四层模型）** | v8 语义基准：Domain→Channel→Blueprint→Context + H2=注入点 + 模块级引用 + Compilation |
+| `pt-dev-phases-v8.md` | **§Phase 8 步骤 8.1-8.8** + 验收标准 + 风险 | 要执行的改动面和验证判据 |
+| 代码 | `src/schema.ts` / `src/parse/{channel,blueprint}.ts` / `src/compile/context.ts` / `src/render/{system-prompt,context-message,cache}.ts` | v8 当前实现 |
 
 ### 可跳过（背景，不影响执行）
 
@@ -1343,3 +1343,80 @@ Phase 7 (v7 模型重构 Domain→Channel→Blueprint→Context) ← 待执行
 | tool-Domain 渲染 | `### 工具` 段（在 byDomain/hybrid 下） | 同上 | ✅ |
 | §0 语义对应 | §0.4 "可用手册" 列在 Scene 模块下 | 同上 | ✅ |
 | v7 Scene 段总长 +76~117 chars vs v6 | — | workflow-Domain 标题占 ~40 chars/段 | 允许（plan: "格式细节（如空行、标题层级）允许微调"） |
+
+---
+
+## Phase 8：v8 模型实现（Channel H2=注入点 + 模块级 Domain 引用 + Compilation）
+
+> **依据**：`docs/pt-asset-layering.md` §0（v8 模型，2026-08-31 定稿）
+> **目标**：把 v7 代码（隐式 Modules + render 硬编码 + 粗粒度 Domain 引用）升级为 v8（H2=注入点显式化 + 模块级 Domain 引用 + Context 缓存策略可配置）
+> **基线**：commit `8251378`（v8 §0 文档定稿）
+> **验证**：`tsc --noEmit` 通过 + `tests/verify/verify-phase77.ts` 全过 + `tests/verify/verify-flows.ts` 全过
+
+### 8.1 资产样板先行（不改代码）
+
+把 pt-dev / pt / glossary-test / dev-knowledge / writing 五份资产从 v7 格式（`## Modules` + `## Layout`）迁到 v8 格式（H2=注入点 + target + `### Modules`）。这一步只改资产不动代码，tsc 仍过。
+
+### 8.2 Schema 重写（破坏性）
+
+`src/schema.ts` 重写为 v8 IR：
+- `Channel.injectionPoints: InjectionPointConfig[]`（替代 v7 `modules + layout`）
+- `Blueprint.injectionPoints: InjectionPointInstance[]`（替代 v7 `domains + trigger + boundaries`）
+- `Blueprint.compilation: CompilationConfig`（新增：cacheDir + split 策略）
+- 新增 `InjectionPointConfig` / `InjectionPointInstance` / `CompilationConfig` / `CacheSplitStrategy` 类型
+
+此步预期 tsc 报错，8.6 末必须全过。
+
+### 8.3 parse/ 前端适配 v8 IR
+
+- `src/parse/channel.ts`：每个非特殊 H2（除 v7 残留段 `Modules`/`Layout` 外）解析为 `InjectionPointConfig`，H2 名 = 注入点名。
+- `src/parse/blueprint.ts`：每个非特殊 H2（除 `Channel`/`Compilation`/`Domains`/`Trigger`/`Boundaries`）解析为 `InjectionPointInstance`，包含 `### Domains` / `### Trigger` / `### Boundaries` 子段。`## Compilation` 解析为 `CompilationConfig`。
+- `src/parse/shared.ts`：新增 `extractFieldValue` / `extractBareListUnderH3` / `extractModulesList` / `extractDomainsList` 辅助函数，处理 v8 H2/H3 嵌套结构。
+
+### 8.4 compile/ 中端重写
+
+- `src/compile/context.ts` 重写为按 Channel.injectionPoints 遍历，每个注入点找 Blueprint 同名 `InjectionPointInstance`，按 `target` 分发（`system_prompt` → `compileSystemPromptModule` / `context_message` → `compileContextMessageModule` / 扩展 → `compileGenericInjectionPoint`）。
+- **关键修复**：v7 `compileManualModule` 只处理 workflow-Domain 的 FlowTemplate（`if (d.type !== "workflow") continue` 死代码），v8 修复 term-Domain 的 Manual Rule[] 也能进对话记忆注入点。
+- renderer 注册表保留扩展机制（`registerDomainSceneRenderer`）。
+
+### 8.5 render/ 后端通用化
+
+- `src/render/system-prompt.ts`：不再硬编码 `ctx.modules["Scene"]`，改为遍历 `channel.injectionPoints` 聚合所有 `target=system_prompt` 的注入点内容。签名加 `channel` 参数。
+- `src/render/context-message.ts`：`renderContextMessage` 加 `channel` 参数，`findFlowInBundle` 改为遍历 `blueprint.injectionPoints[target=context_message].domains`。
+- `src/render/cache.ts`：缓存目录从 `Blueprint.compilation.cacheDir` 读（替代 v7 硬编码 `.pt/contexts/cache`）。`by-injection-point` 拆分策略留 TODO，本步只实现 `single-file`。
+
+### 8.6 index.ts 注入逻辑适配 + 全链路打通
+
+- `src/index.ts`：`/pt flows` 子命令改为遍历 `blueprint.injectionPoints[target=context_message].domains`，提示文案从"Scene/Manual"改为"会话知识/对话记忆"注入点语义。
+- `tests/verify/verify-flows.ts`：同步改用 v8 `injectionPoints` 遍历，加 `Set` 去重避免同一 workflow-Domain 在多注入点下重复列出。
+
+### 8.7 资产迁移 + pt-quality Domain 落地
+
+- 新增 `.pt/assets/domains/pt-quality.md`（type: term，`## Manual` 段含 9 条技术规范 Rule[]，slot:global, type:invariant）。
+- pt-dev Blueprint 的 `## 对话记忆` 注入点 `### Domains` 加 `- pt-quality`。
+
+### 8.8 回归 + 文档同步
+
+- `tests/verify/verify-phase77.ts`：扩展为 8 项断言（含 H2=会话知识/对话记忆、pt-quality 进对话记忆、三 mode 验证等）。
+- `docs/pt-dev-phases.md`：加 Phase 8 章节，更新"接手坐标"为 v8。
+
+### v7 → v8 关键变化（来自 `pt-asset-layering.md` §0.9）
+
+1. **Channel H2 = 注入点**（显式化）：`## Modules` 列表 → `## 会话知识` / `## 对话记忆` H2，target 字段映射 Pi 注入位置。
+2. **Blueprint 按注入点选 Domain**（模块级引用）：`## Domains` 全量列表 → 每个注入点下 `### Domains` 分别列。
+3. **Trigger/Boundaries 在注入点下**：Blueprint 顶级字段 → 注入点 H2 下的 `### Trigger` / `### Boundaries`。
+4. **Blueprint 管编译方式**：硬编码 `cache.ts` 缓存目录 → `## Compilation` 段配置 cacheDir + split。
+5. **Pt 定位重定义**：多来源转译器 → 异构上下文编译器，核心产物是 Context。
+
+### 8 项硬指标验收
+
+| 指标 | v8 验收 |
+|---|---|
+| 三段式叙事 | `src/{parse,compile,render}/` 都有 v8 实现 |
+| 无命名碰撞 | `Channel.injectionPoints` 替代 `modules/layout`；`Blueprint.injectionPoints` 替代 `domains/trigger/boundaries`；`Blueprint.compilation` 新增 |
+| 产物无回归 | pt=约 3594 chars / pt-dev 含 pt-quality 规范 / 字符数允许变但结构对齐 v7 |
+| Channel 复用 | dev-knowledge 仍被 pt + glossary-test 引用 |
+| Context 缓存 | cacheHit=true，segment 一致 |
+| 扩展性 | glossary renderer 仍注册，glossary-test Blueprint 仍工作 |
+| v8 H2 | Context 文件 H2=会话知识/对话记忆（无 Scene/Manual 残留） |
+| pt-quality | 进 pt-dev 对话记忆注入点，不污染会话知识 |
