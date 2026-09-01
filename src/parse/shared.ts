@@ -4,6 +4,9 @@
 //   - Domain/Channel/Blueprint adapter 都按 H2 段解析，H3 子项 → Item。
 //   - 共享 frontmatter 解析、H2 段切分、H3 项解析、scalar 值解析。
 //   - 共享 Asset/Section/Item 类型。
+//
+// Phase 8.3：v8 适配 — 新增 extractFieldValue/extractModulesList 辅助函数，
+//   给 Channel H2=注入点解析 + Blueprint 按注入点解析用。
 
 import { readFile } from "node:fs/promises";
 
@@ -11,8 +14,8 @@ import { readFile } from "node:fs/promises";
 
 /** OXN 内部 asset kind（v7 沿用 v6 的扩展名空间）。
  *  - "domain"    : Content Domain（v7 内容层）
- *  - "channel"   : Channel（v7 结构层）
- *  - "blueprint" : Blueprint（v7 配置层）
+ *  - "channel"   : Channel（v7/v8 结构层）
+ *  - "blueprint" : Blueprint（v7/v8 配置层）
  *  - "term" / "workflow" / "stack" / "glossary" : Domain type 标签（frontmatter.type）
  *  - "scene" / "manual" : v6 Struct kind 兼容（v7 资产迁移期残留） */
 export type AssetKind =
@@ -39,7 +42,7 @@ export interface Section {
 
 export interface Asset {
   kind: AssetKind;
-  /** 文件名去后缀（v7 例："project-dev.channel" / "pt-blueprint"） */
+  /** 文件名去后缀（v7/v8 例："project-dev.channel" / "pt-blueprint"） */
   name: string;
   frontmatter: Record<string, unknown>;
   /** frontmatter 之后的 markdown */
@@ -237,10 +240,91 @@ export function sArr(v: unknown): string[] {
   return [];
 }
 
-/** frontmatter 没 entity/type/kind 时，按 H2 段名推断 asset kind。 */
+/** 从一个 H2 段里取某个字段的标量值（兼容裸值 / 顶层 list `- key: value` / H3 项 fields.key）。
+ *  用途：Channel 注入点 H2 下读 target/mode，Blueprint ## Compilation 下读 cache-dir/split。 */
+export function extractFieldValue(section: Section | undefined, key: string): string {
+  if (!section) return "";
+
+  // 1. 顶层 list 行：`- target: system_prompt`
+  for (const item of section.items) {
+    const v = item.fields[key];
+    if (v !== undefined) {
+      const sv = s(v);
+      if (sv) return sv;
+    }
+  }
+
+  // 2. 裸值段（## H2 后第一行非空文本）—— 取第一个匹配 `key: value` 的行
+  for (const line of section.raw.split(/\r?\n/)) {
+    const m = line.match(new RegExp(`^\\s*${key}\\s*:\\s*(.+?)\\s*$`));
+    if (m) {
+      return s(parseScalar(m[1].trim()));
+    }
+  }
+
+  return "";
+}
+
+/** 同 extractBareListUnderH3(section, "Modules") 的别名（Channel 用）。 */
+export function extractModulesList(section: Section | undefined): string[] {
+  return extractBareListUnderH3(section, "Modules");
+}
+
+/** 同 extractBareListUnderH3(section, "Domains") 的别名（Blueprint 用）。 */
+export function extractDomainsList(section: Section | undefined): string[] {
+  return extractBareListUnderH3(section, "Domains");
+}
+
+/** 从一个 H2 段下取指定 H3 名下的所有裸名列表项（`- name`）。
+ *  用途：Channel `## 会话知识` → `### Modules` 列 Domain H2 段名；
+ *        Blueprint `## 会话知识` → `### Domains` 列参与本注入点的 Domain 名。
+ *
+ *  行为：扫描 section.raw，找到 `### <h3Name>` 行后收集紧随其后的 `- name` 行
+ *        （无 `key: value`），遇下一个 H3 或段尾终止。
+ *
+ *  兼容：若 H3 项的 fields.modules / fields.refs 是数组（旧写法），也支持。 */
+export function extractBareListUnderH3(section: Section | undefined, h3Name: string): string[] {
+  if (!section) return [];
+
+  // 兼容路径：若 fields 里有数组字段（旧写法 `### Modules` 下用 `- modules: [Scene]` 等）
+  const item = section.items.find((it) => it.name === h3Name);
+  if (item) {
+    const arr = item.fields.modules ?? item.fields.refs;
+    if (Array.isArray(arr)) {
+      const strs = arr.filter((x): x is string => typeof x === "string");
+      if (strs.length > 0) return strs;
+    }
+  }
+
+  // 主路径：扫 raw text 找 H3 + 后随的 `- name` 行
+  const lines = section.raw.split(/\r?\n/);
+  const out: string[] = [];
+  let inTarget = false;
+  for (const line of lines) {
+    const h3 = line.match(/^###\s+(.+)$/);
+    if (h3) {
+      const name = h3[1].trim();
+      inTarget = name === h3Name;
+      continue;
+    }
+    if (!inTarget) continue;
+    // 裸名行：`- Scene` / `- pt-concepts`（无冒号或冒号后无值）
+    const bare = line.match(/^\s*-\s+([^\s:]+)\s*$/);
+    if (bare) {
+      out.push(bare[1].trim());
+      continue;
+    }
+    // H4 段也终止（子嵌套不展开）
+    if (/^#+\s/.test(line)) break;
+  }
+  return out;
+}
+
+/** frontmatter 没 entity/type/kind 时，按 H2 段名推断 asset kind。
+ *  v8 推断：Channel 用 injectionPoints（H2 注入点名）特征识别，Blueprint 用 Channel/Compilation 识别。 */
 function inferKind(body: string): AssetKind {
-  if (/^##\s+Channel\b/m.test(body) && /^##\s+Domains\b/m.test(body)) return "blueprint";
-  if (/^##\s+Modules\b/m.test(body) && /^##\s+Layout\b/m.test(body)) return "channel";
+  if (/^##\s+Channel\b/m.test(body) && (/^##\s+Compilation\b/m.test(body) || /^##\s+(会话知识|对话记忆)/m.test(body))) return "blueprint";
+  if (/^##\s+(会话知识|对话记忆)/m.test(body)) return "channel";
   if (/^##\s+Slots\b/m.test(body)) return "workflow";
   if (/^##\s+Tools\b/m.test(body)) return "stack";
   if (/^##\s+Boundaries\b/m.test(body)) return "blueprint";
