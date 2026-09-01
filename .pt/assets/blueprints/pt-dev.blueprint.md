@@ -40,6 +40,7 @@ pt-dev
 ### Domains
 - pt-dev-flow
 - pt-collab
+- pt-quality
 
 ## Compilation
 
