@@ -6,6 +6,9 @@
 // 注意：注入点名（Blueprint H2，如"会话知识"/"参考手册"）是人类自定义的语义名，
 // 不应常量化——常量化的是 Domain 内的 H2 段名（v9 资产的标准段）。
 
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
 // ==================== 路径常量 ====================
 
 /** .pt/ 资产根目录 */
@@ -28,6 +31,15 @@ export const RAW_DIR = ".pt/raws";
 
 /** /pt full 输出目录 */
 export const FULL_DIR = ".pt/fulls";
+
+/** /pt manual 输出目录（手册实例文档） */
+export const MANUAL_DIR = ".pt/manuals";
+
+/** 内建资产根目录（随 npm 包发布，跨项目复用）。
+ *  用 import.meta.url 定位包自身路径——不能用 cwd 相对路径（外部用户 cwd ≠ 包路径）。
+ *  mdAdapter fallback：项目 .pt/assets/ 优先，内建补充；同名时项目覆盖内建。 */
+const SRC_DIR = dirname(fileURLToPath(import.meta.url));
+export const BUILTIN_ASSETS_DIR = join(SRC_DIR, "builtin", "assets");
 
 // ==================== Domain H2 段名常量 ====================
 

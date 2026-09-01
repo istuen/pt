@@ -302,6 +302,113 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(src).toContain("lastCwd || process.cwd()");
     });
   });
+
+  // ========== 17. Builtin 资产 ==========
+  describe("17. Builtin 资产", () => {
+    it("内建 pt profile 加载成功", async () => {
+      const r = await loadAndTranspile(cwd, "pt");
+      expect(r.profile.name).toBe("pt");
+      expect(r.blueprint.name).toBe("dev-knowledge");
+    });
+
+    it("内建 pt profile 含 project-analysis / usage / authoring", async () => {
+      const r = await loadAndTranspile(cwd, "pt");
+      expect(r.segment).toContain("### project-analysis");
+      expect(r.segment).toContain("### usage");
+      expect(r.segment).toContain("### authoring");
+    });
+
+    it("内建 domains 进入池但不污染项目 profile", async () => {
+      const r = await loadAndTranspile(cwd, "pt-chat");
+      const domainNames = r.bundles[0].domains.map((d) => d.name);
+      expect(domainNames).toContain("authoring");
+      expect(domainNames).toContain("project-analysis");
+      expect(domainNames).toContain("usage");
+      // pt-chat 不引用内建 domains
+      expect(r.segment).not.toContain("### project-analysis");
+    });
+
+    it("项目资产覆盖内建（dev-knowledge 不重复）", async () => {
+      const r = await loadAndTranspile(cwd, "pt");
+      const blueprintNames = r.bundles[0].blueprints.map((b) => b.name);
+      const devCount = blueprintNames.filter((n) => n === "dev-knowledge").length;
+      expect(devCount).toBe(1); // 项目覆盖内建，不重复
+    });
+  });
+
+  // ========== 18. /pt manual 手册实例化 ==========
+  describe("18. /pt manual 手册实例化", () => {
+    it("bindFlowTemplate 输出含步骤 + 变量绑定", async () => {
+      const { bindFlowTemplate } = await import("../../src/render/context-message.js");
+      const r = await loadAndTranspile(cwd, "pt");
+      const { findFlowInBlueprint } = await import("../../src/render/context-message.js");
+      const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
+      expect(tpl).toBeDefined();
+      const bound = bindFlowTemplate(tpl!, "term my-concept");
+      expect(bound).toContain("create-domain-procedure");
+      expect(bound).toContain("my-concept");
+      expect(bound).toContain("term");
+    });
+
+    it("实例文档格式含 checklist + 产物区 + 更新指引", async () => {
+      const { bindFlowTemplate, findFlowInBlueprint } = await import("../../src/render/context-message.js");
+      const r = await loadAndTranspile(cwd, "pt");
+      const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
+      const bound = bindFlowTemplate(tpl!, "term my-concept");
+      // 模拟 /pt manual 的文档包装逻辑
+      const lines: string[] = ["---", "procedure: create-domain-procedure", "---", ""];
+      for (const line of bound.split("\n")) {
+        if (line.startsWith("#")) continue;
+        if (line.startsWith("_")) continue;
+        const m = line.match(/^(\d+)\.\s+(.*)$/);
+        lines.push(m ? `- [ ] ${m[2]}` : line);
+      }
+      lines.push("", "## 产物", "<!-- -->", "", "## 更新指引", "用 edit 标记完成。");
+      const doc = lines.join("\n");
+      expect(doc).toContain("- [ ]");
+      expect(doc).toContain("## 产物");
+      expect(doc).toContain("## 更新指引");
+    });
+
+    it("实例文档跳过冗余标题/参数提示/步骤段头", async () => {
+      const { bindFlowTemplate, findFlowInBlueprint } = await import("../../src/render/context-message.js");
+      const r = await loadAndTranspile(cwd, "pt");
+      const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
+      const bound = bindFlowTemplate(tpl!, "term my-concept");
+      // 模拟 /pt manual 的文档包装逻辑
+      const lines: string[] = ["---", "procedure: create-domain-procedure", "---", ""];
+      for (const line of bound.split("\n")) {
+        if (line.startsWith("#")) continue;
+        if (line.startsWith("_")) continue;
+        const m = line.match(/^(\d+)\.\s+(.*)$/);
+        lines.push(m ? `- [ ] ${m[2]}` : line);
+      }
+      const doc = lines.join("\n");
+      // 不应再出现原模板的 # name 标题（实例文档已用 # name 实例 标题）
+      expect(doc).not.toMatch(/^# create-domain-procedure$/m);
+      // 不应再出现 _参数：..._ 提示
+      expect(doc).not.toMatch(/^_参数：/m);
+      // 不应再出现 ## 步骤 段头（步骤已转 checklist，无需段头）
+      expect(doc).not.toMatch(/^## 步骤$/m);
+      // 也不应再出现 ## 前提（Intent） 段头（实例文档已自带标题）
+      expect(doc).not.toMatch(/^## 前提/m);
+      // intent 正文应保留
+      expect(doc).toContain("创建新 Domain 资产");
+      // 步骤转 checklist 应保留
+      expect(doc).toContain("- [ ]");
+    });
+
+    it("MANUAL_DIR 常量已定义", async () => {
+      const constants = await import("../../src/constants.js");
+      expect(constants.MANUAL_DIR).toBe(".pt/manuals");
+    });
+
+    it("index.ts 注册了 /pt manual 子命令", async () => {
+      const src = await readFile("src/index.ts", "utf8");
+      expect(src).toContain('sub === "manual"');
+      expect(src).toContain("MANUAL_DIR");
+    });
+  });
 });
 
 // Helper（profilesDir）
