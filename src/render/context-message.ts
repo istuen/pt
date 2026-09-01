@@ -1,14 +1,13 @@
 // src/render/context-message.ts — FlowTemplate + 参数 → Context Message
 //
-// Phase 8.5：v8 后端通用化。
-//   - renderContextMessage(ctx, channel, blueprint, args) 改为按注入点遍历
-//   - findFlowInBundle(blueprint, domains, tplName) 改为按 blueprint.injectionPoints[target=context_message] 的 domains 找
+// Phase 9.5：v9 后端通用化。
+//   - renderContextMessage(ctx, blueprint, domains, args) 修复死代码——实现 /manual:xxx 触发
+//   - findFlowInBlueprint(blueprint, domains, tplName) — 替代 v8 findFlowInBundle
 //
-// 与 v6 backend/message.ts 的差异：
-//   - 入口变成 Context + Channel + Blueprint（v6 是 SchemaBundle + Struct）
-//   - binder 逻辑（变量替换、step 展开）保留不变
+// /manual:<domain-name> 触发：从 Blueprint 的 context_message 注入点引用的 Domain 里查 Manual 段
+// /<flow-name> <args> 触发：展开 workflow-Domain 的 FlowTemplate（v8 逻辑保留）
 
-import type { Blueprint, Channel, Context, FlowStep, FlowTemplate, InjectionPointInstance } from "../schema.js";
+import type { Blueprint, Context, Domain, FlowStep, FlowTemplate } from "../schema.js";
 
 /** FlowTemplate + 元数据（adapter 附加的 _vars）。_vars 优先于 argument-hint fallback。 */
 export type BoundableTemplate = FlowTemplate & { _vars?: string[] };
@@ -19,30 +18,85 @@ interface VarSpec {
 }
 
 /**
- * 给定 Context + Channel + Blueprint + args（形如 "/risk-check 客户A 5000" 或 "客户A 5000"），
- * 展开 Blueprint 注入点（target=context_message）里第一个匹配 tplName 的 FlowTemplate。
+ * 给定 Context + Blueprint + Domains + args（形如 "/manual:pt-quality" 或 "/risk-check 客户A 5000"），
+ * 展开目标 Domain 的 Manual 段内容或 FlowTemplate。
+ *
+ * v9 触发：
+ *   - /manual:<domain-name>：注入该 Domain 的 Manual 段内容（term→Rule checklist / workflow→FlowTemplate 列表）
+ *   - /<flow-name> <args>：展开 workflow-Domain 的 FlowTemplate（v8 逻辑保留）
  */
 export function renderContextMessage(
-  ctx: Context,
-  channel: Channel,
-  _blueprint: Blueprint,
+  _ctx: Context,
+  blueprint: Blueprint,
+  domains: Domain[],
   args: string,
 ): string | null {
-  // args 形如 "/risk-check 客户A 5000" 或 "客户A 5000"
   const m = args.trim().match(/^\/(\S+)\s*(.*)$/);
-  const tplName = m ? m[1] : args.trim().split(/\s+/)[0];
-  const tplArgs = m ? m[2] : args.trim().split(/\s+/).slice(1).join(" ");
+  if (!m) return null;
+  const [, name, rest] = m;
 
-  // 验证 Channel 里有 target=context_message 的注入点（间接确认 input 事件该由本 Blueprint 接管）
-  const hasContextMsgIp = channel.injectionPoints.some((ip) => ip.target === "context_message");
-  if (!hasContextMsgIp) return null;
+  // /manual:<domain-name> 触发（v9 新增）
+  if (name === "manual") {
+    const domainName = rest.trim();
+    const d = domains.find((x) => x.name === domainName);
+    if (!d) return null;
+    const manual = d.modules["Manual"];
+    if (!manual) return null;
+    return renderDomainManual(d, manual);
+  }
 
-  // v7 简化：Context 只存 markdown 串（FlowTemplate 已序列化为 markdown）。
-  // 因此 binder 展开在 input 事件时需要重新从 Blueprint → Domains → FlowTemplate 路径获取模板对象。
-  void tplName;
-  void tplArgs;
-  void ctx;
-  return null;
+  // /<flow-name> <args> 触发（v8 逻辑保留）
+  const tpl = findFlowInBlueprint(blueprint, domains, name);
+  if (!tpl) return null;
+  return bindFlowTemplate(tpl, rest);
+}
+
+/**
+ * 渲染 Domain 的 Manual 段内容（term→Rule checklist / workflow→FlowTemplate 列表）。
+ *  复用 renderManualModule 的格式逻辑。
+ */
+function renderDomainManual(d: Domain, content: unknown): string {
+  const lines: string[] = [`# /manual:${d.name}`, ""];
+
+  switch (d.type) {
+    case "workflow": {
+      const tpls = (content as Array<FlowTemplateLite> | undefined) ?? [];
+      if (tpls.length === 0) return "";
+      lines.push("## 可用手册");
+      for (const t of tpls) {
+        const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
+        lines.push(`- **/${t.name}**${hint}`);
+      }
+      break;
+    }
+    case "term": {
+      const rules = (content as Array<RuleLite> | undefined) ?? [];
+      if (rules.length === 0) return "";
+      lines.push("## 规范清单");
+      for (const r of rules) {
+        if (r.type === "invariant") lines.push(`- [ ] ${r.check}`);
+        else if (r.type === "ban" && r.items && r.items.length > 0) {
+          lines.push(`- [ ] ${r.check}：${r.items.join(" / ")}`);
+        }
+      }
+      break;
+    }
+    default:
+      return "";
+  }
+
+  return lines.join("\n");
+}
+
+interface FlowTemplateLite {
+  name: string;
+  argumentHint?: string;
+}
+
+interface RuleLite {
+  type: "ban" | "invariant";
+  check: string;
+  items?: string[];
 }
 
 /**
@@ -116,32 +170,30 @@ function replaceVars(text: string, bound: Map<string, string>): string {
   });
 }
 
-/** 在 Blueprint 注入点（target=context_message）的 domains 中按名查找 FlowTemplate（跨 Domain）。 */
-export function findFlowInBundle(
+/** 在 Blueprint 注入点（target=context_message）的引用域中按名查找 FlowTemplate（跨 Domain）。
+ *  v9：renderContextMessage 拿不到 Profile（Profile 在 transpile 内被消费），
+ *       所以这里直接遍历传入的 domains 全集找 workflow-type Domain 的 FlowTemplate。 */
+export function findFlowInBlueprint(
   blueprint: Blueprint,
   domains: Array<{ name: string; type: string; modules: Record<string, unknown> }>,
   tplName: string,
 ): BoundableTemplate | undefined {
-  // v8：从 blueprint.injectionPoints 里 target=context_message 的注入点的 domains 找
-  const contextMsgIps: InjectionPointInstance[] = blueprint.injectionPoints.filter(
-    (ip) => ip.domains.length > 0,
-  );
-  for (const ip of contextMsgIps) {
-    for (const dn of ip.domains) {
-      const d = domains.find((x) => x.name === dn);
-      if (!d || d.type !== "workflow") continue;
-      const tpls = (d.modules["Manual"] as Array<FlowTemplate> | undefined) ?? [];
-      const hit = tpls.find((t) => t.name === tplName);
-      if (hit) {
-        const bt = hit as FlowTemplate & { _vars?: string[] };
-        // 兼容：args 里 vars 字段（如 frontmatter 残留）
-        const vars = (bt as { vars?: unknown }).vars;
-        if (Array.isArray(vars)) {
-          const strs = vars.filter((x): x is string => typeof x === "string");
-          if (strs.length > 0) bt._vars = strs;
-        }
-        return bt;
+  // 验证 Blueprint 里有 target=context_message 的注入点（间接确认 input 事件该由本 Blueprint 接管）
+  const hasContextMsgIp = blueprint.injectionPoints.some((ip) => ip.target === "context_message");
+  if (!hasContextMsgIp) return undefined;
+
+  for (const d of domains) {
+    if (d.type !== "workflow") continue;
+    const tpls = (d.modules["Manual"] as Array<FlowTemplate> | undefined) ?? [];
+    const hit = tpls.find((t) => t.name === tplName);
+    if (hit) {
+      const bt = hit as FlowTemplate & { _vars?: string[] };
+      const vars = (bt as { vars?: unknown }).vars;
+      if (Array.isArray(vars)) {
+        const strs = vars.filter((x): x is string => typeof x === "string");
+        if (strs.length > 0) bt._vars = strs;
       }
+      return bt;
     }
   }
   return undefined;
