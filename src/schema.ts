@@ -1,17 +1,23 @@
-// src/schema.ts — v7 四层 IR 契约
+// src/schema.ts — v8 IR 契约
 //
 // 设计原则（见 docs/pt-asset-layering.md §0）：
 // 1. Schema 是语义化的，不带任何格式痕迹（无 Section/Item/raw/heading）
 // 2. Pt 定义契约，来源（OXN/YAML/...）实现 SourceAdapter
 // 3. 三段式编译架构：parse（前端）→ compile（中端）→ render（后端）
 //
-// Phase 7.2：v6 三类型（Domain/Struct/KnowledgeBase）→ v7 四层（Domain/Channel/Blueprint/Context）。
+// Phase 8.2：v7 四层模型重定义 Channel/Blueprint 职责（H2=注入点 + 模块级 Domain 引用 + Compilation）。
 //
 // 四层语义：
-//   - Domain   ：内容层。承载语义定义与上下文模块内容，H2 段名开放（Scene/Manual/Term/...）。
-//   - Channel  ：结构层。定义通道含哪些上下文模块 + 编排策略，跨项目复用。
-//   - Blueprint：配置层。Channel + 具体 Domains + trigger + boundaries，每场景一份。
-//   - Context  ：产物层。Blueprint 编译输出，按模块聚合多 Domain 内容，物理文件 + hash 缓存。
+//   - Domain   ：内容层。异构领域知识，按 H2 切模块，Type 标签区分内容性质。
+//   - Channel  ：结构层。编译上下文通道，H2=注入点，定义注入点聚合哪些 H2 + target 映射 + mode。
+//   - Blueprint：配置层。异构领域知识编译上下文通道蓝图，按注入点选 Domain + Trigger/Boundaries + Compilation。
+//   - Context  ：产物层。编译后目标上下文，按注入点聚合多 Domain 内容，物理文件 + hash 缓存。
+//
+// v8 相对 v7 的核心变化：
+//   - Channel.injectionPoints（替代 modules + layout）：每个 H2 = 一个注入点。
+//   - Blueprint.injectionPoints（替代 domains + trigger + boundaries）：按注入点选 Domain。
+//   - Blueprint.compilation（新增）：缓存目录 + 拆分策略。
+//   - Context.modules key 从模块名变注入点名（结构不变，key 语义变）。
 
 // ==================== 语义层原子 ====================
 
@@ -77,14 +83,14 @@ export interface ToolRef {
 
 // ==================== 结构层原子 ====================
 
-/** 编排策略。Channel.layout 决定段落拼接顺序。 */
+/** 编排策略。InjectionPointConfig.mode 决定段落拼接顺序。 */
 export interface StructureLayout {
   mode: "byDomain" | "byType" | "hybrid";
   /** byDomain / hybrid 时的模块顺序；未指定则原序 */
   domainOrder?: string[];
 }
 
-/** 流程节点（Blueprint.boundaries 的语义化形态） */
+/** 流程节点（InjectionPointInstance.boundaries 的语义化形态） */
 export interface BoundaryNode {
   /** 步骤名 */
   slot: string;
@@ -94,10 +100,52 @@ export interface BoundaryNode {
   desc: string;
 }
 
+// ==================== v8 注入点（Channel 与 Blueprint 共用基础） ====================
+
+/** Pi 注入位置（代码层技术名，由 Channel.target 映射）。 */
+export type InjectionTarget = "system_prompt" | "context_message" | string;
+
+/** Channel 的注入点定义（对应 Channel md 的 H2）。 */
+export interface InjectionPointConfig {
+  /** 注入点名（语义名，如 "会话知识"/"对话记忆"，来自 Channel H2 标题）。 */
+  name: string;
+  /** Pi 注入位置（system_prompt / context_message / 扩展）。 */
+  target: InjectionTarget;
+  /** 聚合点：参与的 Domain H2 段名列表（来自 ### Modules 无符号项）。 */
+  modules: string[];
+  /** 聚合方式（仅 system_prompt 类注入点有意义）。 */
+  mode?: StructureLayout["mode"];
+}
+
+/** Blueprint 的注入点实例化（对应 Blueprint md 的 H2，跟 Channel 的 InjectionPointConfig 同名）。 */
+export interface InjectionPointInstance {
+  /** 注入点名（跟 Channel 的 InjectionPointConfig.name 对应）。 */
+  name: string;
+  /** 参与本注入点的 Domain 名列表（模块级引用——只贡献该注入点聚合的 H2 段）。 */
+  domains: string[];
+  /** 本注入点的触发条件（实例级）。 */
+  trigger?: string;
+  /** 本注入点的流程节点 DAG（实例级）。 */
+  boundaries?: BoundaryNode[];
+}
+
+// ==================== v8 Compilation（Context 缓存配置） ====================
+
+/** Context 缓存拆分策略。 */
+export type CacheSplitStrategy = "single-file" | "by-injection-point";
+
+/** Blueprint 的编译方式配置（## Compilation 段）。 */
+export interface CompilationConfig {
+  /** 缓存目录（默认 .pt/contexts/cache/）。 */
+  cacheDir: string;
+  /** 拆分策略（默认 single-file）。 */
+  split: CacheSplitStrategy;
+}
+
 // ==================== 内容层：Domain ====================
 
 /**
- * v7 Domain：内容层模块。承载语义定义与上下文模块内容。
+ * v8 Domain：内容层模块。承载语义定义与上下文模块内容。
  *   - type：内容性质标签（term/workflow/stack/扩展），决定各 H2 段**内部内容格式**。
  *   - modules：H2 段名 → 段内容（key = "Scene"/"Manual"/"Term"/...）。
  *
@@ -115,74 +163,71 @@ export interface Domain {
 // ==================== 结构层：Channel ====================
 
 /**
- * v7 Channel：结构层模块，定义通道含哪些上下文模块 + 编排策略。
- *   - modules：声明含哪些上下文模块（对应 Domain 的 H2 段名，如 "Scene"/"Manual"/"Term"）。
- *   - layout ：编排策略（byDomain/byType/hybrid）。
+ * v8 Channel：结构层模块，编译上下文通道。
+ *   - injectionPoints：注入点列表（H2=注入点），定义每个注入点的 target/modules/mode。
  *
  * Channel 只管结构，不含具体 Domain、不含触发条件——后者是 Blueprint 的职责。
  * Channel 可跨项目复用。
+ *
+ * v7 → v8 变化：替换 v7 的 modules + layout。注入点定义从隐式 Modules 列表 → 显式 H2。
  */
 export interface Channel {
   name: string;
-  /** 上下文模块列表（对应 Domain 的 H2 段名）。决定 Context 含哪些 ## 段。 */
-  modules: string[];
-  /** 编排策略。决定 Context 内模块的拼接顺序。 */
-  layout: StructureLayout;
+  /** 注入点列表（H2=注入点），替代 v7 的 modules + layout。 */
+  injectionPoints: InjectionPointConfig[];
 }
 
 // ==================== 配置层：Blueprint ====================
 
 /**
- * v7 Blueprint：配置层模块，Channel + 具体 Domains + trigger + boundaries，每场景一份。
- *   - channel ：引用哪个 Channel（结构复用）。
- *   - domains ：具体用哪些 Domain（配置组合）。
- *   - trigger ：触发条件（实例级）。
- *   - boundaries：流程节点 DAG（实例级）。
+ * v8 Blueprint：配置层模块，异构领域知识编译上下文通道蓝图。
+ *   - channel：引用哪个 Channel（结构复用）。
+ *   - injectionPoints：按注入点选 Domain（模块级引用）+ Trigger/Boundaries。
+ *   - compilation：编译方式（缓存目录 + 拆分策略）。
  *
  * 一个 Channel 可被多个 Blueprint 引用（跨项目复用），每个 Blueprint 填入自己的 Domain 组合。
+ *
+ * v7 → v8 变化：替换 v7 的 domains + trigger + boundaries，按注入点组织；新增 compilation。
  */
 export interface Blueprint {
   name: string;
   /** 引用的 Channel 名（结构复用）。 */
   channel: string;
-  /** 引用的 Domain 名列表（具体内容）。 */
-  domains: string[];
-  /** 触发条件（注入 System Prompt 头部）。 */
-  trigger?: string;
-  /** 流程节点 DAG（实例级）。 */
-  boundaries?: BoundaryNode[];
+  /** 按注入点选 Domain（模块级引用），替代 v7 的 domains: string[]。 */
+  injectionPoints: InjectionPointInstance[];
+  /** 编译方式（缓存目录 + 拆分策略）。 */
+  compilation: CompilationConfig;
 }
 
 // ==================== 产物层：Context ====================
 
 /**
- * v7 Context：产物层，Blueprint 编译输出。
+ * v8 Context：产物层，Blueprint 编译输出。
  *   - sourceHash：hash(Domains + Channel + Blueprint) 组合——三者任一变化即失效。
- *   - modules   ：H2 段名 → 聚合后的 markdown 字符串。
+ *   - modules   ：注入点名 → 聚合后的 markdown 字符串。
  *
  * Context 是物理文件（.pt/contexts/cache/*.context.md），缓存复用。
  * Pt 读取 Context 时比 sourceHash：一致用缓存，不一致重编译覆盖。
+ *
+ * v7 → v8 变化：modules key 从模块名（Scene/Manual）变成注入点名（会话知识/对话记忆）——结构不变，key 语义变。
  */
 export interface Context {
   /** Blueprint 名（Context 跟 Blueprint 一对一）。 */
   name: string;
   /** hash(domains + channel + blueprint)，缓存失效依据。 */
   sourceHash: string;
-  /** H2 段名 → 聚合后的 markdown 字符串（如 "Scene" → "..."）。 */
+  /** 注入点名 → 聚合后的 markdown 字符串（如 "会话知识" → "..."）。 */
   modules: Record<string, string>;
 }
 
 // ==================== IR 集合（编译期内存态） ====================
 
 /**
- * v7 SchemaBundle：编译期内存态，包含所有加载的 IR。
+ * v8 SchemaBundle：编译期内存态，包含所有加载的 IR。
  *   - domains：所有 Domain（按 type 区分承载内容）。
  *   - channels：所有 Channel（结构层模块）。
  *   - blueprints：所有 Blueprint（配置层模块）。
  *   - activeBlueprint：当前激活的 Blueprint 名，决定产物走哪个组合。
- *
- * 注：v7 不再有 v6 的 `activeScene`（v6 用 Scene Struct 名）。Blueprint 自带 trigger/boundaries，
- *     一个 Blueprint 一份产物，不需要额外选 "activeScene"。
  */
 export interface SchemaBundle {
   domains: Domain[];
@@ -201,7 +246,7 @@ export interface SourceAdapter {
   load(cwd: string, blueprintName: string): Promise<SchemaBundle>;
 }
 
-// ==================== v7：Blueprint 名解析辅助 ====================
+// ==================== v8：Blueprint 名解析辅助 ====================
 
 /** 从 Blueprint 列表里找指定名的 Blueprint。未找到返 undefined。 */
 export function findBlueprint(blueprints: Blueprint[], name: string): Blueprint | undefined {
