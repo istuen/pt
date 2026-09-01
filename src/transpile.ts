@@ -29,7 +29,13 @@ export interface TranspileResult {
   domains: Domain[];
   /** 当前激活的 Profile 名 */
   activeProfile: string;
+  /** 当前激活的 Profile（listManuals 范围过滤用） */
+  profile: Profile;
 }
+
+const EMPTY_CTX: Context = { name: "", sourceHash: "0", modules: {} };
+const EMPTY_BP: Blueprint = { name: "", agent: "pi", injectionPoints: [], compilation: { cacheDir: ".pt/contexts/cache/", split: "single-file" } };
+const EMPTY_PROFILE: Profile = { name: "", blueprint: "", domains: [], injectionPoints: [] };
 
 /** ============== Source Adapter 注册表（MVP 只有 OXN） ============== */
 const sourceAdapters: SourceAdapter[] = [
@@ -50,8 +56,16 @@ export async function loadAndTranspile(cwd: string, profileName: string): Promis
   );
   const bundles = segs.filter((b): b is SchemaBundle => b !== null);
   if (bundles.length === 0) {
-    const empty: Context = { name: profileName, sourceHash: "0", modules: {} };
-    return { segment: "", bundles: [], cacheHit: false, context: empty, blueprint: { name: "", agent: "pi", injectionPoints: [], compilation: { cacheDir: ".pt/contexts/cache/", split: "single-file" } }, domains: [], activeProfile: profileName };
+    return {
+      segment: "",
+      bundles: [],
+      cacheHit: false,
+      context: { ...EMPTY_CTX, name: profileName },
+      blueprint: EMPTY_BP,
+      domains: [],
+      activeProfile: profileName,
+      profile: { ...EMPTY_PROFILE, name: profileName },
+    };
   }
 
   // 2. compile + cache + render：对每个 bundle 处理（取 activeProfile）
@@ -61,6 +75,7 @@ export async function loadAndTranspile(cwd: string, profileName: string): Promis
   let lastBlueprint: Blueprint | null = null;
   let lastDomains: Domain[] = [];
   let lastActiveProfile = profileName;
+  let lastProfile: Profile | null = null;
 
   for (const bundle of bundles) {
     const profile = findProfile(bundle.profiles, bundle.activeProfile);
@@ -88,21 +103,20 @@ export async function loadAndTranspile(cwd: string, profileName: string): Promis
     lastBlueprint = blueprint;
     lastDomains = bundle.domains;
     lastActiveProfile = profile.name;
+    lastProfile = profile;
   }
 
   // 4. 注入版剥 asset 分隔注释
   const segment = segments.join("\n\n").replace(/<!-- =====[^\n]*-->\n?/g, "").trim();
 
-  const emptyCtx: Context = { name: lastActiveProfile, sourceHash: "0", modules: {} };
-  const emptyBp: Blueprint = { name: "", agent: "pi", injectionPoints: [], compilation: { cacheDir: ".pt/contexts/cache/", split: "single-file" } };
-
   return {
     segment,
     bundles,
     cacheHit: anyHit,
-    context: lastContext ?? emptyCtx,
-    blueprint: lastBlueprint ?? emptyBp,
+    context: lastContext ?? { ...EMPTY_CTX, name: lastActiveProfile },
+    blueprint: lastBlueprint ?? EMPTY_BP,
     domains: lastDomains,
     activeProfile: lastActiveProfile,
+    profile: lastProfile ?? { ...EMPTY_PROFILE, name: lastActiveProfile },
   };
 }

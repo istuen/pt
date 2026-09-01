@@ -200,7 +200,13 @@ export default function (pi: ExtensionAPI): void {
           ctx.ui.notify("无激活 Profile，先用 /pt-context <name> 激活", "warning");
           return;
         }
-        const flows = activeAdapter.listManuals?.(cachedContext!, cachedBlueprint!, cachedDomains) ?? [];
+        // listManuals 需 Profile 范围过滤——用 cachedBundles[0] 的 activeProfile 找 Profile
+        const firstBundle = cachedBundles[0];
+        const activeProfileObj = firstBundle.profiles.find((p) => p.name === firstBundle.activeProfile);
+        const flows = activeAdapter.listManuals?.(cachedContext!, cachedBlueprint!, activeProfileObj ? cachedDomains.filter((d) => {
+          const ip = activeProfileObj.injectionPoints.find((i) => i.domains.includes(d.name));
+          return ip !== undefined || activeProfileObj.domains.includes(d.name);
+        }) : cachedDomains) ?? [];
         if (flows.length === 0) {
           ctx.ui.notify("当前 Profile 无可触发手册（context_message 注入点无 workflow-type Domain）", "info");
         } else {

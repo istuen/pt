@@ -11,34 +11,35 @@
 
 ### 当前在哪
 
-- **Phase 0-8 完成**，v8 模型已落地（H2=注入点 + 模块级 Domain 引用 + Compilation 配置）。
-- git baseline：`8251378`（v8 §0 文档定稿）→ `d506a89`（Phase 8 执行描述）→ 8.1-8.8 八个 Phase commit。可 `git revert` 回退。
-- **v8 当前状态**：Channel H2=注入点、Blueprint 按注入点选 Domain、Context 文件 H2=注入点名、Compilation 配置可读、新增 pt-quality Domain（9 条技术规范）。
+- **Phase 0-9 完成**，v9 模型已落地（Blueprint 吸收 v8 Channel + Profile 业务实例 + AgentAdapter 抽象 + modName 驱动 + Trigger 索引）。
+- git baseline：`8251378`（v8 §0）→ `7028a0f`（v9 §0 文档）→ `e1e3e90`（Phase 9 执行描述）→ 9.1-9.9 九个 Phase commit。可 `git revert` 回退。
+- **v9 当前状态**：Blueprint（Agent 端结构）+ Profile（业务端实例）+ AgentAdapter（Pi 注入封装）+ Trigger 索引段（Domain H2）+ /manual:xxx 触发 + modName 注册表。
 
 ### 待办
 
-**已完结（v8）**：Phase 8（v8 模型实现 + 文档同步）。
+**已完结（v9）**：Phase 9（v9 模型实现 + 文档同步）。
 
 **非阻塞（后续可选）：**
 
 1. Phase 6 加压（pt-* 资产加跨 Domain/1:N/hybrid）
 2. `ingest/` 前置层（等第一个外部源接入时再加）
 3. 未来 CLI 选 H2 模块作 `/模块名` 指令（§0.5 备注）
+4. Channel Connector 实现（v9 Channel 留作未来 Domain 外部知识源连接）
 
 ### 必读（只读这些就够开工）
 
 | 文档 | 读哪段 | 为什么 |
 |---|---|---|
-| `pt-asset-layering.md` | **§0（v8 四层模型）** | v8 语义基准：Domain→Channel→Blueprint→Context + H2=注入点 + 模块级引用 + Compilation |
-| `pt-dev-phases-v8.md` | **§Phase 8 步骤 8.1-8.8** + 验收标准 + 风险 | 要执行的改动面和验证判据 |
-| 代码 | `src/schema.ts` / `src/parse/{channel,blueprint}.ts` / `src/compile/context.ts` / `src/render/{system-prompt,context-message,cache}.ts` | v8 当前实现 |
+| `pt-asset-layering.md` | **§0（v9 四层模型）** | v9 语义基准：Domain→Blueprint→Profile→Context + 注入点人类自定义 + Profile 自动分发 + Trigger 索引 + AgentAdapter |
+| `pt-dev-phases-v9.md` | **§Phase 9 步骤 9.1-9.9** + 验收标准 + 风险 | 要执行的改动面和验证判据 |
+| 代码 | `src/schema.ts` / `src/parse/{blueprint,profile}.ts` / `src/compile/context.ts` / `src/render/{system-prompt,context-message}.ts` / `src/agent/pi-adapter.ts` | v9 当前实现 |
 
 ### 可跳过（背景，不影响执行）
 
-- `pt-asset-layering.md` §1-§4（演进历史）、附录「模型演进对照」（v1-v5 是历史，v6 才是当前）。
-- `pt-dev-phases.md` Phase 0-5 步骤（已完成，仅作背景）、「Phase 5-6 验收记录」（已被「Phase 5.5 实测结果」取代，保留作历史）。
+- `pt-asset-layering.md` §1-§4（演进历史）、附录「模型演进对照」（v1-v5 是历史，v6-v9 是当前）。
+- `pt-dev-phases.md` Phase 0-8 步骤（已完成，仅作背景）、`pt-dev-phases-v8.md`（v8 已完成）。
 - `pt-prompt-optimization.md`（已落地，不涉及）。
-- 文档里的 ⚠️ 注释和「待改」标记——那是给设计者看的，执行者按 §0 v6 语义为准即可。
+- 文档里的 ⚠️ 注释和「待改」标记——那是给设计者看的，执行者按 §0 v9 语义为准即可。
 
 ### 遇到设计没覆盖的情况
 
@@ -1420,3 +1421,90 @@ Phase 7 (v7 模型重构 Domain→Channel→Blueprint→Context) ← 待执行
 | 扩展性 | glossary renderer 仍注册，glossary-test Blueprint 仍工作 |
 | v8 H2 | Context 文件 H2=会话知识/对话记忆（无 Scene/Manual 残留） |
 | pt-quality | 进 pt-dev 对话记忆注入点，不污染会话知识 |
+
+---
+
+## Phase 9：v9 模型实现（Blueprint 吸收 Channel + Profile 业务实例 + AgentAdapter + modName 驱动 + Trigger 索引）
+
+> **依据**：`docs/pt-asset-layering.md` §0（v9 四层模型，2026-09-01 定稿）
+> **目标**：把 v8 代码（Channel H2=注入点 + Blueprint 选 Domain + 硬编码 Pi API）升级为 v9（Blueprint=Agent 端结构 + Profile=业务端实例 + AgentAdapter 抽象 + modName 驱动 + Trigger 索引 + 参考手册触发）
+> **基线**：commit `7028a0f`（v9 §0 文档定稿，代码还是 v8）
+> **执行描述**：`docs/pt-dev-phases-v9.md`
+> **状态**：✅ 已完成（9.1-9.9 9 个 commit + pt-writing 跨项目同步）
+
+### v8 → v9 核心变化
+
+1. **职责重分配**：v8 Channel（结构层）→ v9 Blueprint（Agent 端结构）；v8 Blueprint（配置层）→ v9 Profile（业务端实例）
+2. **Channel 保留为未来 Connector**：Domain 连接外部知识源（当前未实现）
+3. **Trigger 段移到 Domain H2**：v9 索引段，告知 LLM 何时查本 Domain 手册
+4. **Boundaries 丢弃**：Trigger 索引 + Scene axioms 替代流程 DAG
+5. **聚合点数据驱动**：Blueprint.### Modules 是 modName 列表，compile 按 moduleRenderers[modName] 注册表分发 + generic fallback
+6. **Profile Domains 自动分发**：YAML 全局 domains + 注入点追加 domains
+7. **注入点名人类自定义**：Blueprint H2 任意语义名，target 字段映射 Agent 技术注入点
+8. **AgentAdapter 抽象**：Blueprint 声明用哪个 Agent（默认 pi），Pt 调 Adapter 接口注入
+9. **"对话记忆" → "参考手册"** 改名
+11. **新增 me Domain**：会话知识补"我"视角（user-profile / pt-goal / collab-mode）
+
+### v9 资产结构
+
+```
+.pt/assets/
+├── domains/        # Domain（加 ## Trigger 段 + 新增 me Domain）
+│   ├── pt-concepts.md      # 描述迁 v9（Channel→Blueprint/Profile）
+│   ├── pt-architecture.md # moduleRenderers 注册表描述
+│   ├── pt-transpile.md    # 含 ## Trigger + Profile 转译步骤
+│   ├── pt-stack.md
+│   ├── pt-dev-flow.md     # 加 Trigger 段
+│   ├── pt-collab.md       # 加 Trigger 段
+│   ├── pt-quality.md      # 加 Trigger 段
+│   ├── glossary-test.md
+│   └── me.md              # 新增
+├── blueprints/     # Blueprint（v9 结构层）
+│   └── dev-knowledge.blueprint.md   # 合并 v8 dev-knowledge + pt-dev channel
+└── profiles/       # Profile（v9 配置层）
+    ├── pt.profile.md
+    ├── pt-dev.profile.md
+    └── glossary-test.profile.md
+```
+
+### v9 代码结构
+
+```
+pt/src/
+├── schema.ts              # v9 IR: Blueprint(agent+injectionPoints+compilation) + Profile(blueprint+domains+injectionPoints) + AgentAdapter + Context
+├── transpile.ts           # parse → compile → cache → render 链路（Profile 驱动）
+├── config.ts              # listProfiles（读 profiles/*.profile.md）
+├── index.ts               # Pi 入口（session_start + /pt-context + /pt，注入用 AgentAdapter）
+├── parse/                 # 前端
+│   ├── shared.ts          # inferKind 用 frontmatter（不用注入点名）
+│   ├── domain.ts          # Domain H2 段开放（Trigger 走 default fallback）
+│   ├── blueprint.ts       # Blueprint(agent + injectionPoints + Compilation)
+│   ├── profile.ts         # Profile(blueprint + domains + injectionPoints) — 新增
+│   └── index.ts           # oxnAdapter.load（枚举 profiles/）
+├── compile/               # 中端
+│   └── context.ts         # compileContext(profile, blueprint, domains) + moduleRenderers[modName] + resolveDomains + renderTriggerModule + renderGenericModule
+├── render/                # 后端
+│   ├── system-prompt.ts   # renderSystemPrompt(ctx, blueprint) — 遍历 blueprint.injectionPoints
+│   ├── context-message.ts # renderContextMessage(ctx, blueprint, domains, args) — /manual:xxx 触发 + /<flow-name> 展开
+│   ├── cache.ts           # cache 读 blueprint.compilation
+│   └── index.ts
+└── agent/                 # Agent 适配器 — 新增
+    ├── pi-adapter.ts      # PiAdapter（封装 pi.on before_agent_start / input）
+    └── registry.ts        # agentAdapter 注册表
+```
+
+### 6 项硬指标验收（v9）
+
+| 指标 | v9 验收 |
+|---|---|
+| 三段式叙事 | src/{parse,compile,render,agent}/ 都有 v9 实现 |
+| 无命名碰撞 | schema.ts 无 v8 Channel 类型（删除）、无 v8 Blueprint.domains/trigger/boundaries |
+| 产物无回归 | pt=3165 chars / pt-dev=3642 chars / glossary-test=208 chars；结构对齐 v8（会话知识/参考手册 H2） |
+| Blueprint 复用 | dev-knowledge Blueprint 被 pt + pt-dev + glossary-test 三个 Profile 引用 |
+| Context 缓存 | cacheHit=true，segment 一致 |
+| 扩展性 | modName 注册表 + generic fallback；加新聚合标题（### Modules 加项）不改代码；listManuals Profile 范围过滤 |
+
+### v9 验证脚本
+
+- `tests/verify/verify-phase9.ts`：16 节 35+ 项断言（替代 v8 verify-phase77.ts）
+- `tests/verify/verify-flows.ts`：v9 适配——用 activeAdapter.listManuals() + Profile 范围过滤

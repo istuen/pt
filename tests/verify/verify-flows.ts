@@ -1,25 +1,38 @@
+// tests/verify/verify-flows.ts — v9 适配：用 activeAdapter.listManuals() 列 Profile 引用域的手册
+//
+// Phase 9.9：v9 适配。
+//   - 用户面是 Profile（不是 Blueprint）—— Profile 引用 Blueprint + 选 Domains
+//   - /pt flows 用 activeAdapter.listManuals()——更通用，无需直接遍历 IR
+
 import { loadAndTranspile } from "../../src/transpile.js";
+import { getAgentAdapter } from "../../src/agent/index.js";
+
 for (const name of ["pt", "pt-dev", "glossary-test"]) {
   const r = await loadAndTranspile(process.cwd(), name);
   const b = r.bundles[0];
-  const bp = b.blueprints.find(x => x.name === b.activeBlueprint);
-  // v8：遍历 blueprint.injectionPoints 里所有含 domains 的注入点
-  //     （一个 workflow-Domain 可能出现在多个注入点下，去重）
-  const seen = new Set<string>();
-  const flows: string[] = [];
-  for (const ip of bp.injectionPoints) {
-    for (const dn of ip.domains) {
-      const d = b.domains.find(x => x.name === dn);
-      if (!d || d.type !== "workflow") continue;
-      const tpls = (d.modules["Manual"] ?? []) as Array<{ name: string; argumentHint?: string }>;
-      for (const t of tpls) {
-        if (seen.has(t.name)) continue;
-        seen.add(t.name);
-        flows.push(`  /${t.name} ${t.argumentHint ?? ""}  ← ${d.name}`);
-      }
+  if (!b) {
+    console.log(`=== ${name} Profile 可触发手册 ===`);
+    console.log("  (无 bundle)");
+    console.log();
+    continue;
+  }
+
+  // listManuals 需 Profile 范围过滤：只取 Profile.domains + Profile.injectionPoints[].domains 里的域
+  const profile = r.profile;
+  const filteredDomains = b.domains.filter((d) => {
+    if (profile.domains.includes(d.name)) return true;
+    return profile.injectionPoints.some((ip) => ip.domains.includes(d.name));
+  });
+
+  const adapter = getAgentAdapter(r.blueprint.agent);
+  const flows = adapter.listManuals?.(r.context, r.blueprint, filteredDomains) ?? [];
+  console.log(`=== ${name} Profile 可触发手册 ===`);
+  if (flows.length === 0) {
+    console.log("  (无 workflow-type Domain，无可触发手册)");
+  } else {
+    for (const f of flows) {
+      console.log(`  /${f.name} ${f.hint ?? ""}  ← ${f.domain}`);
     }
   }
-  console.log(`=== ${name} Blueprint 可触发手册 ===`);
-  console.log(flows.length ? flows.join("\n") : "  (无 workflow-type Domain，无可触发手册)");
   console.log();
 }

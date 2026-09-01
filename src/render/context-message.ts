@@ -33,9 +33,19 @@ export function renderContextMessage(
 ): string | null {
   const m = args.trim().match(/^\/(\S+)\s*(.*)$/);
   if (!m) return null;
-  const [, name, rest] = m;
+  let [, name, rest] = m;
 
-  // /manual:<domain-name> 触发（v9 新增）
+  // /manual:<domain-name> 触发（v9 新增）—— name 可能是 "manual:pt-quality"
+  if (name.startsWith("manual:")) {
+    const domainName = name.slice("manual:".length).trim();
+    const d = domains.find((x) => x.name === domainName);
+    if (!d) return null;
+    const manual = d.modules["Manual"];
+    if (!manual) return null;
+    return renderDomainManual(d, manual);
+  }
+
+  // /manual <domain-name> 触发——空格分隔形式
   if (name === "manual") {
     const domainName = rest.trim();
     const d = domains.find((x) => x.name === domainName);
