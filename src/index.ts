@@ -237,9 +237,14 @@ export default function (pi: ExtensionAPI): void {
       }
 
       if (sub === "full") {
-        const full = lastBuiltPrompt ?? ctx.getSystemPrompt();
-        if (!lastBuiltPrompt) {
-          ctx.ui.notify("警告：尚无 agent turn 跑过，拿到的是 base prompt（无 Pt 段）。先发一条消息再 /pt full", "warning");
+        // 现拼：用当前 cachedSegment + base systemPrompt 合成，不依赖 lastBuiltPrompt。
+        // 这样切换 Blueprint 后立即 /pt full 就能拿到新产物，不用先发对话触发 before_agent_start。
+        const base = ctx.getSystemPrompt();
+        const full = cachedSegment
+          ? base + "\n\n## 当前任务上下文\n\n" + cachedSegment
+          : base;
+        if (!cachedSegment) {
+          ctx.ui.notify("警告：无 cachedSegment（未加载 Blueprint）。用 /pt-context <name> 选择", "warning");
         }
         const dir = join(ctx.cwd, ".pt", "fulls");
         await mkdir(dir, { recursive: true });
