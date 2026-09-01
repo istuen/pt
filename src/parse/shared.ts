@@ -12,14 +12,15 @@ import { readFile } from "node:fs/promises";
 
 // ==================== 类型（OXN 中间表示，Pt 核心不见） ====================
 
-/** OXN 内部 asset kind（v7 沿用 v6 的扩展名空间）。
- *  - "domain"    : Content Domain（v7 内容层）
- *  - "channel"   : Channel（v7/v8 结构层）
- *  - "blueprint" : Blueprint（v7/v8 配置层）
+/** OXN 内部 asset kind。
+ *  - "domain"    : Content Domain（v7/v9 内容层）
+ *  - "blueprint" : Blueprint（v7 配置层 / v9 结构层）
+ *  - "profile"   : Profile（v9 配置层，新增）
+ *  - "channel"   : Channel（v8 结构层，v9 删除但保留 type 防止历史资源识别异常）
  *  - "term" / "workflow" / "stack" / "glossary" : Domain type 标签（frontmatter.type）
  *  - "scene" / "manual" : v6 Struct kind 兼容（v7 资产迁移期残留） */
 export type AssetKind =
-  | "domain" | "channel" | "blueprint"
+  | "domain" | "channel" | "blueprint" | "profile"
   | "term" | "workflow" | "stack" | "glossary"
   | "scene" | "manual";
 
@@ -62,7 +63,9 @@ export async function readAsset(path: string): Promise<Asset> {
   const fileName = path.split("/").pop() ?? "";
   const name = fileName.replace(/\.[^.]+$/, "");
 
-  // kind 推断优先级：frontmatter.kind → frontmatter.type → frontmatter.entity → H2 推断
+  // kind 推断优先级：frontmatter.kind → frontmatter.type → frontmatter.entity → frontmatter 特征字段 → H2 推断
+  // v9：用 frontmatter 字段区分 Profile（blueprint）/ Blueprint（agent）/ Domain（type），
+  //     不再依赖 H2 注入点名（注入点名是自定义的语义名）
   let kind: AssetKind | undefined;
   if (typeof fm.kind === "string") {
     kind = fm.kind as AssetKind;
@@ -70,6 +73,10 @@ export async function readAsset(path: string): Promise<Asset> {
     kind = fm.type as AssetKind;
   } else if (typeof fm.entity === "string") {
     kind = fm.entity as AssetKind;
+  } else if (typeof fm.blueprint === "string") {
+    kind = "profile";
+  } else if (typeof fm.agent === "string") {
+    kind = "blueprint";
   } else {
     kind = inferKind(body);
   }
@@ -320,13 +327,11 @@ export function extractBareListUnderH3(section: Section | undefined, h3Name: str
   return out;
 }
 
-/** frontmatter 没 entity/type/kind 时，按 H2 段名推断 asset kind。
- *  v8 推断：Channel 用 injectionPoints（H2 注入点名）特征识别，Blueprint 用 Channel/Compilation 识别。 */
+/** frontmatter 没 entity/type/kind/blueprint/agent 时，按 H2 段名推断 asset kind。
+ *  v9 推断：Blueprint 用 Compilation 段识别，Channel 已删除，Domain 走通用 term 形态。 */
 function inferKind(body: string): AssetKind {
-  if (/^##\s+Channel\b/m.test(body) && (/^##\s+Compilation\b/m.test(body) || /^##\s+(会话知识|对话记忆)/m.test(body))) return "blueprint";
-  if (/^##\s+(会话知识|对话记忆)/m.test(body)) return "channel";
+  if (/^##\s+Compilation\b/m.test(body)) return "blueprint";
   if (/^##\s+Slots\b/m.test(body)) return "workflow";
   if (/^##\s+Tools\b/m.test(body)) return "stack";
-  if (/^##\s+Boundaries\b/m.test(body)) return "blueprint";
   return "domain";
 }

@@ -1,35 +1,29 @@
-// src/parse/blueprint.ts — blueprint/*.md → Blueprint IR
+// src/parse/blueprint.ts — blueprints/*.md → Blueprint IR
 //
-// Phase 8.3：v8 适配 — Blueprint 按注入点组织（H2 = 注入点名）。
-//   - ## Channel   : 引用哪个 Channel（裸值）
-//   - ## <注入点名> : 注入点实例化
-//     - ### Domains : 参与本注入点的 Domain 名（裸名列表）
-//     - ### Trigger : 本注入点的触发条件（裸值文本 / H3 形式）
-//     - ### Boundaries : 本注入点的流程节点 DAG（H3 子项 → BoundaryNode[]）
+// Phase 9.3：v9 适配 — Blueprint 直接拥有 injectionPoints（v8 Channel 吸收进来）。
+//   - ## <注入点名> : 注入点定义（H2 名=注入点人类自定义名）
+//     - target: <system_prompt|context_message|扩展>
+//     - mode: <byDomain|byType|hybrid>
+//     - ### Modules : 聚合点（Domain H2 段名列表，data-driven）
 //   - ## Compilation : 编译方式（cache-dir + split）
 //
-// Blueprint asset 格式（v8）：
+// Blueprint asset 格式（v9）：
 //   ---
 //   name: <blueprint-name>
+//   agent: pi
 //   ---
 //
-//   ## Channel
+//   ## 会话知识                          ← H2 = 注入点（人类自定义名）
+//   target: system_prompt
+//   mode: hybrid
+//   ### Modules                          ← 聚合点列表
+//   - Scene
+//   - Trigger
 //
-//   <channel-name>
-//
-//   ## 会话知识
-//   ### Domains
-//   - pt-concepts
-//   ### Trigger
-//   <裸文本>
-//   ### Boundaries
-//   ### identify-task
-//   - deps: []
-//   - desc: ...
-//
-//   ## 对话记忆
-//   ### Domains
-//   - pt-dev-flow
+//   ## 参考手册
+//   target: context_message
+//   ### Modules
+//   - Manual
 //
 //   ## Compilation
 //   cache-dir: .pt/contexts/cache/
@@ -38,41 +32,31 @@
 import { join } from "node:path";
 import type {
   Blueprint,
-  BoundaryNode,
   CacheSplitStrategy,
   CompilationConfig,
-  InjectionPointInstance,
+  InjectionPointConfig,
+  InjectionTarget,
+  StructureLayout,
 } from "../schema.js";
 import {
-  extractDomainsList,
   extractFieldValue,
+  extractModulesList,
   readAsset,
   s,
-  sArr,
 } from "./shared.js";
 
-const V7_LEGACY_SECTIONS = new Set(["Domains", "Trigger", "Boundaries"]);
+const VALID_MODES: ReadonlyArray<StructureLayout["mode"]> = ["byDomain", "byType", "hybrid"];
 
-/** 读 blueprints/<fileName>.md → Blueprint { name, channel, injectionPoints, compilation } */
+/** 读 blueprints/<fileName>.md → Blueprint { name, agent, injectionPoints, compilation } */
 export async function parseBlueprint(cwd: string, fileName: string): Promise<Blueprint> {
   const asset = await readAsset(join(cwd, ".pt/assets/blueprints", fileName));
 
-  // channel：## Channel 段第一个非空行（裸值）
-  const channelSection = asset.sections["Channel"];
-  let channel = "";
-  if (channelSection) {
-    channel = extractBareValue(channelSection.raw);
-  }
-  // 兼容：frontmatter.channel
-  if (!channel && typeof asset.frontmatter.channel === "string") {
-    channel = asset.frontmatter.channel;
-  }
+  const agent = typeof asset.frontmatter.agent === "string" ? asset.frontmatter.agent : "pi";
 
-  // injectionPoints：每个非特殊 H2 = 一个注入点实例化
-  const injectionPoints: InjectionPointInstance[] = [];
+  // injectionPoints：每个非特殊 H2 = 一个注入点定义
+  const injectionPoints: InjectionPointConfig[] = [];
   for (const [h2Name, section] of Object.entries(asset.sections)) {
-    if (h2Name === "Channel" || h2Name === "Compilation") continue;
-    if (V7_LEGACY_SECTIONS.has(h2Name)) continue;  // 跳过 v7 残留段
+    if (h2Name === "Compilation") continue;
     injectionPoints.push(parseInjectionPointFromSection(h2Name, section));
   }
 
@@ -81,135 +65,32 @@ export async function parseBlueprint(cwd: string, fileName: string): Promise<Blu
 
   return {
     name: typeof asset.frontmatter.name === "string" ? asset.frontmatter.name : stripBlueprintSuffix(asset.name),
-    channel,
+    agent,
     injectionPoints,
     compilation,
   };
 }
 
-/** 把一个 H2 段解析为 InjectionPointInstance。 */
+/** 把一个 H2 段解析为 InjectionPointConfig（v9 Blueprint 直接拥有，逻辑同 v8 Channel）。 */
 function parseInjectionPointFromSection(
   h2Name: string,
   section: { raw: string; items: { name: string; fields: Record<string, unknown> }[] },
-): InjectionPointInstance {
-  const domains = extractDomainsList(section as never);
-  const trigger = extractTriggerFromSection(section);
-  const boundaries = extractBoundariesFromSection(section);
+): InjectionPointConfig {
+  const targetRaw = extractFieldValue(section as never, "target") || "system_prompt";
+  const modeRaw = extractFieldValue(section as never, "mode");
+  const modules = extractModulesList(section as never);
 
-  const ip: InjectionPointInstance = {
+  const mode = modeRaw && VALID_MODES.includes(modeRaw as StructureLayout["mode"])
+    ? (modeRaw as StructureLayout["mode"])
+    : undefined;
+
+  const ip: InjectionPointConfig = {
     name: h2Name,
-    domains,
+    target: targetRaw as InjectionTarget,
+    modules,
   };
-  if (trigger !== undefined) ip.trigger = trigger;
-  if (boundaries && boundaries.length > 0) ip.boundaries = boundaries;
+  if (mode) ip.mode = mode;
   return ip;
-}
-
-/** 提取注入点的 Trigger：优先 H3 形式（### Trigger 段下第一个 H3 项的 desc），其次裸值段。 */
-function extractTriggerFromSection(section: { raw: string; items: { name: string; fields: Record<string, unknown> }[] }): string | undefined {
-  const trigItem = section.items.find((it) => it.name === "Trigger");
-  if (trigItem) {
-    const t = s(trigItem.fields.desc) || s(trigItem.fields.trigger);
-    if (t) return t;
-  }
-  // fallback：扫 raw text，找 `### Trigger` 后第一个非空非列表行
-  const lines = section.raw.split(/\r?\n/);
-  let inTrigger = false;
-  const buf: string[] = [];
-  for (const line of lines) {
-    const h3 = line.match(/^###\s+(.+)$/);
-    if (h3) {
-      if (inTrigger) break;
-      if (h3[1].trim() === "Trigger") inTrigger = true;
-      continue;
-    }
-    if (!inTrigger) continue;
-    const trimmed = line.trim();
-    if (trimmed && !trimmed.startsWith("-") && !trimmed.startsWith("#")) {
-      buf.push(trimmed);
-    } else if (buf.length > 0) {
-      break;  // 第一个非空行后遇空内容则结束
-    }
-  }
-  const joined = buf.join(" ").trim();
-  return joined || undefined;
-}
-
-/** 提取注入点的 Boundaries：### Boundaries H3 段下的所有 H3 子项 → BoundaryNode[]。 */
-function extractBoundariesFromSection(section: { raw: string; items: { name: string; fields: Record<string, unknown> }[] }): BoundaryNode[] {
-  const items = section.items;
-  // 找 "Boundaries" 这个 H3 下的子项（它们被 collect 进 items 数组）
-  // 因为 parseItems 在 H3 模式下把每个 H3 都作为 Item，
-  // "Boundaries" 这个 H3 下的子 H3（如 "identify-task"）会被混在 items 数组里
-  // —— 我们需要识别出它们是 Boundaries 的子项
-  // 简化策略：直接识别所有形如"步骤名 + deps + desc"的 Item 作为 Boundaries 子项
-  // —— Channel v8 资产里 Boundaries 是嵌套 H3，需特殊处理
-  const itemsIdx = items.findIndex((it) => it.name === "Boundaries");
-  if (itemsIdx >= 0) {
-    // ### Boundaries 后面紧跟的 H3 子项是 BoundaryNode
-    const result: BoundaryNode[] = [];
-    for (let i = itemsIdx + 1; i < items.length; i++) {
-      const it = items[i];
-      // 遇到下一个非 Boundaries 的同级 H3 名就停？简化：只要它有 deps 字段就当 BoundaryNode
-      if ("deps" in it.fields) {
-        result.push({
-          slot: it.name,
-          deps: sArr(it.fields.deps),
-          desc: s(it.fields.desc),
-        });
-      }
-    }
-    if (result.length > 0) return result;
-  }
-  // fallback：从 raw text 扫 ### Boundaries 后所有 ### 子项
-  return extractBoundariesFromRaw(section.raw);
-}
-
-function extractBoundariesFromRaw(sectionRaw: string): BoundaryNode[] {
-  const lines = sectionRaw.split(/\r?\n/);
-  const result: BoundaryNode[] = [];
-  let inBoundaries = false;
-  let cur: BoundaryNode | null = null;
-  for (const line of lines) {
-    const h3 = line.match(/^###\s+(.+)$/);
-    if (h3) {
-      if (cur) result.push(cur);
-      const name = h3[1].trim();
-      if (inBoundaries) {
-        // 新 H3 子项作为 BoundaryNode（继承 Boundaries 上下文）
-        cur = { slot: name, deps: [], desc: "" };
-      } else if (name === "Boundaries") {
-        inBoundaries = true;
-        cur = null;
-      } else {
-        cur = null;
-      }
-      continue;
-    }
-    if (!inBoundaries || !cur) continue;
-    const fv = line.match(/^\s*-\s+([a-zA-Z_][\w-]*)\s*:\s*(.+)$/);
-    if (fv) {
-      const key = fv[1];
-      const val = fv[2].trim();
-      if (key === "deps") {
-        const arrMatch = val.match(/^\[(.*)\]$/);
-        if (arrMatch) {
-          cur.deps = arrMatch[1]
-            .split(",")
-            .map((x) => x.trim())
-            .filter((x) => x !== "");
-        } else if (val === "[]") {
-          cur.deps = [];
-        } else if (val) {
-          cur.deps = [val];
-        }
-      } else if (key === "desc") {
-        cur.desc = val;
-      }
-    }
-  }
-  if (cur) result.push(cur);
-  return result;
 }
 
 /** 解析 ## Compilation 段 → CompilationConfig。 */
@@ -226,22 +107,11 @@ function parseCompilationFromSection(section: { raw: string; items: { name: stri
 }
 
 function stripBlueprintSuffix(fileBase: string): string {
-  // v8 命名约定：<name>.blueprint.md → 去 .blueprint 后缀
-  // v6 兼容：去 .scene/.manual 后缀
+  // v9 命名约定：<name>.blueprint.md → 去 .blueprint 后缀
+  // v8 兼容：去 .scene/.manual 后缀
   return fileBase.replace(/\.blueprint$/, "").replace(/\.(scene|manual)$/, "");
-}
-
-/** 从裸值段（## <Name>\n\n<value>）提取第一个非空行作为 value。 */
-function extractBareValue(sectionRaw: string): string {
-  for (const line of sectionRaw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed && !trimmed.startsWith("-") && !trimmed.startsWith("#")) {
-      return trimmed;
-    }
-  }
-  return "";
 }
 
 // ==================== 共享辅助 ====================
 
-export { s, sArr };
+export { s };
