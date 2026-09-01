@@ -202,17 +202,20 @@ export default function (pi: ExtensionAPI): void {
         for (const b of cachedBundles) {
           const bp = b.blueprints.find((x) => x.name === b.activeBlueprint);
           if (!bp) continue;
-          for (const dn of bp.domains) {
-            const d = b.domains.find((x) => x.name === dn);
-            if (!d || d.type !== "workflow") continue;
-            const tpls = (d.modules["Manual"] as Array<{ name: string; argumentHint?: string }> | undefined) ?? [];
-            for (const t of tpls) {
-              flows.push({ name: t.name, hint: t.argumentHint, domain: d.name });
+          // v8：遍历 blueprint.injectionPoints 里 target=context_message 的注入点的 domains
+          for (const ip of bp.injectionPoints) {
+            for (const dn of ip.domains) {
+              const d = b.domains.find((x) => x.name === dn);
+              if (!d || d.type !== "workflow") continue;
+              const tpls = (d.modules["Manual"] as Array<{ name: string; argumentHint?: string }> | undefined) ?? [];
+              for (const t of tpls) {
+                flows.push({ name: t.name, hint: t.argumentHint, domain: d.name });
+              }
             }
           }
         }
         if (flows.length === 0) {
-          ctx.ui.notify("当前 Blueprint 无可触发手册（workflow-type Domain 的 Manual 段为空）", "info");
+          ctx.ui.notify("当前 Blueprint 无可触发手册（target=context_message 注入点无 workflow-type Domain）", "info");
         } else {
           const lines = flows.map((f) => `  /${f.name} ${f.hint ?? ""}  ← ${f.domain}`);
           ctx.ui.notify(`可用手册（输入 /手册名 参数 触发 Context Message）:\n${lines.join("\n")}`, "info");
