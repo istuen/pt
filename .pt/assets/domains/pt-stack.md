@@ -17,7 +17,7 @@ name: pt-stack
 - role: 验证脚本运行器（.pt/verify-*.ts 用 `npx tsx` 直接执行，tsconfig.json allowImportingTsExtensions: true）。
 
 ### md-asset-format
-- role: Domain / Channel / Blueprint 都是 markdown + YAML frontmatter；按目录位置分发解析（domains/ → Domain IR，channels/ → Channel IR，blueprints/ → Blueprint IR）。v8 资产：Channel H2=注入点（target + ### Modules），Blueprint 按注入点列 Domain + ## Compilation 段。
+- role: Domain / Blueprint / Profile 都是 markdown + YAML frontmatter；按 frontmatter 字段分发解析（type → Domain IR，agent → Blueprint IR，blueprint → Profile IR）。v9 资产：Blueprint H2=注入点（target + ### Modules），Profile 同名 H2 实例化注入点（追加 ### Domains），Profile YAML 全局 domains 自动分发到所有注入点。
 
 ### git
 - role: 版本控制；每 Phase 一个 commit（Phase X.Y: ... 格式），baseline 可回退（8251378 v8 §0 → d506a89 Phase 8 执行描述 → 8.1-8.8 八个 commit 等已知节点）。

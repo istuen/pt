@@ -1,7 +1,7 @@
 ---
 name: pt
 blueprint: dev-knowledge
-domains: [pt-concepts, pt-architecture, pt-transpile, pt-stack]
+domains: [pt-architecture, pt-transpile, pt-stack]
 ---
 
 # pt (profile)

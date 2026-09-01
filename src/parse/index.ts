@@ -7,7 +7,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { BLUEPRINTS_DIR, DOMAINS_DIR, PROFILES_DIR, SUFFIX_MD } from "../constants.js";
-import type { Blueprint, Domain, Profile, SchemaBundle, SourceAdapter } from "../schema.js";
+import type { Blueprint, Domain, Profile, SchemaBundle, SourceAdapter, SourceAdapterContext } from "../schema.js";
 import { findBlueprint, findProfile } from "../schema.js";
 import { parseBlueprint } from "./blueprint.js";
 import { parseDomain } from "./domain.js";
@@ -18,15 +18,15 @@ import { parseProfile } from "./profile.js";
 export const mdAdapter: SourceAdapter = {
   name: "md",
 
-  async load(cwd, profileName): Promise<SchemaBundle> {
+  async load(cwd, profileName, adapterCtx): Promise<SchemaBundle> {
     // 1. 枚举 domains/ 下所有 *.md → Domain[]
-    const domains = await loadAllDomains(cwd);
+    const domains = await loadAllDomains(cwd, adapterCtx);
 
     // 2. 枚举 blueprints/ 下所有 *.md → Blueprint[]（结构层）
-    const blueprints = await loadAllBlueprints(cwd);
+    const blueprints = await loadAllBlueprints(cwd, adapterCtx);
 
     // 3. 枚举 profiles/ 下所有 *.md → Profile[]（配置层，新增）
-    const profiles = await loadAllProfiles(cwd);
+    const profiles = await loadAllProfiles(cwd, adapterCtx);
 
     // 4. 找激活的 Profile（按 profileName）
     const active = findProfile(profiles, profileName);
@@ -47,7 +47,7 @@ export const mdAdapter: SourceAdapter = {
     // 5. 校验 Profile 引用的 Blueprint 必须存在（明确的错误提示）
     const bp = findBlueprint(blueprints, active.blueprint);
     if (!bp && active.blueprint) {
-      console.warn(`[pt] Profile "${active.name}" 引用了未知 Blueprint "${active.blueprint}"`);
+      reportWarn(adapterCtx, `Profile "${active.name}" 引用了未知 Blueprint "${active.blueprint}"`);
     }
 
     return {
@@ -61,22 +61,22 @@ export const mdAdapter: SourceAdapter = {
 
 // ==================== 目录枚举辅助 ====================
 
-async function loadAllDomains(cwd: string): Promise<Domain[]> {
+async function loadAllDomains(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Domain[]> {
   const dir = join(cwd, DOMAINS_DIR);
-  return loadDir(dir, SUFFIX_MD, (f) => parseDomain(cwd, f));
+  return loadDir(dir, SUFFIX_MD, (f) => parseDomain(cwd, f), adapterCtx);
 }
 
-async function loadAllBlueprints(cwd: string): Promise<Blueprint[]> {
+async function loadAllBlueprints(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Blueprint[]> {
   const dir = join(cwd, BLUEPRINTS_DIR);
-  return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(cwd, f));
+  return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(cwd, f), adapterCtx);
 }
 
-async function loadAllProfiles(cwd: string): Promise<Profile[]> {
+async function loadAllProfiles(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Profile[]> {
   const dir = join(cwd, PROFILES_DIR);
-  return loadDir(dir, SUFFIX_MD, (f) => parseProfile(cwd, f));
+  return loadDir(dir, SUFFIX_MD, (f) => parseProfile(cwd, f), adapterCtx);
 }
 
-async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Promise<T>): Promise<T[]> {
+async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Promise<T>, adapterCtx?: SourceAdapterContext): Promise<T[]> {
   let files: string[];
   try {
     files = (await readdir(dir)).filter((f) => f.endsWith(suffix));
@@ -88,11 +88,24 @@ async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Pr
       try {
         return await parser(f);
       } catch (e) {
-        // 错误通过返回值传递，避免依赖 UI 层（T8 改造点）
-        console.error(`[pt] parse ${dir}/${f} failed:`, e);
+        // 错误通过 notify 回调上抛，index.ts 调 ctx.ui.notify（pt-quality #9）
+        reportError(adapterCtx, `parse ${dir}/${f} failed: ${errMsg(e)}`);
         return null;
       }
     }),
   );
   return results.filter((r): r is T => r !== null);
+}
+
+/** adapterCtx 缺失/notify 未传 → fallback console（保持 debug 能看到错误）。 */
+function reportWarn(adapterCtx: SourceAdapterContext | undefined, msg: string): void {
+  if (adapterCtx?.notify) adapterCtx.notify(msg, "warning");
+  else console.warn(`[pt] ${msg}`);
+}
+function reportError(adapterCtx: SourceAdapterContext | undefined, msg: string): void {
+  if (adapterCtx?.notify) adapterCtx.notify(msg, "error");
+  else console.error(`[pt] ${msg}`);
+}
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }

@@ -1,7 +1,7 @@
 ---
 name: pt-dev
 blueprint: dev-knowledge
-domains: [pt-architecture, pt-stack, pt-concepts, me]
+domains: [pt-architecture, pt-stack, me]
 ---
 
 # pt-dev (profile)

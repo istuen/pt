@@ -242,22 +242,38 @@ export interface SchemaBundle {
 
 // ==================== Source Adapter 接口（依赖反转后） ====================
 
+/** Adapter load 上下文（v9.1: 传 notify 上去代替 console.error，符合 pt-quality #9）。 */
+export interface SourceAdapterContext {
+  /** 错误/警告通知回调（可选；不传则走 console fallback）。 */
+  notify?: (msg: string, level: "warning" | "error") => void;
+}
+
 /** 反转后的 SourceAdapter：load() 返回 SchemaBundle 而非 string。
  *  Pt 核心只认 SchemaBundle，不认任何来源格式。
- *  v9：参数是 profileName（用户面是 Profile，不是 Blueprint）。 */
+ *  v9：参数是 profileName（用户面是 Profile，不是 Blueprint）。
+ *  v9.1：增 adapterCtx 参数（可选）——adapter 可选传 notify 代替 console。 */
 export interface SourceAdapter {
   name: string;
-  load(cwd: string, profileName: string): Promise<SchemaBundle>;
+  load(cwd: string, profileName: string, adapterCtx?: SourceAdapterContext): Promise<SchemaBundle>;
 }
 
 // ==================== Agent 适配器接口 ====================
 
-/** Agent 注入 API 的最小接口（AgentAdapter 用，不直接依赖 Pi ExtensionAPI）。 */
+/** Agent UI 能力（可选，adapter 按需用）。 */
+export interface AgentUI {
+  notify(msg: string, level: "info" | "warning" | "error"): void;
+  setStatus(name: string, text: string): void;
+}
+
+/** Agent 注入 API 的最小接口（AgentAdapter 用，不直接依赖 Pi ExtensionAPI）。
+ *  v9.1 (P1.1)：加 ui 可选能力——adapter 可报错 / 设状态，不必。 */
 export interface AgentAPI {
   on(event: string, handler: (...args: unknown[]) => unknown): void;
   registerCommand(name: string, spec: unknown): void;
   registerFlag(name: string, spec: unknown): void;
   getFlag(name: string): unknown;
+  /** v9.1 可选 UI：index.ts 传入 Pi ctx.ui 适配后的对象。Adapter 可选。 */
+  ui?: AgentUI;
 }
 
 /** Agent 适配器——适配不同 Agent 的注入机制。

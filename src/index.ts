@@ -37,8 +37,8 @@ function errMsg(e: unknown): string {
 }
 
 /** 转译当前选定的 Profile，结果写入 cachedSegment + cachedBundles + adapter；失败降级 */
-async function transpileActive(cwd: string, profileName: string): Promise<void> {
-  const result = await loadAndTranspile(cwd, profileName);
+async function transpileActive(cwd: string, profileName: string, notify: (msg: string, level: "warning" | "error") => void): Promise<void> {
+  const result = await loadAndTranspile(cwd, profileName, { notify });
   cachedSegment = result.segment;
   cachedBundles = result.bundles;
   cachedContext = result.context;
@@ -59,7 +59,7 @@ async function switchProfile(
   name: string,
 ): Promise<void> {
   try {
-    await transpileActive(ctx.cwd, name);
+    await transpileActive(ctx.cwd, name, (msg, level) => ctx.ui.notify(msg, level));
     ctx.ui.setStatus("pt", `pt: ${name}`);
     const hint = lastCacheHit ? "（缓存命中）" : "（已重编译）";
     ctx.ui.notify(`已切换到 ${name}，下一轮生效 ${hint}`, "info");
@@ -105,12 +105,12 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
-      await transpileActive(ctx.cwd, picked);
+      await transpileActive(ctx.cwd, picked, (msg, level) => ctx.ui.notify(msg, level));
       // 注册 AgentAdapter 注入（封装 before_agent_start + input）
       if (activeAdapter && cachedContext && cachedBlueprint) {
         // Pi ExtensionAPI 是 AgentAPI 的超集（多 registerCommand/registerFlag 等），
         // 用结构类型 (structural typing) 直接传给 AgentAPI——TS duck-types 兼容
-        activeAdapter.registerInject(toAgentAPI(pi), cachedContext, cachedBlueprint);
+        activeAdapter.registerInject(toAgentAPI(pi, ctx), cachedContext, cachedBlueprint);
       }
       ctx.ui.setStatus("pt", `pt: ${picked}`);
     } catch (e) {
@@ -254,13 +254,19 @@ export default function (pi: ExtensionAPI): void {
 }
 
 /** 将 Pi ExtensionAPI 转换为 AgentAPI（结构类型子集，运行时透明）。
- *  Pi ExtensionAPI 是 AgentAPI 的超集，多余方法（registerCommand/registerFlag 等）不暴露给 Adapter。 */
-function toAgentAPI(pi: ExtensionAPI): import("./schema.js").AgentAPI {
+ *  Pi ExtensionAPI 是 AgentAPI 的超集，多余方法（registerCommand/registerFlag 等）不暴露给 Adapter。
+ *  v9.1：提供 ui 能力，adapter 可走 ui.notify 报错 / ui.setStatus 设状态（不需 console）。
+ *  ctx 用 Pi 扩展的 ctx（ExtensionContext/ExtensionCommandContext 都含 ui）——子集够用。 */
+function toAgentAPI(pi: ExtensionAPI, ctx: { ui: { notify(msg: string, level: "info" | "warning" | "error"): void; setStatus(name: string, text: string): void } }): import("./schema.js").AgentAPI {
   return {
     on: (event, handler) => pi.on(event as Parameters<ExtensionAPI["on"]>[0], handler as Parameters<ExtensionAPI["on"]>[1]),
     registerCommand: (name, spec) => pi.registerCommand(name, spec as Parameters<ExtensionAPI["registerCommand"]>[1]),
     registerFlag: (name, spec) => pi.registerFlag(name, spec as Parameters<ExtensionAPI["registerFlag"]>[1]),
     getFlag: (name) => pi.getFlag(name),
+    ui: {
+      notify: (msg, level) => ctx.ui.notify(msg, level),
+      setStatus: (name, text) => ctx.ui.setStatus(name, text),
+    },
   };
 }
 

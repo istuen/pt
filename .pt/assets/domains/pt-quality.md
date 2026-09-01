@@ -30,7 +30,7 @@ name: pt-quality
 ### parse-extension-registry
 - slot: global
 - type: invariant
-- check: parse 扩展用注册表，不用 switch-case（与 compile 的 domainSceneRenderers 一致）
+- check: parse 扩展用注册表，不用 switch-case（与 compile 的 moduleRenderers 一致）
 
 ### path-constant
 - slot: global
@@ -40,12 +40,12 @@ name: pt-quality
 ### module-name-constant
 - slot: global
 - type: invariant
-- check: 模块名 会话知识/参考手册 必须用常量，不散落字符串字面量
+- check: Domain H2 段名（Scene/Trigger/Manual/Term）必须用常量，不散落字符串字面量；注入点名（Blueprint H2 人类自定义语义名）不该常量化
 
 ### naming-consistency
 - slot: global
 - type: invariant
-- check: 代码命名与架构语义一致（adapter 不叫 oxnAdapter，应叫 mdAdapter）
+- check: 代码命名与架构语义一致（adapter 命名应匹配实际适配的格式，如 mdAdapter 适配 MD 格式；历史 oxnAdapter→mdAdapter 已于 Phase 9 完成）
 
 ### npm-scripts
 - slot: global

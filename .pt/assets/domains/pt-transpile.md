@@ -16,10 +16,6 @@ name: pt-transpile
 - path: .pt/assets/domains/
 - desc: Domain md 目录（type=term/workflow/stack/扩展，由 frontmatter.type 区分）
 
-### channels-dir
-- path: .pt/assets/channels/
-- desc: v8 Channel md 目录（v9 已删除——Channel 留作未来 Connector，预留层）
-
 ### blueprint-dir
 - path: .pt/assets/blueprints/
 - desc: Blueprint md 目录（v9 结构层——H2=注入点人类自定义名 + agent + injectionPoints + Compilation，跨项目复用）

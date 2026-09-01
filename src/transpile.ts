@@ -15,7 +15,7 @@ import { saveContext, loadContext } from "./render/cache.js";
 import { renderSystemPrompt } from "./render/system-prompt.js";
 import { AGENT_PI, CACHE_DIR } from "./constants.js";
 import { findBlueprint, findProfile } from "./schema.js";
-import type { Blueprint, Context, Domain, Profile, SchemaBundle, SourceAdapter } from "./schema.js";
+import type { Blueprint, Context, Domain, Profile, SchemaBundle, SourceAdapter, SourceAdapterContext } from "./schema.js";
 
 export interface TranspileResult {
   /** 注入 systemPrompt 的字符串段（聚合所有 target=system_prompt 的注入点） */
@@ -45,12 +45,16 @@ const sourceAdapters: SourceAdapter[] = [
 ];
 
 /** 三段式转译：parse → compile → cache → render。 */
-export async function loadAndTranspile(cwd: string, profileName: string): Promise<TranspileResult> {
+export async function loadAndTranspile(
+  cwd: string,
+  profileName: string,
+  adapterCtx?: SourceAdapterContext,
+): Promise<TranspileResult> {
   // 1. parse：并行调所有 adapter 拿 SchemaBundle
   const segs = await Promise.all(
     sourceAdapters.map((a) =>
-      a.load(cwd, profileName).catch((e) => {
-        console.error(`[pt] adapter ${a.name} failed:`, e);
+      a.load(cwd, profileName, adapterCtx).catch((e) => {
+        reportError(adapterCtx, `adapter ${a.name} failed: ${errMsg(e)}`);
         return null;
       }),
     ),
@@ -83,7 +87,7 @@ export async function loadAndTranspile(cwd: string, profileName: string): Promis
     if (!profile) continue;
     const blueprint = findBlueprint(bundle.blueprints, profile.blueprint);
     if (!blueprint) {
-      console.warn(`[pt] Profile "${profile.name}" 引用未知 Blueprint "${profile.blueprint}"`);
+      reportWarn(adapterCtx, `Profile "${profile.name}" 引用未知 Blueprint "${profile.blueprint}"`);
       continue;
     }
     const ctx = compileContext(profile, blueprint, bundle.domains);
@@ -120,4 +124,20 @@ export async function loadAndTranspile(cwd: string, profileName: string): Promis
     activeProfile: lastActiveProfile,
     profile: lastProfile ?? { ...EMPTY_PROFILE, name: lastActiveProfile },
   };
+}
+
+// ==================== 辅助 ====================
+
+function reportWarn(adapterCtx: SourceAdapterContext | undefined, msg: string): void {
+  if (adapterCtx?.notify) adapterCtx.notify(msg, "warning");
+  else console.warn(`[pt] ${msg}`);
+}
+
+function reportError(adapterCtx: SourceAdapterContext | undefined, msg: string): void {
+  if (adapterCtx?.notify) adapterCtx.notify(msg, "error");
+  else console.error(`[pt] ${msg}`);
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
