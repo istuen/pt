@@ -94,10 +94,10 @@ name: ci-cd
 - argument-hint: <version>
 - intent: 完整发版流程（确认内建资产 → verify → version → changelog → tag → push → CI 自动发布）
 - vars: [version]
-- step: npm run sync-builtin —— .pt/assets 同步到 src/builtin/assets（剔除 me/测试夹具）；有改动则 git commit
+- step: 确认内建资产已更新 —— 走 asset-workflow#sync-builtin 手册：把本版本要对外发的稳定资产复制到 src/builtin/assets/（剔除 me domain / glossary-test 测试夹具 / 引用 me 的 profile）；有改动则 git commit "Sync builtin assets"
 - step: npm run verify && tsc --noEmit —— 全过才能发版
 - step: npm version <patch|minor|major> —— 自动改 package.json + commit + 打本地 tag
-- step: 追加 docs/CHANGELOG.md —— 版本/日期/新功能/修复/破坏性变更
+- step: 走 ci-cd#update-changelog 手册 —— 追加 docs/CHANGELOG.md 版本/日期/新功能/修复/破坏性变更
 - step: git commit --amend --no-edit —— 并入版本号 commit；git tag -f v{{version}} 重打 tag 到 amended commit
 - step: git push origin main --follow-tags —— 触发 Release workflow
 - step: 等 GitHub Actions 跑完 —— CI verify → npm publish → GitHub Release
