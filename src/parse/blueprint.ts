@@ -32,7 +32,7 @@
 // Tech Debt T6: 用 constants + type guard（pt-quality #1/#4/#5）
 
 import { join } from "node:path";
-import { ASSETS_DIR, BLUEPRINTS_DIR, CACHE_DIR, SUFFIX_BLUEPRINT } from "../constants.js";
+import { CACHE_DIR, SUFFIX_BLUEPRINT } from "../constants.js";
 import type {
   Blueprint,
   CacheSplitStrategy,
@@ -51,9 +51,8 @@ const VALID_MODES: ReadonlyArray<StructureLayout["mode"]> = ["byDomain", "byType
 
 /** 读 blueprints/<fileName>.md → Blueprint { name, agent, injectionPoints, compilation }
  *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。 */
-export async function parseBlueprint(cwd: string, assetDir: string, fileName: string): Promise<Blueprint> {
-  const dir = assetDir === ASSETS_DIR ? BLUEPRINTS_DIR : join(assetDir, "blueprints");
-  const asset = await readAsset(join(cwd, dir, fileName));
+export async function parseBlueprint(absDir: string, fileName: string): Promise<Blueprint> {
+  const asset = await readAsset(join(absDir, fileName));
 
   const agent = typeof asset.frontmatter.agent === "string" ? asset.frontmatter.agent : "pi";
 

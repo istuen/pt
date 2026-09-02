@@ -24,15 +24,14 @@
 //   - d5
 
 import { join } from "node:path";
-import { ASSETS_DIR, PROFILES_DIR, SUFFIX_PROFILE } from "../constants.js";
+import { SUFFIX_PROFILE } from "../constants.js";
 import type { InjectionPointInstance, Profile } from "../schema.js";
 import { extractDomainsList, readAsset, sArr, type Section } from "./shared.js";
 
 /** 读 profiles/<fileName>.md → Profile { name, blueprint, domains, injectionPoints }
  *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。 */
-export async function parseProfile(cwd: string, assetDir: string, fileName: string): Promise<Profile> {
-  const dir = assetDir === ASSETS_DIR ? PROFILES_DIR : join(assetDir, "profiles");
-  const asset = await readAsset(join(cwd, dir, fileName));
+export async function parseProfile(absDir: string, fileName: string): Promise<Profile> {
+  const asset = await readAsset(join(absDir, fileName));
 
   const blueprint = typeof asset.frontmatter.blueprint === "string"
     ? asset.frontmatter.blueprint
