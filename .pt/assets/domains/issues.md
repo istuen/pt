@@ -55,7 +55,9 @@ name: issues
 - vars: [issue-name]
 - step: 读 .pt/docs/issues/{{issue-name}}.md 的修复方向段 — 按方案实施（或评估后改方案）
 - step: 实施修复 — 改代码/资产，每步一个 commit
+- observe: [test-pass]
 - step: 跑 npm run verify + tsc --noEmit — 全过才能 resolve
+- observe: [ts-compiles, test-pass]
 - step: 手动验证现象消失 — 按排查方法段复现，确认不再触发
 - step: 更新 issue 文档 — status 改 resolved；body 末尾加"## 修复"段：commit hash + 验证方式 + 修复日期
 - step: 检查关联 issue — 若本 issue 阻塞其他 issue，更新它们的关联段

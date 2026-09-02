@@ -106,15 +106,29 @@ export function buildManualDoc(cwd: string, procedure: string, args: string): Ma
   lines.push(`# ${procedure} 实例`);
   lines.push("");
   const boundLines = bound.split("\n");
+  let stepCount = 0;
   for (const line of boundLines) {
     if (line.startsWith("#")) continue;
     if (line.startsWith("_")) continue;
     const stepMatch = line.match(/^(\d+)\.\s+(.*)$/);
     if (stepMatch) {
+      stepCount++;
       lines.push(`- [ ] ${stepMatch[2]}`);
-    } else {
-      lines.push(line);
+      continue;
     }
+    // observe 行（bindFlowTemplate 渲染的 "   - 验证参照：xxx"）→ checklist 子项
+    if (line.includes("验证参照：")) {
+      lines.push(`  ${line.trim()}`);
+      continue;
+    }
+    lines.push(line);
+  }
+  lines.push("");
+  lines.push("## 执行状态");
+  lines.push("| Step | Outcome | Message |");
+  lines.push("|---|---|---|");
+  for (let i = 1; i <= stepCount; i++) {
+    lines.push(`| ${i} | — | |`);
   }
   lines.push("");
   lines.push("## 产物");
@@ -122,6 +136,7 @@ export function buildManualDoc(cwd: string, procedure: string, args: string): Ma
   lines.push("");
   lines.push("## 更新指引");
   lines.push("执行完每个 step 后：用 edit 把对应 `- [ ]` 改成 `- [x]`。");
+  lines.push("验证后：用 edit 把 ## 执行状态表 对应行的 `—` 改为 COMPLETED / DEVIATED / INCONCLUSIVE + Message。");
   lines.push("全部完成后：用 edit 在 ## 产物 下追加创建/修改的文件路径（每行一条）。");
   lines.push("status 全部完成后可改为 completed。");
   const content = lines.join("\n");

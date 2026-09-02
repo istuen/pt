@@ -7,6 +7,7 @@
 // 替换 parse/domain.ts 中的 switch-case 主逻辑。switch-case 仅留兜底 default fallback。
 
 import type { Item } from "./shared.js";
+import type { FlowStep } from "../schema.js";
 
 /** 单个 H2 段内容解析器。 */
 export type DomainSectionParser = (items: Item[], sectionRaw: string) => unknown;
@@ -41,7 +42,7 @@ const domainSectionRenderers: Record<string, Record<string, DomainSectionParser>
         name: item.name,
         argumentHint: s(item.fields["argument-hint"]) || undefined,
         intent: s(item.fields.intent),
-        steps: collectSteps(item.name, sectionRaw).map((desc) => ({ desc })),
+        steps: collectSteps(item.name, sectionRaw),
         externals: [],
       };
       const vars = sArr(item.fields.vars);
@@ -81,21 +82,38 @@ function sArr(v: unknown): string[] {
   return [];
 }
 
-function collectSteps(itemName: string, sectionRaw: string): string[] {
+function collectSteps(itemName: string, sectionRaw: string): FlowStep[] {
   const lines = sectionRaw.split(/\r?\n/);
-  const steps: string[] = [];
+  const steps: FlowStep[] = [];
   let inItem = false;
+  let cur: FlowStep | null = null;
   for (const line of lines) {
     const h3 = line.match(/^###\s+(.+)$/);
     if (h3) {
-      const name = h3[1].trim();
       if (inItem) break;
-      if (name === itemName) inItem = true;
+      if (h3[1].trim() === itemName) inItem = true;
       continue;
     }
     if (!inItem) continue;
     const stepMatch = line.match(/^\s*-\s+step\s*:\s*(.+)$/);
-    if (stepMatch) steps.push(stepMatch[1].trim());
+    if (stepMatch) {
+      if (cur) steps.push(cur);
+      cur = { desc: stepMatch[1].trim() };
+      continue;
+    }
+    const observeMatch = line.match(/^\s*-\s+observe\s*:\s*(.+)$/);
+    if (observeMatch && cur) {
+      const val = observeMatch[1].trim();
+      // 支持 [a, b] 数组格式 和 单值格式
+      const arrMatch = val.match(/^\[(.*)\]$/);
+      if (arrMatch) {
+        cur.observe = arrMatch[1].split(",").map((s) => s.trim()).filter((s) => s !== "");
+      } else {
+        cur.observe = [val];
+      }
+      continue;
+    }
   }
+  if (cur) steps.push(cur);
   return steps;
 }
