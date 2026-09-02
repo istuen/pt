@@ -461,6 +461,32 @@ export default function (pi: ExtensionAPI): void {
       });
     },
   });
+
+  pi.registerTool({
+    name: "pt_verify",
+    label: "Pt Verify",
+    description: "Run a verification probe to check if a Manual step was executed correctly. Returns COMPLETED/DEVIATED/INCONCLUSIVE. Use after completing a step that has an observe field.",
+    promptSnippet: "Verify a Manual step execution result",
+    promptGuidelines: ["Use pt_verify after completing a Manual step that has an observe field, to verify the execution result."],
+    parameters: Type.Object({
+      probe: Type.String({ description: "Probe name from observe field (e.g. fs-content-match, ts-compiles, test-pass, git-status-clean)" }),
+      params: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Probe parameters, e.g. { path: 'src/foo.ts', pattern: 'export' }" })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const { runVerify } = await import("./verify/index.js");
+      const probeParams = (params.params ?? {}) as Record<string, string>;
+      const result = await runVerify(ctx.cwd, params.probe, probeParams);
+      const text = result.outcome === "COMPLETED"
+        ? `✓ ${result.message}`
+        : result.outcome === "DEVIATED"
+          ? `✗ ${result.message}${result.actual ? `\n${result.actual}` : ""}`
+          : `? ${result.message}`;
+      return {
+        content: [{ type: "text", text }],
+        details: result,
+      };
+    },
+  });
 }
 
 /** 将 Pi ExtensionAPI 转换为 AgentAPI（结构类型子集，运行时透明）。
