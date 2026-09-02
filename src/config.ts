@@ -64,8 +64,8 @@ async function listProfileNamesIn(dir: string): Promise<string[]> {
   }
 }
 
-/** 自动探测：仅当 Profile 唯一时返回该名；否则 null */
+/** 自动探测：只看项目级 Profile，不把内建 pt 计入用户项目选择。 */
 export async function detectSingleProfile(cwd: string): Promise<string | null> {
-  const all = await listProfiles(cwd);
-  return all.length === 1 ? all[0] : null;
+  const project = await listProfileNamesIn(join(cwd, PROFILES_DIR));
+  return project.length === 1 ? project[0] : null;
 }
