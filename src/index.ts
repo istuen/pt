@@ -8,6 +8,8 @@
 // Tech Debt T11: per-session 状态收拢到 SessionState（src/session.ts），不再 10 个模块级 let。
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -333,6 +335,58 @@ export default function (pi: ExtensionAPI): void {
       }
 
       ctx.ui.notify("用法: /pt [status|flows|raw|full|manual|logs|logs:clear|sessions]", "warning");
+    },
+  });
+
+  // ========== tool 壳：LLM 可调（与 command 共享纯函数内核，docs/pt-command-tool-dual-registration.md） ==========
+  // 只读查询 + 手册实例化做 tool；pt-context（改 system prompt）不做 tool（见设计文档 §2.4）
+
+  pi.registerTool({
+    name: "pt_status",
+    label: "Pt Status",
+    description: "Show Pt compilation status: active profile, domain/flow counts, segment length, cache hit. Read-only.",
+    promptSnippet: "Show Pt status (profile, counts, cache)",
+    parameters: Type.Object({}),
+    async execute() {
+      return { content: [{ type: "text", text: statusText() }], details: {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "pt_flows",
+    label: "Pt Flows",
+    description: "List available FlowTemplate manuals in the active Profile. Call before starting a procedure to see what's available. Read-only.",
+    promptSnippet: "List available Pt manuals (FlowTemplates)",
+    promptGuidelines: ["Use pt_flows when you need to know which Pt manuals are available before starting a multi-step procedure."],
+    parameters: Type.Object({}),
+    async execute() {
+      return { content: [{ type: "text", text: flowsText() }], details: {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "pt_manual",
+    label: "Pt Manual",
+    description: "Create a manual instance document (.pt/manuals/<procedure>-<ts>.md) with checklist + artifact log. Use when starting a multi-step procedure like deliver-feature. Returns the file path.",
+    promptSnippet: "Instantiate a Pt manual document with checklist for tracking",
+    promptGuidelines: ["Use pt_manual when starting a multi-step procedure (e.g., deliver-feature, modify-schema) to get a persistent checklist + artifact log."],
+    parameters: Type.Object({
+      procedure: Type.String({ description: "FlowTemplate name, e.g. deliver-feature, modify-schema" }),
+      args: Type.Optional(Type.String({ description: "Arguments for the procedure, e.g. 'req-001' or 'term my-concept'" })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const r = buildManualDoc(ctx.cwd, params.procedure, params.args ?? "");
+      if (r.error) {
+        return { content: [{ type: "text", text: r.error }], details: { error: r.error } };
+      }
+      return withFileMutationQueue(r.filePath, async () => {
+        await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
+        await writeFile(r.filePath, r.content, "utf8");
+        return {
+          content: [{ type: "text", text: `手册实例已创建: ${r.filePath}` }],
+          details: { path: r.filePath },
+        };
+      });
     },
   });
 }
