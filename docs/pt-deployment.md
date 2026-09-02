@@ -19,7 +19,7 @@
 
 | 资产 | 位置 | 性质 | 入 npm 包？ | 入 git？ |
 |---|---|---|---|---|
-| **A. 项目开发资产** | `.pt/assets/` | Pt 项目自用——含 `me`（作者身份）、`pt-dev`/`pt-chat` profile、`glossary-test` 测试夹具 | ❌ 不发 | ✅ 入（开发可复现） |
+| **A. 项目开发资产** | `.pt/assets/` | Pt 项目自用——含 `me`（作者身份）、`pt-dev`/`pt-chat` profile | ❌ 不发 | ✅ 入（开发可复现） |
 | **B. 内建资产（Builtin Assets）** | `src/builtin/assets/` | 对外可复用的稳定资产——`authoring`/`usage`/`project-analysis`/`ci-cd` 等 domain、`dev-knowledge` blueprint、不含 `me` 的 `pt` profile | ✅ 随包发 | ✅ 入 |
 | **C. 用户项目资产** | 用户的 `.pt/assets/` | 外部用户自己写的资产，Pt 运行时读取 | — | 用户自决 |
 
@@ -67,7 +67,6 @@ resolveAsset(name, kind)
 .pt/assets/                    src/builtin/assets/
 ├── domains/                   ├── domains/
 │   ├── me.md          ──✗──   │   （排除：作者身份）
-│   ├── glossary-test.md ─✗──  │   （排除：测试夹具）
 │   ├── asset-workflow.md ─→   │   ├── asset-workflow.md
 │   ├── deployment.md    ─→    │   ├── deployment.md
 │   ├── development.md   ─→    │   ├── development.md
@@ -79,14 +78,12 @@ resolveAsset(name, kind)
 │   └── dev-knowledge.blueprint.md ─→  └── dev-knowledge.blueprint.md
 └── profiles/                  └── profiles/
     ├── pt-dev.profile.md      ──✗──   （排除：引用 me）
-    ├── pt-chat.profile.md     ─→  （若引用 me 则改写或排除）
-    └── glossary-test.profile.md ─✗──  （排除：测试夹具）
+    └── pt-chat.profile.md     ─→  （若引用 me 则改写或排除）
 ```
 
 **排除规则**（脚本内硬编码清单，显式优于隐式）：
 - `domains/me.md` — 作者身份
 - `profiles/pt-dev.profile.md` — 引用 `me`
-- `glossary-test.*` — 测试夹具
 
 脚本干三件事：复制（按白名单）→ `npm run verify`（验内建 fallback + 覆盖语义）→ 报告 diff。发版前跑一次。
 
