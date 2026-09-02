@@ -30,6 +30,8 @@ export class PiAdapter implements AgentAdapter {
   private blueprint: Blueprint | null = null;
   private domains: Domain[] = [];
   private segment: string | null = null;
+  /** 与当前 Pi runtime 的 AgentAPI 绑定；同一 runtime 不重复注册 handler。 */
+  private injectedApi: AgentAPI | null = null;
 
   /** 设置编译产物（transpile 后调）。 */
   setContext(ctx: Context, blueprint: Blueprint, domains: Domain[]): void {
@@ -39,25 +41,46 @@ export class PiAdapter implements AgentAdapter {
     this.segment = renderSystemPrompt(ctx, blueprint);
   }
 
+  /** 清除当前 session 的 context；保留当前 runtime 的 handler 绑定。 */
+  resetInjection(): void {
+    this.ctx = null;
+    this.blueprint = null;
+    this.domains = [];
+    this.segment = null;
+  }
+
   /** 启动时注册：把 Context 注入到 Agent。 */
-  registerInject(api: AgentAPI, ctx: Context, blueprint: Blueprint): void {
-    const seg = this.segment ?? renderSystemPrompt(ctx, blueprint);
+  registerInject(api: AgentAPI, ctx: Context, blueprint: Blueprint, domains: Domain[] = this.domains): void {
+    // 先更新状态；同一 runtime 的后续 Profile 切换不能重新注册 handler，
+    // 但 handler 会在事件发生时读取最新的 this.segment / this.ctx。
+    this.ctx = ctx;
+    this.blueprint = blueprint;
+    this.domains = domains;
+    this.segment = renderSystemPrompt(ctx, blueprint);
+
+    if (this.injectedApi === api) {
+      api.log?.debug("agent:registerInject skipped (already injected)");
+      return;
+    }
+    this.injectedApi = api;
 
     // system_prompt 注入：每轮追加 segment
     // v10.x：包 try/catch，运行时异常走 api.log.error + ui.notify，不再 swallow
     api.on("before_agent_start", async (...args: unknown[]) => {
       const t0 = Date.now();
       try {
-        if (!seg) return undefined;
+        const currentSegment = this.segment;
+        if (!currentSegment) return undefined;
         const event = args[0];
         if (!isSystemPromptEvent(event)) return undefined;
-        const final = event.systemPrompt + "\n\n## 当前任务上下文\n\n" + seg;
+        const final = event.systemPrompt + "\n\n## 当前任务上下文\n\n" + currentSegment;
         api.log?.debug("agent:before_agent_start ok", {
           originalLen: event.systemPrompt.length,
           injectedLen: final.length,
           deltaLen: final.length - event.systemPrompt.length,
           durationMs: Date.now() - t0,
         });
+        api.onInjected?.(final);
         return { systemPrompt: final };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

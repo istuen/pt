@@ -325,6 +325,8 @@ export interface AgentAPI {
     warn(msg: string, ctx?: Record<string, unknown>): void;
     error(msg: string, ctx?: Record<string, unknown>): void;
   };
+  /** Adapter 可选回调：完成一次 system prompt 注入后通知编排层更新观测状态。 */
+  onInjected?: (systemPrompt: string) => void;
 }
 
 /** Agent 适配器——适配不同 Agent 的注入机制。
@@ -337,7 +339,9 @@ export interface AgentAdapter {
   /** 设置编译产物（compile 后调） */
   setContext(ctx: Context, blueprint: Blueprint, domains: Domain[]): void;
   /** 启动时注册：把 Context 注入到 Agent（session_start 调用） */
-  registerInject(api: AgentAPI, ctx: Context, blueprint: Blueprint): void;
+  registerInject(api: AgentAPI, ctx: Context, blueprint: Blueprint, domains?: Domain[]): void;
+  /** 清理 session 上下文；handler 仍可由当前 Pi runtime 复用。 */
+  resetInjection?(): void;
   /** 查询可用手册（/pt flows 用） */
   listManuals?(ctx: Context, blueprint: Blueprint, domains: Domain[]): Array<{ name: string; hint?: string; domain: string }>;
 }

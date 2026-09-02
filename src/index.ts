@@ -27,7 +27,9 @@ import { findFlowInBlueprint } from "./render/context-message.js";
 import { type ProfileLoadSource, resetSession, session } from "./session.js";
 import { buildManualDoc, filterDomainsByProfile, flowsText, statusText } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
-import type { AgentAdapter, AgentAPI } from "./schema.js";
+import type { AgentAPI } from "./schema.js";
+
+type AgentUIContext = NonNullable<AgentAPI["ui"]>;
 
 /** session-scoped logger 快捷调用（session.logger 为 null 时静默——session_start 之前不可用）。 */
 function slog(level: "debug" | "info" | "warn" | "error", msg: string, ctx?: Record<string, unknown>): void {
@@ -82,6 +84,22 @@ function persistProfileToSession(pi: ExtensionAPI, name: string): void {
   } catch (e) {
     slog("warn", "persistProfileToSession failed", { profileName: name, err: errMsg(e) });
   }
+}
+
+/** 当前编译产物就绪时注册 Adapter 注入；session_start 与手动切换共用。 */
+function registerInjectionIfReady(pi: ExtensionAPI, ctx: { ui: AgentUIContext }): boolean {
+  const adapter = session.activeAdapter;
+  const context = session.cachedContext;
+  const blueprint = session.cachedBlueprint;
+  if (!adapter || !context || !blueprint) return false;
+
+  adapter.registerInject(
+    toAgentAPI(pi, ctx),
+    context,
+    blueprint,
+    session.cachedDomains,
+  );
+  return true;
 }
 
 /** 转译当前选定的 Profile，结果写入 session；失败降级。
@@ -143,6 +161,8 @@ async function switchProfile(
     await transpileActive(ctx.cwd, name, (msg, level) => ctx.ui.notify(msg, level));
     session.loadedFrom = null;  // 用户手动切换不属于 auto/flag/settings/session 任何源；null 表达"用户主动"
     persistProfileToSession(pi, name);  // v10.x：session 持久化（issue pt-context-persist-lost）
+    const injected = registerInjectionIfReady(pi, ctx);
+    slog("info", "command:switchProfile inject", { profileName: name, injected });
     ctx.ui.setStatus("pt", `pt: ${name}`);
     const hint = session.lastCacheHit ? "（缓存命中）" : "（已重编译）";
     ctx.ui.notify(`已切换到 ${name}，下一轮生效 ${hint}`, "info");
@@ -175,7 +195,7 @@ export default function (pi: ExtensionAPI): void {
   // ========== session_start：生成 sessionId + 创 logger + 读默认 profile + 转译 + 注册 adapter ==========
   // v10.x（issue pt-context-persist-lost 修复）：fallback 链加第四源（session JSONL）。
   //   优先级：flag > settings > session > auto。
-  //   session 优先于 auto——保留用户上次选择，避免 auto（>1 profile 时）兜底抹除用户偏好。
+  //   session 优先于 auto——保留用户上次选择，避免项目级 auto（>1 project profile 时）抹除用户偏好。
   //   加载成功后调 `persistProfileToSession(pi, picked)` 把来源同步到 JSONL
   //     （flag/settings/session 任意来源加载的 profile 都写回 session，作为下次 fallback 的首选）。
   pi.on("session_start", async (_event, ctx) => {
@@ -214,11 +234,13 @@ export default function (pi: ExtensionAPI): void {
       session.loadedFrom = pickedFrom;  // v10.x：可观测性
       persistProfileToSession(pi, picked);  // v10.x：把当前来源同步到 JSONL（下次进程默认走 session）
       // 注册 AgentAdapter 注入（封装 before_agent_start + input）
-      if (session.activeAdapter && session.cachedContext && session.cachedBlueprint) {
-        session.activeAdapter.registerInject(toAgentAPI(pi, ctx), session.cachedContext, session.cachedBlueprint);
-      }
+      const injected = registerInjectionIfReady(pi, ctx);
       ctx.ui.setStatus("pt", `pt: ${picked}`);
-      session.logger.info("session:profile loaded", { profileName: picked, loadedFrom: pickedFrom });
+      session.logger.info("session:profile loaded", {
+        profileName: picked,
+        loadedFrom: pickedFrom,
+        injected,
+      });
     } catch (e) {
       ctx.ui.notify(`Pt 加载失败：${errMsg(e)}`, "error");
       ctx.ui.setStatus("pt", "pt: 加载失败");
@@ -236,6 +258,9 @@ export default function (pi: ExtensionAPI): void {
       session.logger.info("session:shutdown");
       await session.logger.flush();
     }
+    // 同一运行时保留 Pi handler 绑定，但清除旧 session 的 segment/context，
+    // 避免新 session 在尚未重新选择 Profile 时继续注入旧内容。
+    session.activeAdapter?.resetInjection?.();
     resetSession();
   });
 
@@ -493,19 +518,46 @@ export default function (pi: ExtensionAPI): void {
  *  Pi ExtensionAPI 是 AgentAPI 的超集，多余方法（registerCommand/registerFlag 等）不暴露给 Adapter。
  *  v9.1：提供 ui 能力，adapter 可走 ui.notify 报错 / ui.setStatus 设状态（不需 console）。
  *  v10.x：提供 log 能力，adapter 的 try/catch 异常走 session.logger（不再 swallow）。
- *  ctx 用 Pi 扩展的 ctx（ExtensionContext/ExtensionCommandContext 都含 ui）——子集够用。 */
-function toAgentAPI(pi: ExtensionAPI, ctx: { ui: { notify(msg: string, level: "info" | "warning" | "error"): void; setStatus(name: string, text: string): void } }): AgentAPI {
-  return {
-    on: (event, handler) => pi.on(event as Parameters<ExtensionAPI["on"]>[0], handler as Parameters<ExtensionAPI["on"]>[1]),
-    registerCommand: (name, spec) => pi.registerCommand(name, spec as Parameters<ExtensionAPI["registerCommand"]>[1]),
-    registerFlag: (name, spec) => pi.registerFlag(name, spec as Parameters<ExtensionAPI["registerFlag"]>[1]),
-    getFlag: (name) => pi.getFlag(name),
-    ui: {
-      notify: (msg, level) => ctx.ui.notify(msg, level),
-      setStatus: (name, text) => ctx.ui.setStatus(name, text),
-    },
-    log: session.logger?.toWriter(),
-  };
+ *  ctx 用 Pi 扩展的 ctx（ExtensionContext/ExtensionCommandContext 都含 ui）——子集够用。
+ *
+ *  同一个 Pi runtime 复用同一个 AgentAPI wrapper，否则 PiAdapter 每次 registerInject
+ *  都会得到不同的对象身份，导致系统 prompt handler 被重复注册。 */
+const agentApiCache = new WeakMap<ExtensionAPI, {
+  api: AgentAPI;
+  setContext: (ctx: { ui: AgentUIContext }) => void;
+}>();
+
+function toAgentAPI(pi: ExtensionAPI, ctx: { ui: AgentUIContext }): AgentAPI {
+  let holder = agentApiCache.get(pi);
+  if (!holder) {
+    let currentCtx = ctx;
+    const api: AgentAPI = {
+      on: (event, handler) => pi.on(event as Parameters<ExtensionAPI["on"]>[0], handler as Parameters<ExtensionAPI["on"]>[1]),
+      registerCommand: (name, spec) => pi.registerCommand(name, spec as Parameters<ExtensionAPI["registerCommand"]>[1]),
+      registerFlag: (name, spec) => pi.registerFlag(name, spec as Parameters<ExtensionAPI["registerFlag"]>[1]),
+      getFlag: (name) => pi.getFlag(name),
+      ui: {
+        notify: (msg, level) => currentCtx.ui.notify(msg, level),
+        setStatus: (name, text) => currentCtx.ui.setStatus(name, text),
+      },
+      get log() {
+        return session.logger?.toWriter();
+      },
+      onInjected: (systemPrompt) => {
+        session.lastBuiltPrompt = systemPrompt;
+      },
+    };
+    holder = {
+      api,
+      setContext: (nextCtx) => {
+        currentCtx = nextCtx;
+      },
+    };
+    agentApiCache.set(pi, holder);
+  } else {
+    holder.setContext(ctx);
+  }
+  return holder.api;
 }
 
 /** 暴露 activeProfile 用于调试（未来可挂 /pt status）。 */
