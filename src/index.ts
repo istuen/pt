@@ -15,10 +15,11 @@ import { FULL_DIR, MANUAL_DIR, MOD_MANUAL, PROFILES_DIR, RAW_DIR } from "./const
 import { getAgentAdapter } from "./agent/index.js";
 import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
 import { LOG_DIR, PtLogger } from "./log.js";
-import { bindFlowTemplate, findFlowInBlueprint } from "./render/context-message.js";
+import { findFlowInBlueprint } from "./render/context-message.js";
 import { resetSession, session } from "./session.js";
+import { buildManualDoc, filterDomainsByProfile, flowsText, statusText } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
-import type { AgentAdapter, AgentAPI, Profile } from "./schema.js";
+import type { AgentAdapter, AgentAPI } from "./schema.js";
 
 /** session-scoped logger 快捷调用（session.logger 为 null 时静默——session_start 之前不可用）。 */
 function slog(level: "debug" | "info" | "warn" | "error", msg: string, ctx?: Record<string, unknown>): void {
@@ -225,27 +226,7 @@ export default function (pi: ExtensionAPI): void {
       slog("info", "command:/pt invoked", { sub });  // v10.x: P4 子命令 trace
 
       if (sub === "status" || sub === "") {
-        const flowCount = session.cachedBundles?.reduce((acc, b) => {
-          let n = 0;
-          for (const d of b.domains) if (d.type === "workflow") {
-            const tpls = Array.isArray(d.modules[MOD_MANUAL]) ? d.modules[MOD_MANUAL] : [];
-            n += tpls.length;
-          }
-          return acc + n;
-        }, 0) ?? 0;
-        const domainCount = session.cachedBundles?.reduce((acc, b) => acc + b.domains.length, 0) ?? 0;
-        const blueprintCount = session.cachedBundles?.reduce((acc, b) => acc + b.blueprints.length, 0) ?? 0;
-        const profileCount = session.cachedBundles?.reduce((acc, b) => acc + b.profiles.length, 0) ?? 0;
-        const lines = [
-          `pt profile: ${session.activeProfile ?? "(未激活)"}`,
-          `pt agent: ${session.activeAdapter?.name ?? "(none)"}`,
-          `pt domains: ${domainCount}, blueprints: ${blueprintCount}, profiles: ${profileCount}, flows: ${flowCount}`,
-          `pt segment length: ${session.cachedSegment?.length ?? 0} chars`,
-          `pt cache hit: ${session.lastCacheHit ? "yes" : "no"}`,
-          `pt last built prompt: ${session.lastBuiltPrompt ? `${session.lastBuiltPrompt.length} chars` : "(未跑过 turn)"}`,
-          `pt cwd: ${session.lastCwd}`,
-        ];
-        ctx.ui.notify(lines.join(" | "), "info");
+        ctx.ui.notify(statusText(), "info");
         if (sub === "" && session.cachedSegment) {
           ctx.ui.notify(session.cachedSegment, "info");
         }
@@ -253,22 +234,7 @@ export default function (pi: ExtensionAPI): void {
       }
 
       if (sub === "flows") {
-        if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.activeAdapter) {
-          ctx.ui.notify("无激活 Profile，先用 /pt-context <name> 激活", "warning");
-          return;
-        }
-        // listManuals 需 Profile 范围过滤——用 session.cachedProfile 过滤
-        const flows = session.activeAdapter.listManuals?.(
-          session.cachedContext!,
-          session.cachedBlueprint!,
-          filterDomainsByProfile(session.cachedBundles[0].domains, session.cachedProfile),
-        ) ?? [];
-        if (flows.length === 0) {
-          ctx.ui.notify("当前 Profile 无可触发手册（context_message 注入点无 workflow-type Domain）", "info");
-        } else {
-          const lines = flows.map((f) => `  /${f.name} ${f.hint ?? ""}  ← ${f.domain}`);
-          ctx.ui.notify(`可用手册（输入 /手册名 参数 或 /manual:<domain-name> 触发 Context Message）:\n${lines.join("\n")}`, "info");
-        }
+        ctx.ui.notify(flowsText(), "info");
         return;
       }
 
@@ -352,92 +318,22 @@ export default function (pi: ExtensionAPI): void {
       }
 
       if (sub === "manual") {
-        // /pt manual <procedure-name> [args...]
-        // 创建手册实例文档到 .pt/manuals/<procedure>-<timestamp>.md
         const parts = args.trim().split(/\s+/);
         const procedureName = parts[0];
         const procedureArgs = parts.slice(1).join(" ");
-        if (!procedureName) {
-          ctx.ui.notify("用法: /pt manual <procedure-name> [args...]", "warning");
+        const r = buildManualDoc(ctx.cwd, procedureName, procedureArgs);
+        if (r.error) {
+          ctx.ui.notify(r.error, "warning");
           return;
         }
-        if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.cachedBlueprint) {
-          ctx.ui.notify("无激活 Profile，先用 /pt-context <name> 激活", "warning");
-          return;
-        }
-        const tpl = findFlowInBlueprint(
-          session.cachedBlueprint,
-          session.cachedBundles[0].domains,
-          procedureName,
-        );
-        if (!tpl) {
-          ctx.ui.notify(`未找到手册: ${procedureName}（用 /pt flows 查可用手册）`, "warning");
-          return;
-        }
-        // 复用 bindFlowTemplate 展开步骤
-        const bound = bindFlowTemplate(tpl, procedureArgs);
-        // 查所属 domain（用于 frontmatter）
-        const domainName = session.cachedBundles[0].domains.find((d) => {
-          if (d.type !== "workflow") return false;
-          const manual = d.modules[MOD_MANUAL];
-          return Array.isArray(manual) && manual.some((t: unknown) => (t as { name?: string }).name === procedureName);
-        })?.name ?? "";
-        // 包装成实例文档
-        const now = new Date().toISOString();
-        const ts = Date.now();
-        const lines: string[] = [];
-        lines.push("---");
-        lines.push(`procedure: ${procedureName}`);
-        lines.push(`domain: ${domainName}`);
-        lines.push(`created: ${now}`);
-        lines.push("status: in-progress");
-        lines.push(`args: ${procedureArgs || "(无)"}`);
-        lines.push("---");
-        lines.push("");
-        lines.push(`# ${procedureName} 实例`);
-        lines.push("");
-        // bound 是 bindFlowTemplate 的输出（含 # name + 前提 + 步骤）
-        // 转成 checklist 格式（跳过原模板标题/段头/参数提示——实例文档已自带 # name 实例）
-        const boundLines = bound.split("\n");
-        for (const line of boundLines) {
-          if (line.startsWith("#")) continue;
-          if (line.startsWith("_")) continue;
-          // 步骤行形如 "1. xxx" → "- [ ] xxx"
-          const stepMatch = line.match(/^(\d+)\.\s+(.*)$/);
-          if (stepMatch) {
-            lines.push(`- [ ] ${stepMatch[2]}`);
-          } else {
-            lines.push(line);
-          }
-        }
-        lines.push("");
-        lines.push("## 产物");
-        lines.push("<!-- 执行后用 edit 在此追加：路径 + 动作(created/modified) + 日期 -->");
-        lines.push("");
-        lines.push("## 更新指引");
-        lines.push("执行完每个 step 后：用 edit 把对应 `- [ ]` 改成 `- [x]`。");
-        lines.push("全部完成后：用 edit 在 ## 产物 下追加创建/修改的文件路径（每行一条）。");
-        lines.push("status 全部完成后可改为 completed。");
-        const content = lines.join("\n");
-        const dir = join(ctx.cwd, MANUAL_DIR);
-        await mkdir(dir, { recursive: true });
-        const file = join(dir, `${procedureName}-${ts}.md`);
-        await writeFile(file, content, "utf8");
-        ctx.ui.notify(`手册实例已创建: ${file}`, "info");
+        await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
+        await writeFile(r.filePath, r.content, "utf8");
+        ctx.ui.notify(`手册实例已创建: ${r.filePath}`, "info");
         return;
       }
 
       ctx.ui.notify("用法: /pt [status|flows|raw|full|manual|logs|logs:clear|sessions]", "warning");
     },
-  });
-}
-
-/** 按 Profile 范围过滤 domains（listManuals 需作用域）。 */
-function filterDomainsByProfile<T extends { name: string }>(domains: T[], profile: Profile | null): T[] {
-  if (!profile) return domains;
-  return domains.filter((d) => {
-    if (profile.domains.includes(d.name)) return true;
-    return profile.injectionPoints.some((ip) => ip.domains.includes(d.name));
   });
 }
 
