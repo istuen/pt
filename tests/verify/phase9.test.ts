@@ -8,7 +8,7 @@
 // - /manual:xxx 触发（renderContextMessage 实现）
 // - AgentAdapter 抽象（PiAdapter 封装 before_agent_start + input）
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { loadAndTranspile } from "../../src/transpile.js";
 import { renderContextMessage } from "../../src/render/context-message.js";
 import { findBlueprint, findProfile } from "../../src/schema.js";
@@ -407,6 +407,72 @@ describe("Phase 9.9 v9 完整回归", () => {
       const src = await readFile("src/index.ts", "utf8");
       expect(src).toContain('sub === "manual"');
       expect(src).toContain("MANUAL_DIR");
+    });
+  });
+
+  // ========== 19. command + tool 双注册（纯函数内核） ==========
+  describe("19. command + tool 双注册（纯函数内核）", () => {
+    // 预热 session——buildManualDoc/flowsText 读 session.cachedBundles（pt-dev 有 deliver-feature 手册）
+    beforeAll(async () => {
+      const { session, resetSession } = await import("../../src/session.js");
+      const { loadAndTranspile } = await import("../../src/transpile.js");
+      const { getAgentAdapter } = await import("../../src/agent/index.js");
+      const r = await loadAndTranspile(process.cwd(), "pt-dev");
+      resetSession();
+      session.cachedBundles = r.bundles;
+      session.cachedBlueprint = r.blueprint;
+      session.cachedContext = r.context;
+      session.cachedDomains = r.domains;
+      session.cachedProfile = r.profile;
+      session.cachedSegment = r.segment;
+      session.activeProfile = "pt-dev";
+      session.activeAdapter = getAgentAdapter(r.blueprint.agent);
+      session.activeAdapter.setContext(r.context, r.blueprint, r.domains);
+    });
+
+    // 避免 session 污染后续 test
+    afterAll(async () => {
+      const { resetSession } = await import("../../src/session.js");
+      resetSession();
+    });
+
+    it("statusText 返回状态摘要文本", async () => {
+      const { statusText } = await import("../../src/commands.js");
+      const text = statusText();
+      expect(text).toContain("pt profile:");
+      expect(text).toContain("pt segment length:");
+      expect(text).toContain("pt-dev");
+    });
+
+    it("flowsText 返回可用手册列表", async () => {
+      const { flowsText } = await import("../../src/commands.js");
+      const text = flowsText();
+      expect(text).toContain("可用手册");
+      expect(text).toContain("deliver-feature");
+    });
+
+    it("buildManualDoc 未找到手册返回 error", async () => {
+      const { buildManualDoc } = await import("../../src/commands.js");
+      const r = buildManualDoc(process.cwd(), "nonexistent-proc", "");
+      expect(r.error).toContain("未找到手册");
+    });
+
+    it("buildManualDoc 构建实例文档内容", async () => {
+      const { buildManualDoc } = await import("../../src/commands.js");
+      const doc = buildManualDoc(process.cwd(), "deliver-feature", "req-001");
+      expect(doc.error).toBeUndefined();
+      expect(doc.content).toContain("deliver-feature");
+      expect(doc.content).toContain("- [ ]");
+      expect(doc.content).toContain("## 产物");
+      expect(doc.filePath).toContain("deliver-feature-");
+    });
+
+    it("index.ts 注册了 3 个 tool", async () => {
+      const src = await readFile("src/index.ts", "utf8");
+      expect(src).toContain('name: "pt_status"');
+      expect(src).toContain('name: "pt_flows"');
+      expect(src).toContain('name: "pt_manual"');
+      expect(src).toContain("withFileMutationQueue");
     });
   });
 });
