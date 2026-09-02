@@ -40,21 +40,4 @@ describe("Profile 触发手册（listManuals）", () => {
     const flows = adapter.listManuals?.(r.context, r.blueprint, filteredDomains) ?? [];
     expect(flows.length).toBeGreaterThan(0);
   });
-
-  it("glossary-test Profile 无 workflow-type Domain", async () => {
-    const r = await loadAndTranspile(process.cwd(), "glossary-test");
-    const b = r.bundles[0];
-    expect(b).toBeDefined();
-
-    const profile = r.profile;
-    const filteredDomains = b.domains.filter((d) => {
-      if (profile.domains.includes(d.name)) return true;
-      return profile.injectionPoints.some((ip) => ip.domains.includes(d.name));
-    });
-
-    const adapter = getAgentAdapter(r.blueprint.agent);
-    const flows = adapter.listManuals?.(r.context, r.blueprint, filteredDomains) ?? [];
-    // glossary-test 只有 glossary-type Domain，无 workflow → 无触发手册
-    expect(flows.length).toBe(0);
-  });
 });

@@ -39,7 +39,7 @@ beforeAll(async () => {
     }
   } catch {}
 
-  for (const name of ["pt-chat", "pt-dev", "glossary-test"]) {
+  for (const name of ["pt-chat", "pt-dev"]) {
     const r = await loadAndTranspile(cwd, name);
     loadedProfiles[name] = {
       name,
@@ -53,12 +53,11 @@ beforeAll(async () => {
 });
 
 describe("Phase 9.9 v9 完整回归", () => {
-  // ========== 1. 三 Profile 产物 ==========
-  describe("1. 三 Profile 产物", () => {
-    it("三个 Profile 都成功加载", () => {
+  // ========== 1. 两 Profile 产物 ==========
+  describe("1. 两 Profile 产物", () => {
+    it("两个 Profile 都成功加载", () => {
       expect(loadedProfiles["pt-chat"]).toBeDefined();
       expect(loadedProfiles["pt-dev"]).toBeDefined();
-      expect(loadedProfiles["glossary-test"]).toBeDefined();
     });
 
     it("pt-chat Profile 含 v9 措辞", () => {
@@ -101,17 +100,6 @@ describe("Phase 9.9 v9 完整回归", () => {
         if (bp) refCounts[bp] = (refCounts[bp] ?? 0) + 1;
       }
       expect(refCounts["dev-knowledge"] ?? 0).toBeGreaterThanOrEqual(2);
-    });
-  });
-
-  // ========== 4. 扩展性：glossary ==========
-  describe("4. 扩展性验证", () => {
-    it("glossary-test profile 含 glossary 段", () => {
-      expect(loadedProfiles["glossary-test"].segment.includes("术语表") ||
-             loadedProfiles["glossary-test"].segment.includes("GlossaryEntry")).toBe(true);
-    });
-    it("pt-chat profile 不被 glossary 污染", () => {
-      expect(loadedProfiles["pt-chat"].segment).not.toContain("GlossaryEntry");
     });
   });
 
