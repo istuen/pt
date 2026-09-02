@@ -6,6 +6,9 @@
   "keywords": [
     "pi-package"
   ],
+  "files": [
+    "src"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "verify": "vitest run tests/verify/",
