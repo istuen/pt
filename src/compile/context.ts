@@ -221,7 +221,7 @@ function renderManualModule(d: Domain, content: unknown): string {
       if (!isFlowTemplateArray(content)) return "";
       for (const t of content) {
         const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
-        lines.push(`- /${t.name}${hint}: ${t.intent}`);
+        lines.push(`- ${t.name}${hint}: ${t.intent}`);
       }
       break;
     }
