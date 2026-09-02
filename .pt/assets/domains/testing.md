@@ -19,10 +19,10 @@ name: testing
 - desc: 覆盖率策略：每个 Manual 手册至少 1 个 vitest 断言；新增 FlowTemplate 必加 bindFlowTemplate 触发测试；新增 type guard 必加 isXxxArray 正反例测试；新增 renderer 必加产物结构断言。
 
 ### test-fixtures
-- desc: 测试夹具：tests/fixtures/ 存测试专用资产（不污染 .pt/assets/）；SourceAdapterContext.assetDir 指向夹具；夹具资产遵循 v9 格式（frontmatter + H2 段）。当前测试用项目 .pt/assets/ 的 glossary-test profile 做扩展性验证。
+- desc: 测试夹具：tests/fixtures/ 存测试专用资产（不污染 .pt/assets/）；SourceAdapterContext.assetDir 指向夹具；夹具资产遵循 v9 格式（frontmatter + H2 段）。扩展性验证走 tests/fixtures/ 夹具（加新 type 时在此建测试专用 Profile + Domain）。
 
 ### regression-baseline
-- desc: 回归基线：tests/verify/phase9.test.ts（v9 四层结构断言，40 tests）+ tests/verify/flows.test.ts（手册触发断言，3 tests）。基线变更必须更新断言 + commit。发版前全量回归不只跑 verify，还要查残留（as 断言/console.error/路径字面量散落）。
+- desc: 回归基线：tests/verify/phase9.test.ts（v9 四层结构断言）+ tests/verify/flows.test.ts（手册触发断言）。基线变更必须更新断言 + commit。发版前全量回归不只跑 verify，还要查残留（as 断言/console.error/路径字面量散落）。
 
 ## Manual
 
@@ -61,7 +61,7 @@ name: testing
 - intent: 发版 {{version}} 前的就绪检查清单
 - vars: [version]
 - step: 跑 regression-verify — 全过才能继续
-- step: 确认内建资产已更新 — 走 asset-workflow#sync-builtin 手册（复制稳定资产到 src/builtin/assets/，剔除 me/glossary-test/引用 me 的 profile）
+- step: 确认内建资产已更新 — 走 asset-workflow#sync-builtin 手册（复制稳定资产到 src/builtin/assets/，剔除 me/引用 me 的 profile）
 - step: npm pack --dry-run — 验证只含 src/**/*.ts + src/builtin/assets/**/*.md + README.md
 - step: 检查 docs/CHANGELOG.md 已更新 — 走 ci-cd#update-changelog 手册
 - step: 检查 git working tree clean — git status 无未提交改动

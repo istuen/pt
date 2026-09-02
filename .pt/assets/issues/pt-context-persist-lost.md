@@ -25,7 +25,7 @@ picked = flagVal ?? fromSettings ?? auto
 |---|---|---|
 | flag (`--pt-context`) | `pi.getFlag("pt-context")` | `undefined`（未传 flag） |
 | settings (`.pi/settings.json` 的 `au.pt-context`) | `readProjectSetting(ctx.cwd, "au.pt-context")` | `undefined`（settings.json 无此键） |
-| auto（唯一 Profile 时返回） | `detectSingleProfile(cwd)` | `null`（项目有 3 个 profile：pt-dev/pt-chat/glossary-test，auto 只在唯一时返回） |
+| auto（唯一 Profile 时返回） | `detectSingleProfile(cwd)` | `null`（项目有 2 个 profile：pt-dev/pt-chat，auto 只在唯一时返回） |
 
 三源全空 → `picked = null` → `ctx.ui.setStatus("pt", "pt: 无 context")`（`src/index.ts:136`）。
 

@@ -57,7 +57,7 @@ name: development
 - step: 写新 type 的 Domain md（frontmatter.type=新 type，H2 段按约定格式）
 - step: src/compile/context.ts 加 renderer 函数 + registerModuleRenderer(modName, fn) 一行注册
 - step: 不动 parse/ 主循环 — 前端按 frontmatter.type 分发是通用 path，未识别 type 走 term 形态 fallback
-- step: 加测试 Profile（如 glossary-test）— 引用新 type 的 Domain，验证产物含新 type 段
+- step: 加测试夹具 — 在 tests/fixtures/ 下建测试专用 Profile + Domain（引用新 type），验证产物含新 type 段
 - step: 跑 `npm run verify` — 扩展性验证：新 Profile 含新 type 段；其他 Profile 不污染
 - step: git commit — 一个 commit = 一个新 type 落地（renderer + 测试夹具）
 
