@@ -138,6 +138,9 @@ export function bindFlowTemplate(tpl: BoundableTemplate, args: string): string {
   lines.push(`## 步骤`);
   tpl.steps.forEach((s: FlowStep, i: number) => {
     lines.push(`${i + 1}. ${replaceVars(s.desc, bound)}`);
+    if (s.observe && s.observe.length > 0) {
+      lines.push(`   - 验证参照：${s.observe.join(", ")}`);
+    }
   });
 
   return lines.join("\n");

@@ -64,6 +64,29 @@ export interface FlowStep {
   rule?: string;
   /** 期望产出什么 */
   output?: string;
+  /** 验证参照（Probe 名列表，如 ["fs-content-match", "ts-compiles"]）。
+   *  P0 新增：声明这步执行后用什么 probe 验证。probe 实现在 src/verify/（P1）。 */
+  observe?: string[];
+}
+
+/** 验证结果三态（借鉴 OXN ADR-0066/0067，简化为纯枚举 + 消息，不引入 strategy 模式）。
+ *  - COMPLETED：执行符合预期
+ *  - DEVIATED：偏离预期（不是失败，是偏了，仍可继续）
+ *  - INCONCLUSIVE：无法判定（如人工评估、probe 缺参数） */
+export type ProbeOutcomeKind = "COMPLETED" | "DEVIATED" | "INCONCLUSIVE";
+
+/** verify 函数返回值（P1 的 src/verify/ 模块用）。 */
+export interface ProbeOutcome {
+  outcome: ProbeOutcomeKind;
+  message: string;
+  actual?: string;
+}
+
+/** Manual 实例文档的步骤执行记录（buildManualDoc 生成表头，执行者用 edit 填值）。 */
+export interface StepResult {
+  stepIndex: number;
+  outcome: ProbeOutcomeKind;
+  message?: string;
 }
 
 /** 手册模板（workflow-Domain.## Manual 段声明，实例化后进 Context Message） */
