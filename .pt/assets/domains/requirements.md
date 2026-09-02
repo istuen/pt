@@ -13,7 +13,7 @@ name: requirements
 ## Scene
 
 ### requirement-sources
-- desc: 需求来源三类：（1）用户对话（Pi session 中实时对话）；（2）Phase 文档（docs/pt-dev-phases*.md 的任务描述段）；（3）issue（外部 issue tracker，引用到 commit）。
+- desc: 需求来源三类：（1）用户对话（Pi session 中实时对话）；（2）Phase 文档（.pt/docs/designs/pt-dev-phases*.md 的任务描述段）；（3）issue（外部 issue tracker，引用到 commit）。
 
 ### requirement-doc
 - desc: 需求文档结构：目标（Why + What）→ 约束（Must-have / Must-not）→ 验收标准（可独立复验的硬指标）→ 边界纪律（不自行发挥的约束）→ 开工（执行入口）。结构对齐 collaboration.md 的 task-description 段。
@@ -29,7 +29,7 @@ name: requirements
 - vars: []
 - step: 听用户原始诉求 — 不预先分类，逐字记录（避免 LLM 提前框架化）
 - step: 追问模糊点 — 用户省略的"边界"和"为什么"主动问（如"这个改动影响老用户吗？"）
-- step: 搜已有资产 — 查 .pt/assets/ + docs/ 看相关 Domain / Phase 文档是否已表达
+- step: 搜已有资产 — 查 .pt/assets/ + .pt/docs/designs/ 看相关 Domain / Phase 文档是否已表达
 - step: 整理到 task-description 结构（见 collaboration.md#task-description）— 必读 / 设计原则 / 步骤 / 验收 / 边界 / baseline
 
 ### analyze-feasibility
@@ -45,7 +45,7 @@ name: requirements
 - argument-hint: <requirement-id>
 - intent: 把 {{requirement-id}} 输出为可执行的需求文档
 - vars: [requirement-id]
-- step: 写 docs/pt-dev-phases*.md 的对应 Phase 描述段 — 包含目标 / 约束 / 验收 / 边界
+- step: 写 .pt/docs/designs/pt-dev-phases*.md 的对应 Phase 描述段 — 包含目标 / 约束 / 验收 / 边界
 - step: 验收标准必须可独立复验 — 每条都有独立 verify 方式（grep / tsc / npm run verify），不接受"看产物自己判断"
 - step: 边界纪律明确"不自行发挥" — LLM 不能改架构 / 改约束 / 加新需求；超出范围停下问
 - step: baseline commit 标出 — git log 找最近稳定 commit 写进文档

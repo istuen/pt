@@ -29,7 +29,7 @@ name: deployment
 - vars: [version]
 - step: 跑 `npm run verify` — 所有测试通过才能发版
 - step: 更新 package.json version 字段到 {{version}}
-- step: 更新 docs/CHANGELOG.md — 列出本 Phase 的新功能 / 修复 / 破坏性变更
+- step: 更新 .pt/.pt/docs/CHANGELOG.md — 列出本 Phase 的新功能 / 修复 / 破坏性变更
 - step: git commit "release: {{version}}" — 版本号 + changelog 单独成提交
 - step: git tag {{version}} — 锚点 tag，baseline 回退用
 - step: npm publish --access public — 发版到 npm
@@ -44,4 +44,4 @@ name: deployment
 - step: npm unpublish @issac/pi-pt@<broken-version> — 仅 24h 内发布的版本可 unpublish，超时用 deprecated 标记
 - step: 发版修复版 — 走 release 流程发版到下一个 patch 版本
 - step: 通知用户 — 在 Pi 扩展 store / issue tracker 公告回滚原因 + 修复版本
-- step: 写复盘 — docs/post-mortem-<date>.md，含 root cause / 修复方案 / 防范措施
+- step: 写复盘 — .pt/docs/designs/post-mortem-<date>.md，含 root cause / 修复方案 / 防范措施

@@ -44,7 +44,7 @@ name: authoring
 - step: 写 frontmatter（type: {{type}} + name: {{name}}）
 - step: 按 type 对应 pattern 写 H2 段（参考 authoring Scene 的 *-pattern 项）
 - step: 在目标 Profile 的 domains 列表追加 {{name}}
-- step: 删 .pt/contexts/cache/*.context.md + /pt-context <profile> 验证
+- step: 删 .pt/cache/contexts/*.context.md + /pt-context <profile> 验证
 
 ### create-profile-procedure
 - argument-hint: <name>
@@ -53,7 +53,7 @@ name: authoring
 - step: 用 write 工具创建 .pt/assets/profiles/{{name}}.profile.md
 - step: 写 frontmatter（name: {{name}} + blueprint: dev-knowledge + domains: [按需列]）
 - step: domains 顺序：身份类 domain 放前（如 me），项目知识中段，约束类放后
-- step: 删 .pt/contexts/cache/*.context.md + /pt-context {{name}} 验证产物
+- step: 删 .pt/cache/contexts/*.context.md + /pt-context {{name}} 验证产物
 
 ### create-blueprint-procedure
 - argument-hint: <name>
@@ -63,9 +63,9 @@ name: authoring
 - step: 用 write 工具创建 .pt/assets/blueprints/{{name}}.blueprint.md
 - step: 写 frontmatter（name: {{name}} + agent: pi）
 - step: 写 H2 注入点（## 注入点名 + target: system_prompt/context_message + ### Modules 列 modName）
-- step: 写 ## Compilation（cache-dir: .pt/contexts/cache/ + split: single-file）
+- step: 写 ## Compilation（cache-dir: .pt/cache/contexts/ + split: single-file）
 - step: Profile frontmatter 的 blueprint 字段改为 {{name}} 引用
-- step: 删 .pt/contexts/cache/*.context.md + /pt-context <profile> 验证
+- step: 删 .pt/cache/contexts/*.context.md + /pt-context <profile> 验证
 
 ### modify-asset-procedure
 - argument-hint: (无)
@@ -73,6 +73,6 @@ name: authoring
 - vars: []
 - step: 用 read 工具读目标 .md（Domain/Blueprint/Profile）
 - step: 用 edit 工具改内容（或 write 整体重写）
-- step: 删 .pt/contexts/cache/*.context.md（强制重编译）
+- step: 删 .pt/cache/contexts/*.context.md（强制重编译）
 - step: /pt-context <profile> 重载验证
 - step: 检查产物：/pt raw 看 segment，/pt full 看完整 prompt

@@ -26,7 +26,7 @@
 //   - Manual
 //
 //   ## Compilation
-//   cache-dir: .pt/contexts/cache/
+//   cache-dir: .pt/cache/contexts/
 //   split: single-file
 //
 // Tech Debt T6: 用 constants + type guard（pt-quality #1/#4/#5）

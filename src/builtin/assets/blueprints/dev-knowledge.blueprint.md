@@ -18,5 +18,5 @@ target: context_message
 - Manual
 
 ## Compilation
-cache-dir: .pt/contexts/cache/
+cache-dir: .pt/cache/contexts/
 split: single-file

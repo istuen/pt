@@ -10,9 +10,15 @@
 // v10.x：session-state 升级为 session-scoped daemon 级——
 //   - sessionId：crypto 生成的 8-hex 短 id（多并发 `pi` 进程的日志隔离键）
 //   - logger   ：per-session 单例 PtLogger（替代 per-transpile 实例化）
+//
+// v10.x（issue pt-context-persist-lost 修复）：loadedFrom 记录当前 activeProfile 的来源，
+//   用于 /pt status 可观测性 + 排查"为什么没选到我预期的 profile"。
 
 import type { AgentAdapter, Blueprint, Context, Domain, Profile, SchemaBundle } from "./schema.js";
 import type { PtLogger } from "./log.js";
+
+/** activeProfile 的来源（session_start fallback 命中点）。 */
+export type ProfileLoadSource = "flag" | "settings" | "session" | "auto" | null;
 
 /** Session 全量状态。 */
 export interface SessionState {
@@ -31,6 +37,8 @@ export interface SessionState {
   sessionId: string;
   /** v10.x：per-session 单例 logger（替代 per-transpile 实例化）。 */
   logger: PtLogger | null;
+  /** v10.x：当前 activeProfile 的来源（可观测性）。null 表示未加载。 */
+  loadedFrom: ProfileLoadSource;
 }
 
 /** 默认空 SessionState。 */
@@ -48,6 +56,7 @@ export const createSessionState = (): SessionState => ({
   activeAdapter: null,
   sessionId: "",
   logger: null,
+  loadedFrom: null,
 });
 
 /** Module-level singleton（Pi Extension 是单例模块）。 */

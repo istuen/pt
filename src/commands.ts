@@ -1,6 +1,6 @@
 // src/commands.ts — pt 命令纯函数内核（v10.x：command + tool 双注册架构）
 //
-// 设计动机（docs/pt-command-tool-dual-registration.md）：
+// 设计动机（.pt/docs/designs/pt-command-tool-dual-registration.md）：
 //   - 人类（command） + LLM（tool）共享同一组纯函数内核，零逻辑重复
 //   - command 壳：ctx.ui.notify 呈现（src/index.ts）
 //   - tool 壳：return { content: [{ text }] } 呈现（src/index.ts）
@@ -37,6 +37,7 @@ export function statusText(): string {
   const profileCount = session.cachedBundles?.reduce((acc, b) => acc + b.profiles.length, 0) ?? 0;
   return [
     `pt profile: ${session.activeProfile ?? "(未激活)"}`,
+    `pt loadedFrom: ${session.loadedFrom ?? "(none)"}`,  // v10.x：可观测性（issue pt-context-persist-lost）
     `pt agent: ${session.activeAdapter?.name ?? "(none)"}`,
     `pt domains: ${domainCount}, blueprints: ${blueprintCount}, profiles: ${profileCount}, flows: ${flowCount}`,
     `pt segment length: ${session.cachedSegment?.length ?? 0} chars`,

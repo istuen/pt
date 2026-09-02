@@ -1,6 +1,6 @@
 // src/schema.ts — v9 IR 契约
 //
-// 设计原则（见 docs/pt-asset-layering.md §0）：
+// 设计原则（见 .pt/docs/designs/pt-asset-layering.md §0）：
 // 1. Schema 是语义化的，不带任何格式痕迹（无 Section/Item/raw/heading）
 // 2. Pt 定义契约，来源（OXN/YAML/...）实现 SourceAdapter
 // 3. 三段式编译架构：parse（前端）→ compile（中端）→ render（后端）
@@ -140,7 +140,7 @@ export type CacheSplitStrategy = "single-file" | "by-injection-point";
 
 /** Blueprint 的编译方式配置（## Compilation 段）。 */
 export interface CompilationConfig {
-  /** 缓存目录（默认 .pt/contexts/cache/）。 */
+  /** 缓存目录（默认 .pt/cache/contexts/）。 */
   cacheDir: string;
   /** 拆分策略（默认 single-file）。 */
   split: CacheSplitStrategy;
@@ -211,7 +211,7 @@ export interface Profile {
  *   - sourceHash：hash(Profile + Blueprint + Domains) 组合——任一变化即失效。
  *   - modules   ：注入点名（语义名）→ 聚合后的 markdown 字符串。
  *
- * Context 是物理文件（.pt/contexts/cache/*.context.md），缓存复用。
+ * Context 是物理文件（.pt/cache/contexts/*.context.md），缓存复用。
  * Pt 读取 Context 时比 sourceHash：一致用缓存，不一致重编译覆盖。
  *
  * v9 相对 v8 变化：sourceHash 输入从 (Blueprint + Channel + Domains) 改为 (Profile + Blueprint + Domains)。

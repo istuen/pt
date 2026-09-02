@@ -56,7 +56,7 @@ name: ci-cd
 - step: GitHub 仓库 Settings → Secrets → Actions → 加 NPM_TOKEN
 - step: 建 .github/workflows/release.yml —— on push tags v*.*.*
 - step: jobs.publish：actions/checkout@v4 + actions/setup-node@v4（node-version 22 + registry-url https://registry.npmjs.org + cache npm）+ npm ci + typecheck + verify + npm publish --access public --provenance（env NODE_AUTH_TOKEN = secrets.NPM_TOKEN）
-- step: 加 softprops/action-gh-release@v2 创建 GitHub Release（generate_release_notes: true + body_path docs/CHANGELOG.md）
+- step: 加 softprops/action-gh-release@v2 创建 GitHub Release（generate_release_notes: true + body_path .pt/.pt/.pt/docs/CHANGELOG.md）
 - step: permissions: contents write（建 Release）+ id-token write（provenance 用）
 - step: git commit "Add Release workflow"
 
@@ -65,7 +65,7 @@ name: ci-cd
 - intent: 补全 package.json 发布字段
 - vars: []
 - step: 加 license（MIT）/ author / repository（type: git + url: <repo>.git）/ homepage / bugs（url）
-- step: 加 files: ["src", "README.md", "docs/pt-asset-layering.md"] —— 白名单，只发 src + README + 一份分层文档
+- step: 加 files: ["src", "README.md", ".pt/docs/designs/pt-asset-layering.md"] —— 白名单，只发 src + README + 一份分层文档
 - step: 加 main: "./src/index.ts" —— 便于工具识别（pi 走 extensions 字段，main 是辅助）
 - step: 加 scripts.prepublishOnly: "npm run verify && tsc --noEmit" —— 双保险，手抖 npm publish 也会先验证
 - step: npm pack --dry-run 验证发布内容 —— 确认无 .pt/ / data/ / tests/ / node_modules/
@@ -83,11 +83,11 @@ name: ci-cd
 
 ### update-changelog
 - argument-hint: <version>
-- intent: 更新 docs/CHANGELOG.md 追加 {{version}} 条目
+- intent: 更新 .pt/.pt/.pt/docs/CHANGELOG.md 追加 {{version}} 条目
 - vars: [version]
 - step: 读 git log <last-tag>..HEAD --oneline —— 提取本版本 commit
 - step: 分类 commit —— 新功能（feat / Phase）/ 修复（fix / T）/ 破坏性变更 / 文档（docs）
-- step: 追加 docs/CHANGELOG.md 顶部 `## {{version}} ({{date}})` —— 列出分类条目
+- step: 追加 .pt/.pt/.pt/docs/CHANGELOG.md 顶部 `## {{version}} ({{date}})` —— 列出分类条目
 - step: git commit "docs: CHANGELOG for {{version}}"
 
 ### release-flow
@@ -97,7 +97,7 @@ name: ci-cd
 - step: 确认内建资产已更新 —— 走 asset-workflow#sync-builtin 手册：把本版本要对外发的稳定资产复制到 src/builtin/assets/（剔除 me domain / 引用 me 的 profile）；有改动则 git commit "Sync builtin assets"
 - step: npm run verify && tsc --noEmit —— 全过才能发版
 - step: npm version <patch|minor|major> —— 自动改 package.json + commit + 打本地 tag
-- step: 走 ci-cd#update-changelog 手册 —— 追加 docs/CHANGELOG.md 版本/日期/新功能/修复/破坏性变更
+- step: 走 ci-cd#update-changelog 手册 —— 追加 .pt/.pt/.pt/docs/CHANGELOG.md 版本/日期/新功能/修复/破坏性变更
 - step: git commit --amend --no-edit —— 并入版本号 commit；git tag -f v{{version}} 重打 tag 到 amended commit
 - step: git push origin main --follow-tags —— 触发 Release workflow
 - step: 等 GitHub Actions 跑完 —— CI verify → npm publish → GitHub Release
@@ -111,4 +111,4 @@ name: ci-cd
 - step: 24h 内：npm unpublish @issac/pi-pt@{{broken-version}}；git revert <release-commit>；git tag -d v{{broken-version}} && git push origin :refs/tags/v{{broken-version}}
 - step: 超 24h：npm deprecate @issac/pi-pt@{{broken-version}} "broken, use vX.Y.Z+1"；走 release-flow 发修复版
 - step: 通知用户 —— GitHub Release 说明 / issue tracker 公告回滚原因 + 修复版本
-- step: 写复盘 —— docs/post-mortem-<date>.md，含 root cause / 修复方案 / 防范措施
+- step: 写复盘 —— .pt/docs/designs/post-mortem-<date>.md，含 root cause / 修复方案 / 防范措施

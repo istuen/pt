@@ -10,6 +10,18 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 // ==================== 路径常量 ====================
+//
+// .pt/ 目录布局规范（v11 重排）：
+//   .pt/assets/   入 git — 转译资产（domains / blueprints / profiles）
+//   .pt/docs/     入 git — 文档（designs 设计与执行 / issues 问题跟踪）
+//   .pt/manuals/  gitignore — pt_manual 工作文档
+//   .pt/cache/    gitignore — 运行产物（contexts 编译 / fulls 完整 prompt / raws segment）
+//   .pt/logs/     gitignore — NDJSON trace
+//
+// 规范源：asset-workflow domain 的 `directory-layout` 场景是 .pt/ 布局的声明式 spec
+// （用户可改该 Domain 调整布局）。当前代码路径仍读本文件常量；未来计划让转译层
+// 直接读 Domain 配置（届时删除下方硬编码，由 parse → compile 注入）。
+// 改路径时务必同步改 asset-workflow.md 的 directory-layout 场景。
 
 /** .pt/ 资产根目录 */
 export const ASSETS_DIR = ".pt/assets";
@@ -24,13 +36,13 @@ export const BLUEPRINTS_DIR = `${ASSETS_DIR}/blueprints`;
 export const PROFILES_DIR = `${ASSETS_DIR}/profiles`;
 
 /** Context 物理缓存目录（Blueprint.compilation.cacheDir 默认值） */
-export const CACHE_DIR = ".pt/contexts/cache";
+export const CACHE_DIR = ".pt/cache/contexts";
 
-/** /pt raw 输出目录 */
-export const RAW_DIR = ".pt/raws";
+/** /pt raw 输出目录（segment dump） */
+export const RAW_DIR = ".pt/cache/raws";
 
-/** /pt full 输出目录 */
-export const FULL_DIR = ".pt/fulls";
+/** /pt full 输出目录（完整 systemPrompt dump） */
+export const FULL_DIR = ".pt/cache/fulls";
 
 /** /pt manual 输出目录（手册实例文档） */
 export const MANUAL_DIR = ".pt/manuals";
