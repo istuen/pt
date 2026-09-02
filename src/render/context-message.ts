@@ -80,7 +80,7 @@ function renderDomainManual(d: Domain, content: unknown): string | null {
       lines.push("## 可用手册");
       for (const t of content) {
         const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
-        lines.push(`- /${t.name}${hint}: ${t.intent}`);
+        lines.push(`- ${t.name}${hint}: ${t.intent}`);
       }
       break;
     }
