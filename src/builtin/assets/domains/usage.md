@@ -27,6 +27,9 @@ name: usage
 ### pt-manual-command
 - desc: /pt manual <procedure-name> [args...]（创建手册实例文档到 .pt/manuals/，含 checklist + 产物区，用于跟踪执行）。与 /manual:<domain>（ephemeral 参考）互补——前者持久化，后者即时注入。
 
+### pt-tools-llm
+- desc: pt_status / pt_flows / pt_manual 三个 LLM tool（pi.registerTool）。与 /pt 命令族共享纯函数内核——人类打 /pt status，LLM 调 pt_status，结果一致。pt-context 不做 tool（改 system prompt 不该让 LLM 触发，见 docs/pt-command-tool-dual-registration.md §2.4）。
+
 ## Manual
 
 ### list-profiles
