@@ -90,3 +90,24 @@ name: development
 - step: 同名时项目资产覆盖内建（用户可定制）
 - step: package.json files: ["src"] 确保 .md 随 npm publish 发布
 - step: 跑 npm run verify 验证 fallback + 覆盖语义
+
+### plan-implementation
+- argument-hint: <requirement-id>
+- intent: 从需求文档 {{requirement-id}} 规划实现路径
+- vars: [requirement-id]
+- step: 读需求文档 — 目标 / 约束 / 验收标准 / 边界纪律
+- step: 判断改动类型 — 改 IR（走 modify-schema）/ 改资产（走 modify-asset 或 asset-workflow#update-domain/update-profile）/ 加新 type（走 add-domain-type）/ 加新内建资产（走 add-builtin-asset）
+- step: 任务分解 — 列出要改的文件 + 每步对应的 Manual 手册名 + 每步要加的测试（走 testing#add-test-for-change）
+- step: 选 baseline — git log 找最近稳定 commit 作回退锚点
+- step: 输出实现计划 — 步骤列表 + 每步手册名 + 验收方式
+
+### deliver-feature
+- argument-hint: <requirement-id>
+- intent: 从需求到发版的端到端交付流程
+- vars: [requirement-id]
+- step: plan-implementation {{requirement-id}} — 规划路径
+- step: 按计划走 modify-* / add-* / update-* 手册 — 每步一个 commit
+- step: 每个改动文件走 testing#add-test-for-change — 补回归测试
+- step: testing#regression-verify — 全量回归
+- step: testing#release-readiness-check <version> — 发版就绪检查
+- step: ci-cd#release-flow <version> — 发版
