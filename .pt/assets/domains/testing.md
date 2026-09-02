@@ -52,8 +52,8 @@ name: testing
 - vars: []
 - step: npm run typecheck — tsc 全过
 - step: npm run verify — vitest 全过（当前 43 tests）
-- step: 残留检查 — grep " as " src/（type guard 外的断言）/ console.error / 路径字面量散落（按 docs/pt-tech-debt-audit.md 验收清单）
-- step: 产物 diff — 对比 .pt/contexts/cache/ 下 baseline context.md，确认结构对（字数允许变但段要在）
+- step: 残留检查 — grep " as " src/（type guard 外的断言）/ console.error / 路径字面量散落（按 .pt/docs/designs/pt-tech-debt-audit.md 验收清单）
+- step: 产物 diff — 对比 .pt/cache/contexts/ 下 baseline context.md，确认结构对（字数允许变但段要在）
 - step: 跨项目验证 — 干净目录 npm pack + npm install + pi --pt-context pt 能启动
 
 ### release-readiness-check
@@ -63,6 +63,6 @@ name: testing
 - step: 跑 regression-verify — 全过才能继续
 - step: 确认内建资产已更新 — 走 asset-workflow#sync-builtin 手册（复制稳定资产到 src/builtin/assets/，剔除 me/引用 me 的 profile）
 - step: npm pack --dry-run — 验证只含 src/**/*.ts + src/builtin/assets/**/*.md + README.md
-- step: 检查 docs/CHANGELOG.md 已更新 — 走 ci-cd#update-changelog 手册
+- step: 检查 .pt/.pt/docs/CHANGELOG.md 已更新 — 走 ci-cd#update-changelog 手册
 - step: 检查 git working tree clean — git status 无未提交改动
 - step: 检查 baseline tag — 上一个版本 tag 存在，可回退

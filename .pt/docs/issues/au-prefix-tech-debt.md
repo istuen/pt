@@ -28,8 +28,8 @@ const fromSettings = await readProjectSetting<string>(ctx.cwd, "au.pt-context");
 `au.` 是 pt 早期命名空间前缀（项目曾叫 `au-core`，后改名 `pt`）。改名后 `au.` 前缀的 settings 键没一并迁移。证据：
 
 - pi 文档（`extensions.md` / `tui.md`）**无 `au.` 前缀的任何约定**——`settings.json` 是通用项目配置，键名由 extension 自定义
-- pt 代码/文档里 `au.` 仅出现在 `au.pt-context` / `au.blueprint` / `au.scene`（`docs/pt-dev-phases.md:893,902` 记录了 blueprint→scene 迁移时 `au.blueprint`→`au.scene` 的历史）
-- `docs/pt-architecture.json:32` 把 `.pi/settings.json` 标注为 `au.pt-context key`——架构图也沿用此名
+- pt 代码/文档里 `au.` 仅出现在 `au.pt-context` / `au.blueprint` / `au.scene`（`.pt/docs/designs/pt-dev-phases.md:893,902` 记录了 blueprint→scene 迁移时 `au.blueprint`→`au.scene` 的历史）
+- `.pt/docs/designs/visuals/pt-architecture.json:32` 把 `.pi/settings.json` 标注为 `au.pt-context key`——架构图也沿用此名
 
 ## 影响
 
@@ -54,8 +54,8 @@ const fromSettings =
 
 - `src/index.ts:130` `au.pt-context` → `pt.pt-context`（+ 旧键兼容读）
 - `src/index.ts:137` notify 提示文案改 `pt.pt-context`
-- `docs/pt-architecture.json:32,50` 标注改 `pt.pt-context`
-- `docs/pt-dev-phases.md:893,902` 历史记录补注"au.→pt. 迁移"
+- `.pt/docs/designs/visuals/pt-architecture.json:32,50` 标注改 `pt.pt-context`
+- `.pt/docs/designs/pt-dev-phases.md:893,902` 历史记录补注"au.→pt. 迁移"
 - 用户 `.pi/settings.json` `au.pt-context` → `pt.pt-context`
 
 ## 关联

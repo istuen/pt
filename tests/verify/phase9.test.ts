@@ -32,9 +32,9 @@ const loadedProfiles: Record<string, LoadedProfile> = {};
 beforeAll(async () => {
   // 清缓存，确保首次加载都重编译
   try {
-    for (const f of await readdir(join(cwd, ".pt/contexts/cache"))) {
+    for (const f of await readdir(join(cwd, ".pt/cache/contexts"))) {
       if (f.endsWith(".context.md")) {
-        await readFile(join(cwd, ".pt/contexts/cache", f), "utf8").catch(() => {});
+        await readFile(join(cwd, ".pt/cache/contexts", f), "utf8").catch(() => {});
       }
     }
   } catch {}
@@ -106,7 +106,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 5. v9 注入点 H2 ==========
   describe("5. v9 注入点 H2", () => {
     it("pt-dev Context 含 ## 会话知识 + ## 参考手册，不含 ## Scene / ## Manual", async () => {
-      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      const raw = await readFile(join(cwd, ".pt/cache/contexts/pt-dev.context.md"), "utf8");
       expect(/^## 会话知识/m.test(raw)).toBe(true);
       expect(/^## 参考手册/m.test(raw)).toBe(true);
       expect(/^## Scene\b/m.test(raw)).toBe(false);
@@ -117,7 +117,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 6. pt-quality Manual ==========
   describe("6. pt-quality 进参考手册不污染会话知识", () => {
     it("pt-quality Manual 段出现在 pt-dev 参考手册", async () => {
-      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      const raw = await readFile(join(cwd, ".pt/cache/contexts/pt-dev.context.md"), "utf8");
       const canKaoIdx = raw.indexOf("## 参考手册");
       let qualityManualIdx = -1;
       let searchFrom = canKaoIdx;
@@ -135,7 +135,7 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
 
     it("pt-quality Manual 规范 checklist 不污染会话知识段", async () => {
-      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      const raw = await readFile(join(cwd, ".pt/cache/contexts/pt-dev.context.md"), "utf8");
       const canKaoIdx = raw.indexOf("## 参考手册");
       const huiHuaIdx = raw.indexOf("## 会话知识");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
@@ -147,7 +147,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 7. Trigger 索引段 ==========
   describe("7. Trigger 索引段", () => {
     it("pt-quality-trigger 出现在会话知识段", async () => {
-      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      const raw = await readFile(join(cwd, ".pt/cache/contexts/pt-dev.context.md"), "utf8");
       const huiHuaIdx = raw.indexOf("## 会话知识");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
       const triggerIdx = raw.indexOf("pt-quality-trigger");
@@ -159,7 +159,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 8. me Domain ==========
   describe("8. me Domain 进入会话知识", () => {
     it("me Domain 段出现在会话知识", async () => {
-      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      const raw = await readFile(join(cwd, ".pt/cache/contexts/pt-dev.context.md"), "utf8");
       const huiHuaIdx = raw.indexOf("## 会话知识");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
       const meIdx = raw.indexOf("### me");
@@ -168,7 +168,7 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
 
     it("me 含 user-profile/pt-goal/collab-mode", async () => {
-      const raw = await readFile(join(cwd, ".pt/contexts/cache/pt-dev.context.md"), "utf8");
+      const raw = await readFile(join(cwd, ".pt/cache/contexts/pt-dev.context.md"), "utf8");
       expect(raw).toContain("user-profile");
       expect(raw).toContain("pt-goal");
       expect(raw).toContain("collab-mode");

@@ -18,11 +18,14 @@ name: asset-workflow
 ### asset-types
 - desc: Domain（.pt/assets/domains/*.md，frontmatter.type 区分 term/workflow/stack，H2 段 Scene/Trigger/Manual）+ Blueprint（.pt/assets/blueprints/*.md，结构层——H2=注入点 + target + Modules + Compilation）+ Profile（.pt/assets/profiles/*.md，配置层——blueprint 引用 + domains 列表 + 注入点追加）
 
+### directory-layout
+- desc: .pt/ 布局声明式 spec——两类入口：assets/（入 git，转译资产 domains/blueprints/profiles）+ docs/（入 git，文档 designs 设计与执行 / issues 问题跟踪 / CHANGELOG）；运行时产物默认不入 git：manuals/（pt_manual 工作文档）+ cache/（contexts 编译产物 / fulls 完整 prompt dump / raws segment dump）+ logs/（NDJSON trace）。改布局就改本场景——当前代码路径常量在 src/constants.ts 需手动同步，未来计划让转译层直接读本场景配置目录与 git 归属
+
 ### verify-loop
 - desc: 改完资产后必跑 `npm run verify`（vitest 34 tests）+ `tsc --noEmit`；失败则修到过，不跳过不绕过
 
 ### cache-invalidation
-- desc: 资产改动后删 .pt/contexts/cache/*.context.md 强制重编译；sourceHash = hash(Profile + Blueprint + Domains)，资产变了 hash 自然不同，cache miss 自动重编译
+- desc: 资产改动后删 .pt/cache/contexts/*.context.md 强制重编译；sourceHash = hash(Profile + Blueprint + Domains)，资产变了 hash 自然不同，cache miss 自动重编译
 
 ## Manual
 
@@ -32,7 +35,7 @@ name: asset-workflow
 - vars: [domain-name]
 - step: 定位 .pt/assets/domains/{{domain-name}}.md
 - step: 改 frontmatter（type/name）或 H2 段（Scene 加 ### 项 + desc；Manual 加 ### 规则 + desc/check；Trigger 加 ### 项 + desc/hint）
-- step: 删 .pt/contexts/cache/*.context.md（强制重编译）
+- step: 删 .pt/cache/contexts/*.context.md（强制重编译）
 - step: 跑 `npm run verify` + `tsc --noEmit`
 - step: git commit "Update {{domain-name}} domain: 改动说明"
 
@@ -42,7 +45,7 @@ name: asset-workflow
 - vars: [profile-name]
 - step: 定位 .pt/assets/profiles/{{profile-name}}.profile.md
 - step: 改 frontmatter（blueprint）或 domains 列表（顺序影响 LLM attention——身份类 domain 放前，约束类放后）
-- step: 删 .pt/contexts/cache/{{profile-name}}.context.md
+- step: 删 .pt/cache/contexts/{{profile-name}}.context.md
 - step: 跑 `npm run verify`
 - step: git commit "Update {{profile-name}} profile: 改动说明"
 

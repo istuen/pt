@@ -6,8 +6,14 @@
 // 注入用 AgentAdapter（默认 Pi）封装 before_agent_start + input 事件。
 //
 // Tech Debt T11: per-session 状态收拢到 SessionState（src/session.ts），不再 10 个模块级 let。
+//
+// v10.x（issue pt-context-persist-lost 修复）：
+//   - session_start fallback 链加第四源：session JSONL（`pi.appendEntry()` 持久化）。
+//     优先级：flag > settings > session > auto。session 优先于 auto，保留用户上次选择。
+//   - switchProfile / session_start 加载成功后调 `pi.appendEntry()` 把 activeProfile 写回 session。
+//     session entry 与 Pi Session 生命周期对齐（resume/--session/--fork 继承；/new/ephemeral 不继承）。
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -18,7 +24,7 @@ import { getAgentAdapter } from "./agent/index.js";
 import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
 import { LOG_DIR, PtLogger } from "./log.js";
 import { findFlowInBlueprint } from "./render/context-message.js";
-import { resetSession, session } from "./session.js";
+import { type ProfileLoadSource, resetSession, session } from "./session.js";
 import { buildManualDoc, filterDomainsByProfile, flowsText, statusText } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
 import type { AgentAdapter, AgentAPI } from "./schema.js";
@@ -31,6 +37,51 @@ function slog(level: "debug" | "info" | "warn" | "error", msg: string, ctx?: Rec
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** v10.x：session JSONL 中用于持久化 activeProfile 的 custom entry customType。
+ *  用 `pt:` 命名空间避免污染 pi 通用命名空间。 */
+const PT_PROFILE_ENTRY = "pt:active-profile";
+
+/** v10.x：从 session JSONL 读上次保存的 profile。
+ *  - 反向遍历 entries，取最后一个 `pt:active-profile`（最新一次切换覆盖前一次）。
+ *  - 静默 fallback：SessionManager 不可用 / ephemeral session / entry 损坏 → 返 undefined。
+ *  - 不校验 profile 是否仍存在于 assets——校验留给 transpileActive（transpile 失败会被 session_start catch）。
+ *  - 用结构类型而非 `ReadonlySessionManager`（该类型不在 pi 包顶层 export.d.ts 里）。 */
+interface MinimalSessionManager {
+  getEntries(): Array<{ type: string; customType?: string; data?: unknown }>;
+}
+function readProfileFromSession(sessionManager: MinimalSessionManager): string | undefined {
+  try {
+    const entries = sessionManager.getEntries();
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (e && e.type === "custom" && e.customType === PT_PROFILE_ENTRY) {
+        const data = (e as { data?: unknown }).data;
+        if (data && typeof data === "object") {
+          const profile = (data as { profile?: unknown }).profile;
+          if (typeof profile === "string" && profile.trim()) {
+            return profile.trim();
+          }
+        }
+      }
+    }
+  } catch {
+    // SessionManager 异常（如不存在 / 旧版 pi）→ 静默
+  }
+  return undefined;
+}
+
+/** v10.x：把当前 activeProfile 写入 session JSONL（Pi 自带持久化）。
+ *  - 用 `pi.appendEntry()`（dist/core/extensions/types.d.ts:78 官方 API）。
+ *  - 失败静默（ephemeral session / 旧版 pi 无此 API）——内存中 activeProfile 仍可用本进程。 */
+function persistProfileToSession(pi: ExtensionAPI, name: string): void {
+  try {
+    if (typeof pi.appendEntry !== "function") return;
+    pi.appendEntry(PT_PROFILE_ENTRY, { profile: name });
+  } catch (e) {
+    slog("warn", "persistProfileToSession failed", { profileName: name, err: errMsg(e) });
+  }
 }
 
 /** 转译当前选定的 Profile，结果写入 session；失败降级。
@@ -79,16 +130,19 @@ async function transpileActive(
   }
 }
 
-/** 切换 Profile：重转译 + 通知。
- *  v10.x：增 log entry，让会话 trace 能分辨"用户主动切换" vs "session_start 自动加载"。 */
+/** 切换 Profile：重转译 + 通知 + 持久化。
+ *  v10.x：增 log entry，让会话 trace 能分辨"用户主动切换" vs "session_start 自动加载"。
+ *  v10.x：成功后调 `persistProfileToSession(pi, name)` 把选择写到 session JSONL，下次进程启动自动恢复。 */
 async function switchProfile(
-  _pi: ExtensionAPI,
+  pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   name: string,
 ): Promise<void> {
   slog("info", "command:switchProfile start", { profileName: name });
   try {
     await transpileActive(ctx.cwd, name, (msg, level) => ctx.ui.notify(msg, level));
+    session.loadedFrom = null;  // 用户手动切换不属于 auto/flag/settings/session 任何源；null 表达"用户主动"
+    persistProfileToSession(pi, name);  // v10.x：session 持久化（issue pt-context-persist-lost）
     ctx.ui.setStatus("pt", `pt: ${name}`);
     const hint = session.lastCacheHit ? "（缓存命中）" : "（已重编译）";
     ctx.ui.notify(`已切换到 ${name}，下一轮生效 ${hint}`, "info");
@@ -119,6 +173,11 @@ export default function (pi: ExtensionAPI): void {
   });
 
   // ========== session_start：生成 sessionId + 创 logger + 读默认 profile + 转译 + 注册 adapter ==========
+  // v10.x（issue pt-context-persist-lost 修复）：fallback 链加第四源（session JSONL）。
+  //   优先级：flag > settings > session > auto。
+  //   session 优先于 auto——保留用户上次选择，避免 auto（>1 profile 时）兜底抹除用户偏好。
+  //   加载成功后调 `persistProfileToSession(pi, picked)` 把来源同步到 JSONL
+  //     （flag/settings/session 任意来源加载的 profile 都写回 session，作为下次 fallback 的首选）。
   pi.on("session_start", async (_event, ctx) => {
     // v10.x：先生成 sessionId + logger，让后续事件 trace 有归属
     session.sessionId = randomUUID().slice(0, 8);
@@ -131,28 +190,41 @@ export default function (pi: ExtensionAPI): void {
       const flagVal = typeof flag === "string" && flag.trim() ? flag.trim() : undefined;
 
       const fromSettings = await readProjectSetting<string>(ctx.cwd, "au.pt-context");
+      const fromSession = readProfileFromSession(ctx.sessionManager);  // v10.x
       const auto = await detectSingleProfile(ctx.cwd);
 
-      const picked = flagVal ?? fromSettings ?? auto;
+      // 显式分支记录来源（便于 /pt status 展示 + trace）
+      let picked: string | undefined;
+      let pickedFrom: ProfileLoadSource;
+      if (flagVal) { picked = flagVal; pickedFrom = "flag"; }
+      else if (fromSettings) { picked = fromSettings; pickedFrom = "settings"; }
+      else if (fromSession) { picked = fromSession; pickedFrom = "session"; }
+      else if (auto) { picked = auto; pickedFrom = "auto"; }
+      else { picked = undefined; pickedFrom = null; }
 
       if (!picked) {
         ctx.ui.setStatus("pt", "pt: 无 context");
         ctx.ui.notify("Pt：未找到 Profile。用 /pt-context <name> 选择，或在 .pi/settings.json 设 au.pt-context。", "info");
-        session.logger.info("session:no profile picked", { flagVal, fromSettings, auto });
+        session.loadedFrom = null;
+        session.logger.info("session:no profile picked", { flagVal, fromSettings, fromSession, auto });
         return;
       }
 
       await transpileActive(ctx.cwd, picked, (msg, level) => ctx.ui.notify(msg, level));
+      session.loadedFrom = pickedFrom;  // v10.x：可观测性
+      persistProfileToSession(pi, picked);  // v10.x：把当前来源同步到 JSONL（下次进程默认走 session）
       // 注册 AgentAdapter 注入（封装 before_agent_start + input）
       if (session.activeAdapter && session.cachedContext && session.cachedBlueprint) {
         session.activeAdapter.registerInject(toAgentAPI(pi, ctx), session.cachedContext, session.cachedBlueprint);
       }
       ctx.ui.setStatus("pt", `pt: ${picked}`);
+      session.logger.info("session:profile loaded", { profileName: picked, loadedFrom: pickedFrom });
     } catch (e) {
       ctx.ui.notify(`Pt 加载失败：${errMsg(e)}`, "error");
       ctx.ui.setStatus("pt", "pt: 加载失败");
       session.cachedSegment = null;
       session.cachedBundles = null;
+      session.loadedFrom = null;
       session.logger?.error("session:start failed", { err: errMsg(e) });
     }
   });
@@ -338,7 +410,7 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  // ========== tool 壳：LLM 可调（与 command 共享纯函数内核，docs/pt-command-tool-dual-registration.md） ==========
+  // ========== tool 壳：LLM 可调（与 command 共享纯函数内核，.pt/docs/designs/pt-command-tool-dual-registration.md） ==========
   // 只读查询 + 手册实例化做 tool；pt-context（改 system prompt）不做 tool（见设计文档 §2.4）
 
   pi.registerTool({

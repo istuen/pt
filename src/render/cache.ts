@@ -1,6 +1,6 @@
 // src/render/cache.ts — Context 文件读写 + hash 校验
 //
-// Phase 8.5：v8 缓存配置从 Blueprint.Compilation 取（替代 v7 硬编码 .pt/contexts/cache）。
+// Phase 8.5：v8 缓存配置从 Blueprint.Compilation 取（替代 v7 硬编码 .pt/cache/contexts）。
 //   - cacheDir：从 Blueprint.compilation.cacheDir 读
 //   - split：single-file / by-injection-point（v9 只实现 single-file——by-injection-point 预留）
 //

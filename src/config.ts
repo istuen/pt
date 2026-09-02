@@ -6,7 +6,7 @@
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { PROFILES_DIR } from "./constants.js";
+import { BUILTIN_ASSETS_DIR, PROFILES_DIR } from "./constants.js";
 
 /** 读项目 settings.json 的指定 dotted key。文件不存在/解析失败 → undefined */
 export async function readProjectSetting<T = unknown>(
@@ -34,20 +34,31 @@ function isRecord(x: unknown): x is Record<string, unknown> {
   return !!x && typeof x === "object" && !Array.isArray(x);
 }
 
-/** 列出 .pt/assets/profiles/*.profile.md 下的 Profile 名（v9：去 .profile 后缀）。 */
+/** 列出可选 Profile 名：项目 + 内建合并，同名时项目覆盖内建。
+ *  必须与 mdAdapter.load 的合并语义一致——否则选择器/补全看不到内建 profile
+ *  （如 builtin `pt`），但 transpile 又能加载，造成“选不到却能手敲”的不一致
+ *  （issue: 内建 pt 无法通过 pt-context 选择）。 */
 export async function listProfiles(cwd: string): Promise<string[]> {
-  const dir = join(cwd, PROFILES_DIR);
+  const project = await listProfileNamesIn(join(cwd, PROFILES_DIR));
+  const builtin = await listProfileNamesIn(join(BUILTIN_ASSETS_DIR, "profiles"));
+  const projectNames = new Set(project);
+  const merged = [...project, ...builtin.filter((n) => !projectNames.has(n))];
+  return merged.sort();
+}
+
+/** 扫描某个 profiles 目录提取 Profile 名（去 .profile.md 后缀）。目录不存在返空。 */
+async function listProfileNamesIn(dir: string): Promise<string[]> {
   try {
     const files = await readdir(dir);
-    const profiles: string[] = [];
+    const names: string[] = [];
     for (const f of files) {
       if (!f.endsWith(".md")) continue;
       const base = f.slice(0, -3);  // 去 .md
       if (base.endsWith(".profile")) {
-        profiles.push(base.slice(0, -8));  // 去 .profile
+        names.push(base.slice(0, -8));  // 去 .profile
       }
     }
-    return profiles.sort();
+    return names;
   } catch {
     return [];
   }
