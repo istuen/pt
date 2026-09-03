@@ -17,6 +17,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
+  ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -26,9 +27,21 @@ import { randomUUID } from "node:crypto";
 import { FULL_DIR, MANUAL_DIR, MOD_MANUAL, PROFILES_DIR, RAW_DIR } from "./constants.js";
 import { getAgentAdapter } from "./agent/index.js";
 import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
+import { renderInjectionFooter } from "./injection-status.js";
 import { LOG_DIR, PtLogger } from "./log.js";
+import {
+  isManualActive,
+  parseManualProgress,
+  renderManualFooterSuffix,
+  renderManualWidgetLines,
+} from "./manual-track.js";
 import { findFlowInBlueprint } from "./render/context-message.js";
-import { type ProfileLoadSource, resetSession, session } from "./session.js";
+import {
+  type ActiveManual,
+  type ProfileLoadSource,
+  resetSession,
+  session,
+} from "./session.js";
 import {
   buildFullPrompt,
   buildManualDoc,
@@ -100,6 +113,140 @@ function persistProfileToSession(pi: ExtensionAPI, name: string): void {
   }
 }
 
+/** v11.x：手动跟踪的 ActiveManual 持久化 + widget 刷新。 */
+
+/** session JSONL 中持久化 ActiveManual 的 custom entry customType。 */
+const PT_MANUAL_ENTRY = "pt:active-manual";
+
+/** 从 session JSONL 读上次保存的 ActiveManual。读出后由 caller 校验（isManualActive）。
+ *  静默 fallback：异常 / 无 entry → undefined。 */
+interface PersistedManualEntry {
+  filePath: string;
+  procedure: string;
+  args: string;
+}
+function readManualFromSession(sessionManager: MinimalSessionManager): PersistedManualEntry | undefined {
+  try {
+    const entries = sessionManager.getEntries();
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (e && e.type === "custom" && e.customType === PT_MANUAL_ENTRY) {
+        const data = (e as { data?: unknown }).data;
+        if (data && typeof data === "object") {
+          const d = data as Record<string, unknown>;
+          const filePath = d.filePath;
+          const procedure = d.procedure;
+          const args = d.args;
+          if (
+            typeof filePath === "string" &&
+            filePath.trim() &&
+            typeof procedure === "string"
+          ) {
+            return {
+              filePath: filePath.trim(),
+              procedure,
+              args: typeof args === "string" ? args : "",
+            };
+          }
+        }
+      }
+    }
+  } catch {}
+  return undefined;
+}
+
+/** 把当前 ActiveManual 写入 session JSONL。
+ *  失败静默（ephemeral session / 旧版 pi 无 appendEntry）——内存中 activeManual 仍可用本进程。 */
+function persistManualToSession(pi: ExtensionAPI, m: ActiveManual): void {
+  try {
+    if (typeof pi.appendEntry !== "function") return;
+    pi.appendEntry(PT_MANUAL_ENTRY, {
+      filePath: m.filePath,
+      procedure: m.procedure,
+      args: m.args,
+    });
+  } catch (e) {
+    slog("warn", "persistManualToSession failed", { procedure: m.procedure, err: errMsg(e) });
+  }
+}
+
+/** 刷新 footer 注入状态 + manual 后缀（合并写一次 setStatus）。 */
+function refreshInjectionFooter(ui: ExtensionUIContext): void {
+  const suffix = renderActiveManualSuffix();
+  const base = renderInjectionFooter(
+    session.injectionState,
+    session.activeProfile,
+    session.injectionError
+  );
+  ui.setStatus("pt", suffix ? `${base} ${suffix}` : base);
+}
+
+/** 计算 active manual 的 footer 后缀（空字符串 = 无 activeManual 或 completed）。 */
+function renderActiveManualSuffix(): string {
+  if (!session.activeManual) return "";
+  // 同步快速读（无 IO）—— widget 刷新会走 async parseManualProgress
+  // footer 只显示 procedure 名 + done/total，避免 IO 阻塞 setStatus
+  // 但 stepDone/total 是派生数据，需要同步可读——
+  // 这里走同步取缓存策略：保留 widget 异步 parse 的最新结果
+  if (!cachedManualProgress) return "";
+  return renderManualFooterSuffix(cachedManualProgress);
+}
+
+/** cachedManualProgress：refreshManualWidget 异步 parse 后写入，footer 同步读。
+ *  单字段缓存，不需要 broadcast channel。 */
+let cachedManualProgress: import("./manual-track.js").ManualProgress | null = null;
+
+/** 刷新 widget（aboveEditor）。根据 session.activeManual 决定显示/撤掉。
+ *  - 无 activeManual → 撤 widget
+ *  - 文件不存在 / 已 completed → 清 activeManual + 撤 widget
+ *  - in-progress → 渲染 3 行 widget + 更新 cachedManualProgress（footer 同步读） */
+async function refreshManualWidget(ui: ExtensionUIContext): Promise<void> {
+  const m = session.activeManual;
+  if (!m) {
+    cachedManualProgress = null;
+    ui.setWidget("pt-manual", undefined);
+    return;
+  }
+  const p = await parseManualProgress(m.filePath);
+  if (!p || p.status === "completed") {
+    session.activeManual = null;
+    cachedManualProgress = null;
+    ui.setWidget("pt-manual", undefined);
+    return;
+  }
+  cachedManualProgress = p;
+  ui.setWidget("pt-manual", renderManualWidgetLines(m.filePath, p), {
+    placement: "aboveEditor",
+  });
+}
+
+/** session_start 时试恢复 manual：读 pt:active-manual entry → 校验文件存在 + status !== completed。
+ *  独立于 profile 加载链——profile 失败 / 无 profile 也能恢复 manual 追踪。 */
+async function tryRestoreManual(ctx: ExtensionContext): Promise<void> {
+  const entry = readManualFromSession(ctx.sessionManager);
+  if (!entry) return;
+  const active = await isManualActive(entry.filePath);
+  if (!active) {
+    session.logger?.debug("manual:restore skipped (inactive)", {
+      filePath: entry.filePath,
+    });
+    return;
+  }
+  session.activeManual = {
+    filePath: entry.filePath,
+    procedure: entry.procedure,
+    args: entry.args,
+    activatedAt: Date.now(),
+  };
+  await refreshManualWidget(ctx.ui);
+  // widget 设置后才调 footer（refreshManualWidget 写 cachedManualProgress）
+  refreshInjectionFooter(ctx.ui);
+  session.logger?.info("manual:restored", {
+    filePath: entry.filePath,
+    procedure: entry.procedure,
+  });
+}
+
 /** 当前编译产物就绪时注册 Adapter 注入；session_start 与手动切换共用。 */
 function registerInjectionIfReady(pi: ExtensionAPI, ctx: { ui: AgentUIContext }): boolean {
   const adapter = session.activeAdapter;
@@ -159,7 +306,8 @@ async function transpileActive(
 
 /** 切换 Profile：重转译 + 通知 + 持久化。
  *  v10.x：增 log entry，让会话 trace 能分辨"用户主动切换" vs "session_start 自动加载"。
- *  v10.x：成功后调 `persistProfileToSession(pi, name)` 把选择写到 session JSONL，下次进程启动自动恢复。 */
+ *  v10.x：成功后调 `persistProfileToSession(pi, name)` 把选择写到 session JSONL，下次进程启动自动恢复。
+ *  v11.x：成功后调 `refreshInjectionFooter`（pending 状态）+ `refreshManualWidget`（保留 manual 追踪）。 */
 async function switchProfile(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
@@ -171,8 +319,12 @@ async function switchProfile(
     session.loadedFrom = null; // 用户手动切换不属于 auto/flag/settings/session 任何源；null 表达"用户主动"
     persistProfileToSession(pi, name); // v10.x：session 持久化（issue pt-context-persist-lost）
     const injected = registerInjectionIfReady(pi, ctx);
+    // v11.x：切换后立即标 pending，等下一轮 before_agent_start 翻成 injected
+    session.injectionState = "pending";
+    session.injectionError = null;
+    refreshInjectionFooter(ctx.ui);
+    await refreshManualWidget(ctx.ui);
     slog("info", "command:switchProfile inject", { profileName: name, injected });
-    ctx.ui.setStatus("pt", `pt: ${name}`);
     const hint = session.lastCacheHit ? "（缓存命中）" : "（已重编译）";
     ctx.ui.notify(`已切换到 ${name}，下一轮生效 ${hint}`, "info");
     slog("info", "command:switchProfile done", {
@@ -210,6 +362,8 @@ export default function (pi: ExtensionAPI): void {
   //   session 优先于 auto——保留用户上次选择，避免项目级 auto（>1 project profile 时）抹除用户偏好。
   //   加载成功后调 `persistProfileToSession(pi, picked)` 把来源同步到 JSONL
   //     （flag/settings/session 任意来源加载的 profile 都写回 session，作为下次 fallback 的首选）。
+  // v11.x：fallback 链额外加 manual 恢复（独立于 profile 链——profile 失败不影响 manual 恢复）。
+  //   manual 读出后校验文件存在 + status !== completed；满足才挂载 widget。
   pi.on("session_start", async (_event, ctx) => {
     // v10.x：先生成 sessionId + logger，让后续事件 trace 有归属
     session.sessionId = randomUUID().slice(0, 8);
@@ -246,7 +400,9 @@ export default function (pi: ExtensionAPI): void {
       }
 
       if (!picked) {
-        ctx.ui.setStatus("pt", "pt: 无 context");
+        session.injectionState = "idle";
+        session.injectionError = null;
+        refreshInjectionFooter(ctx.ui);
         ctx.ui.notify(
           "Pt：未找到 Profile。用 /pt-context <name> 选择，或在 .pi/settings.json 设 au.pt-context。",
           "info"
@@ -258,6 +414,8 @@ export default function (pi: ExtensionAPI): void {
           fromSession,
           auto,
         });
+        // v11.x：manual fallback 即使无 profile 也要试（手动追踪可独立于 profile）
+        await tryRestoreManual(ctx);
         return;
       }
 
@@ -266,24 +424,35 @@ export default function (pi: ExtensionAPI): void {
       persistProfileToSession(pi, picked); // v10.x：把当前来源同步到 JSONL（下次进程默认走 session）
       // 注册 AgentAdapter 注入（封装 before_agent_start + input）
       const injected = registerInjectionIfReady(pi, ctx);
-      ctx.ui.setStatus("pt", `pt: ${picked}`);
+      // v11.x：profile 已加载但还没轮到下一轮 before_agent_start → pending
+      session.injectionState = "pending";
+      session.injectionError = null;
+      refreshInjectionFooter(ctx.ui);
       session.logger.info("session:profile loaded", {
         profileName: picked,
         loadedFrom: pickedFrom,
         injected,
       });
+
+      // v11.x：profile 加载后试恢复 manual（独立于 profile 链）
+      await tryRestoreManual(ctx);
     } catch (e) {
       ctx.ui.notify(`Pt 加载失败：${errMsg(e)}`, "error");
-      ctx.ui.setStatus("pt", "pt: 加载失败");
+      session.injectionState = "failed";
+      session.injectionError = errMsg(e);
+      refreshInjectionFooter(ctx.ui);
       session.cachedSegment = null;
       session.cachedBundles = null;
       session.loadedFrom = null;
       session.logger?.error("session:start failed", { err: errMsg(e) });
+      // v11.x：profile 失败但 manual 仍可能独立恢复（手动追踪不依赖 profile）
+      await tryRestoreManual(ctx);
     }
   });
 
   // ========== session_shutdown：flush logger + 清内存态 ==========
   // v10.x：先 flush 避免丢尾，再 reset 清状态
+  // v11.x：resetSession 覆盖 injectionState / activeManual / cachedManualProgress（widget 不持久）
   pi.on("session_shutdown", async () => {
     if (session.logger) {
       session.logger.info("session:shutdown");
@@ -293,6 +462,7 @@ export default function (pi: ExtensionAPI): void {
     // 避免新 session 在尚未重新选择 Profile 时继续注入旧内容。
     session.activeAdapter?.resetInjection?.();
     resetSession();
+    cachedManualProgress = null; // module-level 缓存，resetSession 不包含
   });
 
   // ========== turn 级 trace（P2: 覆盖 turn 生命周期） ==========
@@ -353,7 +523,14 @@ export default function (pi: ExtensionAPI): void {
   pi.registerCommand("pt", {
     description: "查看 Pt 转译产物 / 状态（无参=显示当前 segment）",
     handler: async (args, ctx) => {
-      const sub = args.trim().toLowerCase();
+      // v11.x 修复：原来 `sub = args.trim()` 会把整个 args 作为 sub，导致 `/pt manual <proc>` 时
+      //   `sub === "manual"` 永远不成立。改为：sub = 第一词，subArgs = 剩余。
+      //   兼容现有 logs:clear / status / flows 等单子命令（不带额外参数）行为不变。
+      const firstSpace = args.indexOf(" ");
+      const head = firstSpace === -1 ? args : args.slice(0, firstSpace);
+      const tail = firstSpace === -1 ? "" : args.slice(firstSpace + 1);
+      const sub = head.trim().toLowerCase();
+      const subArgs = tail;
       slog("info", "command:/pt invoked", { sub }); // v10.x: P4 子命令 trace
 
       if (sub === "status" || sub === "") {
@@ -466,9 +643,10 @@ export default function (pi: ExtensionAPI): void {
       }
 
       if (sub === "manual") {
-        const parts = args.trim().split(/\s+/);
-        const procedureName = parts[0];
-        const procedureArgs = parts.slice(1).join(" ");
+        // v11.x 修复：subArgs 才是 procedure 参数（原 code 会拿到 "manual"）
+        const procedureParts = subArgs.trim().split(/\s+/);
+        const procedureName = procedureParts[0] ?? "";
+        const procedureArgs = procedureParts.slice(1).join(" ");
         const r = buildManualDoc(ctx.cwd, procedureName, procedureArgs);
         if (r.error) {
           ctx.ui.notify(r.error, "warning");
@@ -476,6 +654,16 @@ export default function (pi: ExtensionAPI): void {
         }
         await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
         await writeFile(r.filePath, r.content, "utf8");
+        // v11.x：手动跟踪实例 + widget + footer + 持久化
+        session.activeManual = {
+          filePath: r.filePath,
+          procedure: procedureName,
+          args: procedureArgs,
+          activatedAt: Date.now(),
+        };
+        persistManualToSession(pi, session.activeManual);
+        await refreshManualWidget(ctx.ui);
+        refreshInjectionFooter(ctx.ui);
         ctx.ui.notify(`手册实例已创建: ${r.filePath}`, "info");
         return;
       }
@@ -541,6 +729,16 @@ export default function (pi: ExtensionAPI): void {
       return withFileMutationQueue(r.filePath, async () => {
         await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
         await writeFile(r.filePath, r.content, "utf8");
+        // v11.x：手动跟踪实例 + widget + footer + 持久化
+        session.activeManual = {
+          filePath: r.filePath,
+          procedure: params.procedure,
+          args: params.args ?? "",
+          activatedAt: Date.now(),
+        };
+        persistManualToSession(pi, session.activeManual);
+        await refreshManualWidget(ctx.ui);
+        refreshInjectionFooter(ctx.ui);
         return {
           content: [{ type: "text", text: `手册实例已创建: ${r.filePath}` }],
           details: { path: r.filePath },
@@ -579,6 +777,12 @@ export default function (pi: ExtensionAPI): void {
           : result.outcome === "DEVIATED"
             ? `✗ ${result.message}${result.actual ? `\n${result.actual}` : ""}`
             : `? ${result.message}`;
+      // v11.x：verify 后重读文件刷新 widget（用户可能手动 tick 了 checklist）
+      // 不改 session.activeManual，只 refresh 派生数据（widget + cachedManualProgress）
+      if (session.activeManual) {
+        await refreshManualWidget(ctx.ui);
+        refreshInjectionFooter(ctx.ui);
+      }
       return {
         content: [{ type: "text", text }],
         details: result,

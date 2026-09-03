@@ -11,6 +11,8 @@
 
 import { AGENT_PI, MOD_MANUAL } from "../constants.js";
 import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
+import { renderInjectionFooter } from "../injection-status.js";
+import { session } from "../session.js";
 import type { AgentAdapter, AgentAPI, Blueprint, Context, Domain } from "../schema.js";
 import { renderContextMessage } from "../render/context-message.js";
 import { renderSystemPrompt } from "../render/system-prompt.js";
@@ -65,13 +67,33 @@ export class PiAdapter implements AgentAdapter {
 
     // system_prompt 注入：每轮追加 segment
     // v10.x：包 try/catch，运行时异常走 api.log.error + ui.notify，不再 swallow
+    // v11.x（issue pt-injection-status-manual-track）：三分支写 session.injectionState +
+    //   调 api.ui?.setStatus，让 footer 三态文字真实反映注入结果（自报，不检测 Pi）
     api.on("before_agent_start", async (...args: unknown[]) => {
       const t0 = Date.now();
       try {
         const currentSegment = this.segment;
-        if (!currentSegment) return undefined;
+        if (!currentSegment) {
+          // 无 segment（未加载 Profile / 已被 reset）→ idle
+          session.injectionState = "idle";
+          session.injectionError = null;
+          api.ui?.setStatus(
+            "pt",
+            renderInjectionFooter("idle", session.activeProfile, null)
+          );
+          return undefined;
+        }
         const event = args[0];
-        if (!isSystemPromptEvent(event)) return undefined;
+        if (!isSystemPromptEvent(event)) {
+          // 事件形状异常：归类为 idle（不视为失败——Pi 可能改了事件签名）
+          session.injectionState = "idle";
+          session.injectionError = null;
+          api.ui?.setStatus(
+            "pt",
+            renderInjectionFooter("idle", session.activeProfile, null)
+          );
+          return undefined;
+        }
         const final = event.systemPrompt + "\n\n## 当前任务上下文\n\n" + currentSegment;
         api.log?.debug("agent:before_agent_start ok", {
           originalLen: event.systemPrompt.length,
@@ -80,6 +102,13 @@ export class PiAdapter implements AgentAdapter {
           durationMs: Date.now() - t0,
         });
         api.onInjected?.(final);
+        // 成功注入 → injected
+        session.injectionState = "injected";
+        session.injectionError = null;
+        api.ui?.setStatus(
+          "pt",
+          renderInjectionFooter("injected", session.activeProfile, null)
+        );
         return { systemPrompt: final };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -88,6 +117,10 @@ export class PiAdapter implements AgentAdapter {
           durationMs: Date.now() - t0,
         });
         api.ui?.notify(`[pt] before_agent_start failed: ${msg}`, "error");
+        // 异常 → failed + 错误消息（footer 追加）
+        session.injectionState = "failed";
+        session.injectionError = msg;
+        api.ui?.setStatus("pt", renderInjectionFooter("failed", session.activeProfile, msg));
         return undefined; // 失败降级, 不影响主流程
       }
     });
