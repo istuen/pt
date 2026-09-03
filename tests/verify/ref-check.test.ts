@@ -82,6 +82,31 @@ describe("P2: 引用完整性校验", () => {
     expect(result.warnings.length).toBeGreaterThan(0); // 有警告
   });
 
+  it("v11.x：Profile 全局 domains 覆盖时，未 H2 实例化不报 warning", () => {
+    // 主用例：Profile YAML 全局 domains 自动分发到所有注入点（不写 H2 实例化）。
+    // 这种情况不该报"未实例化" warning。
+    const profile: Profile = {
+      name: "test",
+      blueprint: "bp1",
+      domains: ["d1", "d2"], // 全局 domains 覆盖
+      injectionPoints: [], // 未 H2 实例化任何注入点
+    };
+    const blueprint: Blueprint = {
+      name: "bp1",
+      agent: "pi",
+      injectionPoints: [
+        { name: "会话知识", target: "system_prompt", modules: ["Scene"] },
+        { name: "参考手册", target: "context_message", modules: ["Manual"] },
+      ],
+      compilation: { cacheDir: ".pt/cache", split: "single-file" },
+    };
+    const d1 = { name: "d1", type: "term" as const, modules: {} };
+    const d2 = { name: "d2", type: "term" as const, modules: {} };
+    const result = checkProfileRefs(profile, [blueprint], [d1, d2]);
+    expect(result.ok).toBe(true); // 无错误
+    expect(result.warnings).toEqual([]); // 无 warning（全局 domains 覆盖）
+  });
+
   it("formatRefCheckResult 输出可读文本", () => {
     const text = formatRefCheckResult({
       ok: true,
