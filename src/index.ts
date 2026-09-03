@@ -29,7 +29,13 @@ import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.
 import { LOG_DIR, PtLogger } from "./log.js";
 import { findFlowInBlueprint } from "./render/context-message.js";
 import { type ProfileLoadSource, resetSession, session } from "./session.js";
-import { buildManualDoc, filterDomainsByProfile, flowsText, statusText } from "./commands.js";
+import {
+  buildFullPrompt,
+  buildManualDoc,
+  filterDomainsByProfile,
+  flowsText,
+  statusText,
+} from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
 import type { AgentAPI } from "./schema.js";
 
@@ -438,10 +444,13 @@ export default function (pi: ExtensionAPI): void {
       }
 
       if (sub === "full") {
-        const base = ctx.getSystemPrompt();
-        const full = session.cachedSegment
-          ? base + "\n\n## 当前任务上下文\n\n" + session.cachedSegment
-          : base;
+        // v10.x（fix pt-full-duplicate-segment）：用 lastBuiltPrompt 作 canonical source
+        // 第一轮之后 = LLM 实际看到的；第一轮之前 fallback 到模拟注入（保留旧版语义）
+        const full = buildFullPrompt(
+          ctx.getSystemPrompt(),
+          session.cachedSegment,
+          session.lastBuiltPrompt
+        );
         if (!session.cachedSegment) {
           ctx.ui.notify(
             "警告：无 cachedSegment（未加载 Profile）。用 /pt-context <name> 选择",

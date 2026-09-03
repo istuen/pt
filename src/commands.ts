@@ -71,6 +71,38 @@ export function flowsText(): string {
   return `可用手册（输入 /手册名 参数 或 /manual:<domain-name> 触发 Context Message）:\n${lines.join("\n")}`;
 }
 
+/** /pt full 内核：构建写入 .pt/cache/fulls/ 的完整 systemPrompt 字符串（v10.x 修复 pt-full-duplicate-segment）。
+ *
+ * 设计动机：消除 `/pt full` 与 PiAdapter `before_agent_start` 的双重拼接路径——
+ *   - PiAdapter 每轮把 segment 拼到 base，写回 `agent.state.systemPrompt`（= `ctx.getSystemPrompt()`）
+ *   - 第一轮 prompt 之后，`ctx.getSystemPrompt()` 已含 segment；旧版 `/pt full` 再拼一次 → 2× 重复
+ *   - 根因：两份拼接实现通过隐式时序耦合，缺乏单一信息源
+ *
+ * 修复：把 `lastBuiltPrompt`（由 PiAdapter 的 `onInjected` 回调写入，正是 LLM 实际看到的 systemPrompt）
+ *   作为 canonical source。第一轮之前的 fallback：模拟下一次 LLM 会看到的注入（保留旧版语义）。
+ *
+ * 边界纪律：
+ *   - 不动 PiAdapter（PiAdapter 行为正确，不重复注入）
+ *   - 不动 Pi 上游 API（`getSystemPrompt` 语义不变）
+ *   - 只动这一个函数体，外加调用方 `src/index.ts`
+ */
+export function buildFullPrompt(
+  baseSystemPrompt: string,
+  cachedSegment: string | null,
+  lastBuiltPrompt: string | null
+): string {
+  if (lastBuiltPrompt !== null) {
+    // 第一轮 prompt 之后：canonical source（= LLM 实际收到的 systemPrompt）
+    return lastBuiltPrompt;
+  }
+  if (cachedSegment) {
+    // 第一轮之前：模拟下一次 LLM 会看到的注入
+    return baseSystemPrompt + "\n\n## 当前任务上下文\n\n" + cachedSegment;
+  }
+  // 无 cachedSegment（未加载 Profile）
+  return baseSystemPrompt;
+}
+
 /** /pt manual 内核：构建手册实例文档内容 + 目标文件路径。不写文件（写文件由壳负责）。 */
 export interface ManualDocResult {
   content: string;
