@@ -585,6 +585,28 @@ export default function (pi: ExtensionAPI): void {
       };
     },
   });
+
+  pi.registerTool({
+    name: "pt_check_refs",
+    label: "Pt Check Refs",
+    description:
+      "Check Profile→Blueprint→Domain reference integrity. Detects dangling references (Profile references non-existent Blueprint or Domain). Read-only.",
+    promptSnippet: "Check Pt reference integrity",
+    promptGuidelines: [
+      "Use pt_check_refs to detect dangling references in Profile/Blueprint/Domain before committing asset changes.",
+    ],
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const { checkAllRefs, formatRefCheckResult } = await import("./verify/ref-check.js");
+      const r = await loadAndTranspile(ctx.cwd, session.activeProfile ?? "");
+      const b = r.bundles[0];
+      const result = checkAllRefs(b.profiles, b.blueprints, b.domains);
+      return {
+        content: [{ type: "text", text: formatRefCheckResult(result) }],
+        details: result,
+      };
+    },
+  });
 }
 
 /** 将 Pi ExtensionAPI 转换为 AgentAPI（结构类型子集，运行时透明）。
