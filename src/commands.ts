@@ -54,7 +54,10 @@ export function statusText(): string {
   ].join(" | ");
 }
 
-/** /pt flows 内核：返回可用手册列表文本。无激活 Profile 返回提示串。 */
+/** /pt flows 内核：返回可用手册列表文本。无激活 Profile 返回提示串。
+ *
+ * 调用 listManuals 时**已用 filterDomainsByProfile 预过滤**——按当前 Profile 注入点 scope
+ * 过滤后传入（见 schema.ts:AgentAdapter.listManuals JSDoc）。 */
 export function flowsText(): string {
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.activeAdapter) {
     return "无激活 Profile，先用 /pt-context <name> 激活";
