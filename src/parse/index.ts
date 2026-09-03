@@ -7,7 +7,14 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { ASSETS_DIR, BUILTIN_ASSETS_DIR, SUFFIX_MD } from "../constants.js";
-import type { Blueprint, Domain, Profile, SchemaBundle, SourceAdapter, SourceAdapterContext } from "../schema.js";
+import type {
+  Blueprint,
+  Domain,
+  Profile,
+  SchemaBundle,
+  SourceAdapter,
+  SourceAdapterContext,
+} from "../schema.js";
 import { findBlueprint, findProfile } from "../schema.js";
 import { parseBlueprint } from "./blueprint.js";
 import { parseDomain } from "./domain.js";
@@ -62,7 +69,7 @@ export const mdAdapter: SourceAdapter = {
           profileName: active.name,
           referencedBlueprint: active.blueprint,
           availableBlueprints: blueprints.map((b) => b.name),
-        },
+        }
       );
     }
 
@@ -83,7 +90,10 @@ async function loadAllDomains(cwd: string, adapterCtx?: SourceAdapterContext): P
   return loadDir(dir, SUFFIX_MD, (f) => parseDomain(dir, f), adapterCtx);
 }
 
-async function loadAllBlueprints(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Blueprint[]> {
+async function loadAllBlueprints(
+  cwd: string,
+  adapterCtx?: SourceAdapterContext
+): Promise<Blueprint[]> {
   const assetDir = adapterCtx?.assetDir ?? DEFAULT_ASSET_DIR;
   const dir = join(cwd, assetDir, "blueprints");
   return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(dir, f), adapterCtx);
@@ -118,12 +128,17 @@ function dedupByName<T extends { name: string }>(project: T[], builtin: T[]): T[
   return [...project, ...builtin.filter((x) => !projectNames.has(x.name))];
 }
 
-async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Promise<T>, adapterCtx?: SourceAdapterContext): Promise<T[]> {
+async function loadDir<T>(
+  dir: string,
+  suffix: string,
+  parser: (f: string) => Promise<T>,
+  adapterCtx?: SourceAdapterContext
+): Promise<T[]> {
   let files: string[];
   try {
     files = (await readdir(dir)).filter((f) => f.endsWith(suffix));
   } catch {
-    return [];  // 目录不存在返空（profiles/ 在 9.3 前可能尚未建立）
+    return []; // 目录不存在返空（profiles/ 在 9.3 前可能尚未建立）
   }
   const results: Array<T | null> = await Promise.all(
     files.map(async (f): Promise<T | null> => {
@@ -134,7 +149,7 @@ async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Pr
         reportError(adapterCtx, `parse ${dir}/${f} failed: ${errMsg(e)}`, { file: f });
         return null;
       }
-    }),
+    })
   );
   return results.filter((r): r is T => r !== null);
 }
@@ -142,12 +157,20 @@ async function loadDir<T>(dir: string, suffix: string, parser: (f: string) => Pr
 /** 三通道 fallback: log → notify → console（pt-quality #9 + 自定义细节）。
  *  顺序：log 优先（持久 trace），再 notify（UI 瞬时），最后 console（debug 兜底）。
  *  v10.x：增 details 参数，让 log/UI 用户能看到 structured 上下文。 */
-function reportWarn(adapterCtx: SourceAdapterContext | undefined, msg: string, details?: Record<string, unknown>): void {
+function reportWarn(
+  adapterCtx: SourceAdapterContext | undefined,
+  msg: string,
+  details?: Record<string, unknown>
+): void {
   if (adapterCtx?.log) adapterCtx.log.warn(msg, details);
   if (adapterCtx?.notify) adapterCtx.notify(msg, "warning");
   if (!adapterCtx?.log && !adapterCtx?.notify) console.warn(`[pt] ${msg}`);
 }
-function reportError(adapterCtx: SourceAdapterContext | undefined, msg: string, details?: Record<string, unknown>): void {
+function reportError(
+  adapterCtx: SourceAdapterContext | undefined,
+  msg: string,
+  details?: Record<string, unknown>
+): void {
   if (adapterCtx?.log) adapterCtx.log.error(msg, details);
   if (adapterCtx?.notify) adapterCtx.notify(msg, "error");
   if (!adapterCtx?.log && !adapterCtx?.notify) console.error(`[pt] ${msg}`);

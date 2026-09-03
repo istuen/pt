@@ -34,11 +34,11 @@ export function renderContextMessage(
   _ctx: Context,
   blueprint: Blueprint,
   domains: Domain[],
-  args: string,
+  args: string
 ): string | null {
   const m = args.trim().match(/^\/(\S+)\s*(.*)$/);
   if (!m) return null;
-  let [, name, rest] = m;
+  const [, name, rest] = m;
 
   // /manual:<domain-name> 触发（v9 新增）—— name 可能是 "manual:pt-quality"
   if (name.startsWith("manual:")) {
@@ -186,7 +186,7 @@ function replaceVars(text: string, bound: Map<string, string>): string {
 export function findFlowInBlueprint(
   blueprint: Blueprint,
   domains: Array<{ name: string; type: string; modules: Record<string, unknown> }>,
-  tplName: string,
+  tplName: string
 ): BoundableTemplate | undefined {
   // 验证 Blueprint 里有 target=context_message 的注入点（间接确认 input 事件该由本实例覆盖接管）
   const hasContextMsgIp = blueprint.injectionPoints.some((ip) => ip.target === "context_message");

@@ -17,7 +17,11 @@ import type { CompilationConfig, Context } from "../schema.js";
 
 /** 把 Context IR 序列化并写入 <cacheDir>/<name>.context.md。
  *  文件头：source-hash: <hash>（缓存失效依据）。 */
-export async function saveContext(cwd: string, ctx: Context, compilation: CompilationConfig): Promise<string> {
+export async function saveContext(
+  cwd: string,
+  ctx: Context,
+  compilation: CompilationConfig
+): Promise<string> {
   const dir = join(cwd, compilation.cacheDir);
   await mkdir(dir, { recursive: true });
 
@@ -42,7 +46,7 @@ export async function loadContext(
   cwd: string,
   name: string,
   expectedHash: string,
-  compilation: CompilationConfig,
+  compilation: CompilationConfig
 ): Promise<Context | null> {
   // v8：按 compilation.split 决定文件名
   //   - single-file：<name>.context.md
@@ -56,7 +60,7 @@ export async function loadContext(
   }
   const ctx = deserializeContext(name, raw);
   if (!ctx) return null;
-  if (ctx.sourceHash !== expectedHash) return null;  // 失效，需重编译
+  if (ctx.sourceHash !== expectedHash) return null; // 失效，需重编译
   return ctx;
 }
 
@@ -100,6 +104,7 @@ function deserializeContext(name: string, raw: string): Context | null {
   const sectionRe = /^## (.+)$/gm;
   const matches: Array<{ name: string; start: number; end: number }> = [];
   let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex exec loop pattern
   while ((m = sectionRe.exec(body)) !== null) {
     matches.push({ name: m[1].trim(), start: m.index + m[0].length + 1, end: body.length });
   }

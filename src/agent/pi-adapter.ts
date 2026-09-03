@@ -11,13 +11,7 @@
 
 import { AGENT_PI, MOD_MANUAL } from "../constants.js";
 import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
-import type {
-  AgentAdapter,
-  AgentAPI,
-  Blueprint,
-  Context,
-  Domain,
-} from "../schema.js";
+import type { AgentAdapter, AgentAPI, Blueprint, Context, Domain } from "../schema.js";
 import { renderContextMessage } from "../render/context-message.js";
 import { renderSystemPrompt } from "../render/system-prompt.js";
 
@@ -50,7 +44,12 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** 启动时注册：把 Context 注入到 Agent。 */
-  registerInject(api: AgentAPI, ctx: Context, blueprint: Blueprint, domains: Domain[] = this.domains): void {
+  registerInject(
+    api: AgentAPI,
+    ctx: Context,
+    blueprint: Blueprint,
+    domains: Domain[] = this.domains
+  ): void {
     // 先更新状态；同一 runtime 的后续 Profile 切换不能重新注册 handler，
     // 但 handler 会在事件发生时读取最新的 this.segment / this.ctx。
     this.ctx = ctx;
@@ -84,9 +83,12 @@ export class PiAdapter implements AgentAdapter {
         return { systemPrompt: final };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        api.log?.error("agent:before_agent_start failed", { err: msg, durationMs: Date.now() - t0 });
+        api.log?.error("agent:before_agent_start failed", {
+          err: msg,
+          durationMs: Date.now() - t0,
+        });
         api.ui?.notify(`[pt] before_agent_start failed: ${msg}`, "error");
-        return undefined;  // 失败降级, 不影响主流程
+        return undefined; // 失败降级, 不影响主流程
       }
     });
 
@@ -121,7 +123,7 @@ export class PiAdapter implements AgentAdapter {
           durationMs: Date.now() - t0,
         });
         api.ui?.notify(`[pt] input render failed: ${msg}`, "error");
-        return { action: "continue" };  // 失败降级: 不拦截 input, 让原文本过 LLM
+        return { action: "continue" }; // 失败降级: 不拦截 input, 让原文本过 LLM
       }
     });
   }
@@ -131,7 +133,7 @@ export class PiAdapter implements AgentAdapter {
   listManuals(
     _ctx: Context,
     blueprint: Blueprint,
-    domains: Domain[],
+    domains: Domain[]
   ): Array<{ name: string; hint?: string; domain: string }> {
     const flows: Array<{ name: string; hint?: string; domain: string }> = [];
 
@@ -150,7 +152,11 @@ export class PiAdapter implements AgentAdapter {
         } else if (d.type === "term") {
           if (!isRuleArray(manual)) continue;
           // term-Domain 的 Rule[] 作为 /manual:<domain> 暴露
-          flows.push({ name: `/manual:${d.name}`, hint: `${manual.length} 条规范`, domain: d.name });
+          flows.push({
+            name: `/manual:${d.name}`,
+            hint: `${manual.length} 条规范`,
+            domain: d.name,
+          });
         }
       }
     }
@@ -169,7 +175,11 @@ export class PiAdapter implements AgentAdapter {
 // ==================== Pi ExtensionAPI 事件 type guards ====================
 
 function isSystemPromptEvent(x: unknown): x is { systemPrompt: string } {
-  return !!x && typeof x === "object" && typeof (x as { systemPrompt?: unknown }).systemPrompt === "string";
+  return (
+    !!x &&
+    typeof x === "object" &&
+    typeof (x as { systemPrompt?: unknown }).systemPrompt === "string"
+  );
 }
 
 function isInputEvent(x: unknown): x is { text: string } {

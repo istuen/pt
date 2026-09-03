@@ -38,7 +38,10 @@ export async function parseDomain(absDir: string, fileName: string): Promise<Dom
   }
 
   return {
-    name: typeof asset.frontmatter.name === "string" ? asset.frontmatter.name : stripTypeSuffix(asset.name, type),
+    name:
+      typeof asset.frontmatter.name === "string"
+        ? asset.frontmatter.name
+        : stripTypeSuffix(asset.name, type),
     type,
     modules,
   };
@@ -46,7 +49,12 @@ export async function parseDomain(absDir: string, fileName: string): Promise<Dom
 
 /** 调注册表 parser（h2Name × type）解析单个 H2 段。
  *  未注册走 default fallback：term 形态（Term[]）——新 H2 段名加 fallback 即可。 */
-function parseDomainSection(h2Name: string, items: Item[], sectionRaw: string, type: string): unknown {
+function parseDomainSection(
+  h2Name: string,
+  items: Item[],
+  sectionRaw: string,
+  type: string
+): unknown {
   const parser = getDomainSectionParser(h2Name, type);
   if (parser) return parser(items, sectionRaw);
 
@@ -57,7 +65,10 @@ function parseDomainSection(h2Name: string, items: Item[], sectionRaw: string, t
 
 /** Default fallback：把 H3 项数组转 Term[]（用于未注册的 H2 段名，如 ## Term / ## Glossary）。 */
 function fallbackTerms(items: Item[]): Term[] {
-  return items.map((it) => ({ name: it.name, desc: s(it.fields.desc) || s(it.fields.description) }));
+  return items.map((it) => ({
+    name: it.name,
+    desc: s(it.fields.desc) || s(it.fields.description),
+  }));
 }
 
 function s(v: unknown): string {

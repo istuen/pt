@@ -14,7 +14,10 @@ import type { Profile } from "./schema.js";
 
 /** 按 Profile 范围过滤 domains（listManuals 需作用域）。
  *  从 src/index.ts 迁移到此处——纯函数，command + tool 双壳共享。 */
-export function filterDomainsByProfile<T extends { name: string }>(domains: T[], profile: Profile | null): T[] {
+export function filterDomainsByProfile<T extends { name: string }>(
+  domains: T[],
+  profile: Profile | null
+): T[] {
   if (!profile) return domains;
   return domains.filter((d) => {
     if (profile.domains.includes(d.name)) return true;
@@ -24,20 +27,23 @@ export function filterDomainsByProfile<T extends { name: string }>(domains: T[],
 
 /** /pt status 内核：返回状态摘要文本（单行 | 分隔）。 */
 export function statusText(): string {
-  const flowCount = session.cachedBundles?.reduce((acc, b) => {
-    let n = 0;
-    for (const d of b.domains) if (d.type === "workflow") {
-      const tpls = Array.isArray(d.modules[MOD_MANUAL]) ? d.modules[MOD_MANUAL] : [];
-      n += tpls.length;
-    }
-    return acc + n;
-  }, 0) ?? 0;
+  const flowCount =
+    session.cachedBundles?.reduce((acc, b) => {
+      let n = 0;
+      for (const d of b.domains)
+        if (d.type === "workflow") {
+          const tpls = Array.isArray(d.modules[MOD_MANUAL]) ? d.modules[MOD_MANUAL] : [];
+          n += tpls.length;
+        }
+      return acc + n;
+    }, 0) ?? 0;
   const domainCount = session.cachedBundles?.reduce((acc, b) => acc + b.domains.length, 0) ?? 0;
-  const blueprintCount = session.cachedBundles?.reduce((acc, b) => acc + b.blueprints.length, 0) ?? 0;
+  const blueprintCount =
+    session.cachedBundles?.reduce((acc, b) => acc + b.blueprints.length, 0) ?? 0;
   const profileCount = session.cachedBundles?.reduce((acc, b) => acc + b.profiles.length, 0) ?? 0;
   return [
     `pt profile: ${session.activeProfile ?? "(未激活)"}`,
-    `pt loadedFrom: ${session.loadedFrom ?? "(none)"}`,  // v10.x：可观测性（issue pt-context-persist-lost）
+    `pt loadedFrom: ${session.loadedFrom ?? "(none)"}`, // v10.x：可观测性（issue pt-context-persist-lost）
     `pt agent: ${session.activeAdapter?.name ?? "(none)"}`,
     `pt domains: ${domainCount}, blueprints: ${blueprintCount}, profiles: ${profileCount}, flows: ${flowCount}`,
     `pt segment length: ${session.cachedSegment?.length ?? 0} chars`,
@@ -52,11 +58,12 @@ export function flowsText(): string {
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.activeAdapter) {
     return "无激活 Profile，先用 /pt-context <name> 激活";
   }
-  const flows = session.activeAdapter.listManuals?.(
-    session.cachedContext!,
-    session.cachedBlueprint!,
-    filterDomainsByProfile(session.cachedBundles[0].domains, session.cachedProfile),
-  ) ?? [];
+  const flows =
+    session.activeAdapter.listManuals?.(
+      session.cachedContext!,
+      session.cachedBlueprint!,
+      filterDomainsByProfile(session.cachedBundles[0].domains, session.cachedProfile)
+    ) ?? [];
   if (flows.length === 0) {
     return "当前 Profile 无可触发手册（context_message 注入点无 workflow-type Domain）";
   }
@@ -81,17 +88,25 @@ export function buildManualDoc(cwd: string, procedure: string, args: string): Ma
   const tpl = findFlowInBlueprint(
     session.cachedBlueprint,
     session.cachedBundles[0].domains,
-    procedure,
+    procedure
   );
   if (!tpl) {
-    return { content: "", filePath: "", error: `未找到手册: ${procedure}（用 /pt flows 查可用手册）` };
+    return {
+      content: "",
+      filePath: "",
+      error: `未找到手册: ${procedure}（用 /pt flows 查可用手册）`,
+    };
   }
   const bound = bindFlowTemplate(tpl, args);
-  const domainName = session.cachedBundles[0].domains.find((d) => {
-    if (d.type !== "workflow") return false;
-    const manual = d.modules[MOD_MANUAL];
-    return Array.isArray(manual) && manual.some((t: unknown) => (t as { name?: string }).name === procedure);
-  })?.name ?? "";
+  const domainName =
+    session.cachedBundles[0].domains.find((d) => {
+      if (d.type !== "workflow") return false;
+      const manual = d.modules[MOD_MANUAL];
+      return (
+        Array.isArray(manual) &&
+        manual.some((t: unknown) => (t as { name?: string }).name === procedure)
+      );
+    })?.name ?? "";
   const now = new Date().toISOString();
   const ts = Date.now();
   const lines: string[] = [];
@@ -136,7 +151,9 @@ export function buildManualDoc(cwd: string, procedure: string, args: string): Ma
   lines.push("");
   lines.push("## 更新指引");
   lines.push("执行完每个 step 后：用 edit 把对应 `- [ ]` 改成 `- [x]`。");
-  lines.push("验证后：用 edit 把 ## 执行状态表 对应行的 `—` 改为 COMPLETED / DEVIATED / INCONCLUSIVE + Message。");
+  lines.push(
+    "验证后：用 edit 把 ## 执行状态表 对应行的 `—` 改为 COMPLETED / DEVIATED / INCONCLUSIVE + Message。"
+  );
   lines.push("全部完成后：用 edit 在 ## 产物 下追加创建/修改的文件路径（每行一条）。");
   lines.push("status 全部完成后可改为 completed。");
   const content = lines.join("\n");

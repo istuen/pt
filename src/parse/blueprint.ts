@@ -40,12 +40,7 @@ import type {
   InjectionPointConfig,
   StructureLayout,
 } from "../schema.js";
-import {
-  extractFieldValue,
-  extractModulesList,
-  readAsset,
-  type Section,
-} from "./shared.js";
+import { extractFieldValue, extractModulesList, readAsset, type Section } from "./shared.js";
 
 const VALID_MODES: ReadonlyArray<StructureLayout["mode"]> = ["byDomain", "byType", "hybrid"];
 
@@ -67,7 +62,10 @@ export async function parseBlueprint(absDir: string, fileName: string): Promise<
   const compilation = parseCompilationFromSection(asset.sections["Compilation"]);
 
   return {
-    name: typeof asset.frontmatter.name === "string" ? asset.frontmatter.name : stripBlueprintSuffix(asset.name),
+    name:
+      typeof asset.frontmatter.name === "string"
+        ? asset.frontmatter.name
+        : stripBlueprintSuffix(asset.name),
     agent,
     injectionPoints,
     compilation,
@@ -104,7 +102,8 @@ function parseCompilationFromSection(section: Section | undefined): CompilationC
   }
   const cacheDir = extractFieldValue(section, "cache-dir") || CACHE_DIR;
   const splitRaw = extractFieldValue(section, "split") || "single-file";
-  const split: CacheSplitStrategy = splitRaw === "by-injection-point" ? "by-injection-point" : "single-file";
+  const split: CacheSplitStrategy =
+    splitRaw === "by-injection-point" ? "by-injection-point" : "single-file";
   return { cacheDir, split };
 }
 

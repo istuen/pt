@@ -8,9 +8,10 @@ export async function testPass(cwd: string, params: Record<string, string>): Pro
     execSync(cmd, { cwd, stdio: "pipe", timeout: 120000 });
     return { outcome: "COMPLETED", message: `测试通过: ${cmd}` };
   } catch (e) {
-    const stderr = e instanceof Error && "stderr" in e
-      ? Buffer.from((e as { stderr?: Uint8Array }).stderr ?? "").toString()
-      : "";
+    const stderr =
+      e instanceof Error && "stderr" in e
+        ? Buffer.from((e as { stderr?: Uint8Array }).stderr ?? "").toString()
+        : "";
     return {
       outcome: "DEVIATED",
       message: `测试失败: ${cmd}`,

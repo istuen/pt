@@ -16,39 +16,57 @@ export type DomainSectionParser = (items: Item[], sectionRaw: string) => unknown
 const domainSectionRenderers: Record<string, Record<string, DomainSectionParser>> = {
   // H2="Scene"
   Scene: {
-    term: (items) => items.map((it) => ({ name: it.name, desc: s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "" })),
-    workflow: (items) => ({ externals: items.map((it) => ({ name: it.name, path: s(it.fields.path) || "", desc: s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "" })) }),
-    stack: (items) => items.map((it) => {
-      const role = s(it.fields.role);
-      const ops = sArr(it.fields.operations);
-      const ref: { name: string; role?: string; operations?: string[] } = { name: it.name };
-      if (role) ref.role = role;
-      if (ops.length > 0) ref.operations = ops;
-      return ref;
+    term: (items) =>
+      items.map((it) => ({
+        name: it.name,
+        desc: s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "",
+      })),
+    workflow: (items) => ({
+      externals: items.map((it) => ({
+        name: it.name,
+        path: s(it.fields.path) || "",
+        desc: s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "",
+      })),
     }),
+    stack: (items) =>
+      items.map((it) => {
+        const role = s(it.fields.role);
+        const ops = sArr(it.fields.operations);
+        const ref: { name: string; role?: string; operations?: string[] } = { name: it.name };
+        if (role) ref.role = role;
+        if (ops.length > 0) ref.operations = ops;
+        return ref;
+      }),
   },
   // H2="Manual"
   Manual: {
-    term: (items) => items.map((it) => {
-      const itemsArr = sArr(it.fields.items);
-      const check = s(it.fields.check) || s(it.fields.desc) || s(it.fields.value) || s(it.fields.description) || "";
-      if (itemsArr.length > 0) {
-        return { name: it.name, slot: "global", type: "ban", check, items: itemsArr };
-      }
-      return { name: it.name, slot: "global", type: "invariant", check };
-    }),
-    workflow: (items, sectionRaw) => items.map((item) => {
-      const tpl: Record<string, unknown> = {
-        name: item.name,
-        argumentHint: s(item.fields["argument-hint"]) || undefined,
-        intent: s(item.fields.intent),
-        steps: collectSteps(item.name, sectionRaw),
-        externals: [],
-      };
-      const vars = sArr(item.fields.vars);
-      if (vars.length > 0) tpl._vars = vars;
-      return tpl;
-    }),
+    term: (items) =>
+      items.map((it) => {
+        const itemsArr = sArr(it.fields.items);
+        const check =
+          s(it.fields.check) ||
+          s(it.fields.desc) ||
+          s(it.fields.value) ||
+          s(it.fields.description) ||
+          "";
+        if (itemsArr.length > 0) {
+          return { name: it.name, slot: "global", type: "ban", check, items: itemsArr };
+        }
+        return { name: it.name, slot: "global", type: "invariant", check };
+      }),
+    workflow: (items, sectionRaw) =>
+      items.map((item) => {
+        const tpl: Record<string, unknown> = {
+          name: item.name,
+          argumentHint: s(item.fields["argument-hint"]) || undefined,
+          intent: s(item.fields.intent),
+          steps: collectSteps(item.name, sectionRaw),
+          externals: [],
+        };
+        const vars = sArr(item.fields.vars);
+        if (vars.length > 0) tpl._vars = vars;
+        return tpl;
+      }),
     stack: () => [],
   },
 };
@@ -57,14 +75,17 @@ const domainSectionRenderers: Record<string, Record<string, DomainSectionParser>
 export function registerDomainSectionRenderer(
   h2Name: string,
   type: string,
-  parser: DomainSectionParser,
+  parser: DomainSectionParser
 ): void {
   if (!domainSectionRenderers[h2Name]) domainSectionRenderers[h2Name] = {};
   domainSectionRenderers[h2Name][type] = parser;
 }
 
 /** 取 (h2Name × type) 的 parser。未注册返 undefined（调用方走 fallback）。 */
-export function getDomainSectionParser(h2Name: string, type: string): DomainSectionParser | undefined {
+export function getDomainSectionParser(
+  h2Name: string,
+  type: string
+): DomainSectionParser | undefined {
   return domainSectionRenderers[h2Name]?.[type];
 }
 
@@ -107,11 +128,13 @@ function collectSteps(itemName: string, sectionRaw: string): FlowStep[] {
       // 支持 [a, b] 数组格式 和 单值格式
       const arrMatch = val.match(/^\[(.*)\]$/);
       if (arrMatch) {
-        cur.observe = arrMatch[1].split(",").map((s) => s.trim()).filter((s) => s !== "");
+        cur.observe = arrMatch[1]
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s !== "");
       } else {
         cur.observe = [val];
       }
-      continue;
     }
   }
   if (cur) steps.push(cur);

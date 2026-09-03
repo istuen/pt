@@ -11,7 +11,7 @@ import { BUILTIN_ASSETS_DIR, PROFILES_DIR } from "./constants.js";
 /** 读项目 settings.json 的指定 dotted key。文件不存在/解析失败 → undefined */
 export async function readProjectSetting<T = unknown>(
   cwd: string,
-  dottedKey: string,
+  dottedKey: string
 ): Promise<T | undefined> {
   const path = join(cwd, CONFIG_DIR_NAME, "settings.json");
   let json: unknown;
@@ -53,9 +53,9 @@ async function listProfileNamesIn(dir: string): Promise<string[]> {
     const names: string[] = [];
     for (const f of files) {
       if (!f.endsWith(".md")) continue;
-      const base = f.slice(0, -3);  // 去 .md
+      const base = f.slice(0, -3); // 去 .md
       if (base.endsWith(".profile")) {
-        names.push(base.slice(0, -8));  // 去 .profile
+        names.push(base.slice(0, -8)); // 去 .profile
       }
     }
     return names;

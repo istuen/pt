@@ -12,7 +12,12 @@
 //   - 端到端验证靠 issue 文档列出的「重启 pi 后 footer 显示 pt: pt-dev」手动验证。
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { createSessionState, session, resetSession, type ProfileLoadSource } from "../../src/session.js";
+import {
+  createSessionState,
+  session,
+  resetSession,
+  type ProfileLoadSource,
+} from "../../src/session.js";
 import { statusText } from "../../src/commands.js";
 
 /** 模拟 MinimalSessionManager（与 src/index.ts 同构）。 */
@@ -118,7 +123,7 @@ describe("session.activeProfile 持久化（issue pt-context-persist-lost 修复
         { type: "custom", customType: "pt:active-profile", data: { profile: "   " } },
         { type: "custom", customType: "pt:active-profile", data: { profile: "  pt-dev  " } },
       ]);
-      expect(readProfileFromSession(sm)).toBe("pt-dev");  // trim 后非空
+      expect(readProfileFromSession(sm)).toBe("pt-dev"); // trim 后非空
     });
   });
 

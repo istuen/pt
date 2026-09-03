@@ -21,6 +21,9 @@ export async function fileHash(cwd: string, params: Record<string, string>): Pro
       actual: hash,
     };
   } catch (e) {
-    return { outcome: "INCONCLUSIVE", message: `无法读取 ${path}: ${e instanceof Error ? e.message : String(e)}` };
+    return {
+      outcome: "INCONCLUSIVE",
+      message: `无法读取 ${path}: ${e instanceof Error ? e.message : String(e)}`,
+    };
   }
 }

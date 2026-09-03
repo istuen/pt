@@ -34,7 +34,11 @@ export function listProbes(): string[] {
 }
 
 /** 按名执行 verify。未注册的 probe 名返回 INCONCLUSIVE。 */
-export async function runVerify(cwd: string, name: string, params: Record<string, string>): Promise<ProbeOutcome> {
+export async function runVerify(
+  cwd: string,
+  name: string,
+  params: Record<string, string>
+): Promise<ProbeOutcome> {
   const fn = registry[name];
   if (!fn) {
     return {
