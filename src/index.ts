@@ -24,7 +24,7 @@ import { Type } from "typebox";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { FULL_DIR, MANUAL_DIR, MOD_MANUAL, PROFILES_DIR, RAW_DIR } from "./constants.js";
+import { FULL_DIR, MANUAL_DIR, PROFILES_DIR, RAW_DIR } from "./constants.js";
 import { toAgentAPI } from "./agent/api-bridge.js";
 import { getAgentAdapter } from "./agent/index.js";
 import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
@@ -44,13 +44,7 @@ import {
 } from "./manual-track.js";
 
 import { type ActiveManual, type ProfileLoadSource, resetSession, session } from "./session.js";
-import {
-  buildFullPrompt,
-  buildManualDoc,
-  filterDomainsByProfile,
-  flowsText,
-  statusText,
-} from "./commands.js";
+import { buildFullPrompt, buildManualDoc, flowsText, statusText } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
 import type { AgentAPI } from "./schema.js";
 

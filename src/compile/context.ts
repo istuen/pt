@@ -24,18 +24,14 @@ import type {
   Blueprint,
   Context as ContextIR,
   Domain,
-  FlowTemplate,
   InjectionPointConfig,
   InjectionPointInstance,
   Profile,
-  Rule,
   StructureLayout,
 } from "../schema.js";
 import {
-  isFlowTemplateArray,
   isNamedItemArray,
   isRecord,
-  isRuleArray,
   isTermArray,
   isTriggerItemArray,
   isWorkflowScene,
@@ -199,7 +195,7 @@ function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout[
 
 /** Trigger 段聚合：把所有 Domain 的 Trigger 项合并成索引。
  *  v9 关键：Trigger 是索引，告诉 LLM "有什么手册可查 + 何时查"。不加模块标题——索引段是平的。 */
-function renderTriggerModule(d: Domain, content: unknown): string {
+function renderTriggerModule(_d: Domain, content: unknown): string {
   if (!isTriggerItemArray(content)) return "";
   if (content.length === 0) return "";
   const lines: string[] = [];
@@ -258,10 +254,10 @@ export function computeSourceHash(
 
 function stableStringify(obj: unknown): string {
   if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
-  if (Array.isArray(obj)) return "[" + obj.map(stableStringify).join(",") + "]";
+  if (Array.isArray(obj)) return `[${obj.map(stableStringify).join(",")}]`;
   if (!isRecord(obj)) return JSON.stringify(obj);
   const keys = Object.keys(obj).sort();
-  return "{" + keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",") + "}";
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
 }
 
 /** FNV-1a 32-bit hash，足够用于缓存标识。 */
@@ -271,5 +267,5 @@ function simpleHash(s: string): string {
     hash ^= s.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);
   }
-  return (hash >>> 0).toString(16).padStart(8, "0") + "-" + s.length.toString(16).padStart(8, "0");
+  return `${(hash >>> 0).toString(16).padStart(8, "0")}-${s.length.toString(16).padStart(8, "0")}`;
 }

@@ -27,12 +27,12 @@ describe("parseDomain — term 类型", () => {
   it("H2 段 → modules（## Scene / ## Trigger 都解析为数组）", async () => {
     const d = await parseDomain(FIXTURE_DIR, "domain-term.md");
     expect(Object.keys(d.modules).sort()).toEqual(["Scene", "Trigger"]);
-    expect(isTriggerItemArray(d.modules["Trigger"])).toBe(true);
+    expect(isTriggerItemArray(d.modules.Trigger)).toBe(true);
   });
 
   it("term 形态的 ## Scene 走 fallback Term[]", async () => {
     const d = await parseDomain(FIXTURE_DIR, "domain-term.md");
-    expect(isTermArray(d.modules["Scene"])).toBe(true);
+    expect(isTermArray(d.modules.Scene)).toBe(true);
   });
 });
 
@@ -45,6 +45,6 @@ describe("parseDomain — workflow 类型", () => {
 
   it("## Manual 段解析为 FlowTemplate[]（workflow Scene 走注册表 parser）", async () => {
     const d = await parseDomain(FIXTURE_DIR, "domain-workflow.md");
-    expect(isFlowTemplateArray(d.modules["Manual"])).toBe(true);
+    expect(isFlowTemplateArray(d.modules.Manual)).toBe(true);
   });
 });

@@ -6,7 +6,7 @@ import {
   checkProfileRefs,
   formatRefCheckResult,
 } from "../../src/verify/ref-check.js";
-import type { Profile, Blueprint, Domain } from "../../src/schema.js";
+import type { Profile, Blueprint } from "../../src/schema.js";
 
 describe("P2: 引用完整性校验", () => {
   it("项目自身资产无悬空引用", async () => {

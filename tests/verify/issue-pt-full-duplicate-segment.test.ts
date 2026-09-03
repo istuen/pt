@@ -18,7 +18,7 @@ describe("issue pt-full-duplicate-segment 修复（v10.x）", () => {
   const BASE = "[Pi 通用 system prompt，~5410 bytes]\n";
   const SEGMENT = "### ysl-company\n- 东莞亿盛隆...\n### fastener-industry\n- 紧固件...\n";
   const HEADER = "## 当前任务上下文";
-  const INJECTED = BASE + "\n\n" + HEADER + "\n\n" + SEGMENT; // 第一轮 LLM 实际看到的 = 1× segment
+  const INJECTED = `${BASE}\n\n${HEADER}\n\n${SEGMENT}`; // 第一轮 LLM 实际看到的 = 1× segment
 
   describe("1. 第一轮之前（lastBuiltPrompt === null）", () => {
     it("有 cachedSegment → 模拟注入 = base + header + segment（1×）", () => {
@@ -26,7 +26,7 @@ describe("issue pt-full-duplicate-segment 修复（v10.x）", () => {
       // 关键断言：只出现 1 次 header
       expect(full.split(HEADER).length - 1).toBe(1);
       // 内容结构正确
-      expect(full).toBe(BASE + "\n\n" + HEADER + "\n\n" + SEGMENT);
+      expect(full).toBe(`${BASE}\n\n${HEADER}\n\n${SEGMENT}`);
     });
 
     it("无 cachedSegment → 只返回 base（保留旧版 warning 触发条件）", () => {
@@ -60,7 +60,7 @@ describe("issue pt-full-duplicate-segment 修复（v10.x）", () => {
       // lastBuiltPrompt 代表"上次 LLM 实际看到的"，是 canonical source。
       const OLD_SEGMENT = "### old-profile\n- 旧内容\n";
       const NEW_SEGMENT = "### new-profile\n- 新内容\n";
-      const LAST_BUILT = BASE + "\n\n" + HEADER + "\n\n" + OLD_SEGMENT;
+      const LAST_BUILT = `${BASE}\n\n${HEADER}\n\n${OLD_SEGMENT}`;
       const full = buildFullPrompt(BASE, NEW_SEGMENT, LAST_BUILT);
       // 必须用 lastBuiltPrompt，不用 cachedSegment
       expect(full).toBe(LAST_BUILT);
@@ -75,7 +75,7 @@ describe("issue pt-full-duplicate-segment 修复（v10.x）", () => {
       //        = header 出现 2 次
       //   新版：`buildFullPrompt(BASE, SEGMENT, INJECTED)` = INJECTED
       //        = header 出现 1 次
-      const oldBehavior = INJECTED + "\n\n" + HEADER + "\n\n" + SEGMENT;
+      const oldBehavior = `${INJECTED}\n\n${HEADER}\n\n${SEGMENT}`;
       expect(oldBehavior.split(HEADER).length - 1).toBe(2); // 旧版确实 2×
 
       const newBehavior = buildFullPrompt(BASE, SEGMENT, INJECTED);

@@ -12,10 +12,10 @@ describe("P0: observe 字段", () => {
     const tpl = findFlowInBlueprint(r.blueprint, b.domains, "resolve-issue");
     expect(tpl).toBeDefined();
     // resolve-issue 的某个 step 有 observe（fixture 加了 [test-pass] 与 [ts-compiles, test-pass]）
-    const hasObserve = tpl!.steps.some((s) => s.observe && s.observe.length > 0);
+    const hasObserve = tpl?.steps.some((s) => s.observe && s.observe.length > 0);
     expect(hasObserve).toBe(true);
     // desc 字段类型正确（向后兼容）
-    expect(tpl!.steps.every((s) => typeof s.desc === "string")).toBe(true);
+    expect(tpl?.steps.every((s) => typeof s.desc === "string")).toBe(true);
   });
 
   it("bindFlowTemplate 渲染 observe 子行", async () => {

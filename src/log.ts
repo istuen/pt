@@ -94,7 +94,7 @@ export class PtLogger implements PtLoggerWriter {
       .then(async () => {
         try {
           await mkdir(join(this.cwd, LOG_DIR), { recursive: true });
-          await appendFile(this.filePath, JSON.stringify(entry) + "\n", "utf8");
+          await appendFile(this.filePath, `${JSON.stringify(entry)}\n`, "utf8");
         } catch (e) {
           console.error("[pt-log] write failed:", e instanceof Error ? e.message : e);
         }

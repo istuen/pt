@@ -62,10 +62,13 @@ export function flowsText(): string {
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.activeAdapter) {
     return "无激活 Profile，先用 /pt-context <name> 激活";
   }
+  if (!session.cachedContext || !session.cachedBlueprint) {
+    return "无激活 Profile，先用 /pt-context <name> 激活";
+  }
   const flows =
     session.activeAdapter.listManuals?.(
-      session.cachedContext!,
-      session.cachedBlueprint!,
+      session.cachedContext,
+      session.cachedBlueprint,
       filterDomainsByProfile(session.cachedBundles[0].domains, session.cachedProfile)
     ) ?? [];
   if (flows.length === 0) {
@@ -101,7 +104,7 @@ export function buildFullPrompt(
   }
   if (cachedSegment) {
     // 第一轮之前：模拟下一次 LLM 会看到的注入
-    return baseSystemPrompt + "\n\n## 当前任务上下文\n\n" + cachedSegment;
+    return `${baseSystemPrompt}\n\n## 当前任务上下文\n\n${cachedSegment}`;
   }
   // 无 cachedSegment（未加载 Profile）
   return baseSystemPrompt;
