@@ -21,6 +21,9 @@ name: deployment
 ### rollback-strategy
 - desc: 回滚策略：每个 Phase 前 git baseline 可回退（详见 collaboration.md#baseline-reversibility）；发版后出问题 → git revert 到上一个 baseline tag + npm unpublish（24h 内）+ 通知用户。
 
+### publish-form
+- desc: 发布形态分两阶段——dev（P0–P3）发 src/.ts（pi 用 jiti 运行时加载，files:["src"]，pi.extensions:["./src/index.ts"]，noEmit:true，改完即跑反馈环最短）；发布（P4+）发 dist/.js（tsc 编译产出，files:["dist"]，pi.extensions:["./dist/index.js"]，main/types 指向 dist，build 脚本复制 builtin 资产到 dist/builtin/assets/）。双轨理由：pi 自身即 dev=src/发布=dist；AgentAdapter 目标是多 agent，非 pi agent 不用 jiti，需标准 ESM .js。详见 .pt/docs/designs/pt-code-quality-plan.md §7.2 §10。
+
 ## Manual
 
 ### release
