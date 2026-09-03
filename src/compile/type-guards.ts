@@ -54,7 +54,7 @@ export function isRuleArray(x: unknown): x is Rule[] {
 // ==================== FlowTemplate[] 守卫 ====================
 
 /** 校验元素是否具备 FlowTemplate 最小形状（{ name, intent, steps[] }）。 */
-function isFlowTemplateLike(x: unknown): x is FlowTemplate {
+export function isFlowTemplateLike(x: unknown): x is FlowTemplate {
   if (!x || typeof x !== "object") return false;
   const t = x as { name?: unknown; intent?: unknown; steps?: unknown };
   return typeof t.name === "string" && typeof t.intent === "string" && Array.isArray(t.steps);

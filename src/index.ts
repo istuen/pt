@@ -56,6 +56,31 @@ import type { AgentAPI } from "./schema.js";
 
 type AgentUIContext = NonNullable<AgentAPI["ui"]>;
 
+// ==================== Pi 事件本地接口（P2.3 抽出） ====================
+//
+// Pi ExtensionAPI 的 on() 回调 event 参数是 unknown（pi 包顶层 export.d.ts 描述为 unknown[]）。
+// 实际形状来自 pi runtime（@earendil-works/pi-coding-agent 的内部 emit 逻辑）。
+// 为消 index.ts ×3 双重 cast，定义本地结构接口——只用到的字段。
+
+/** pi.on("turn_end", handler) event 形状。 */
+interface PiTurnEndEvent {
+  reason?: string;
+  messageCount?: number;
+}
+
+/** pi.on("tool_call", handler) event 形状。 */
+interface PiToolCallEvent {
+  name?: string;
+  toolName?: string;
+}
+
+/** pi.on("tool_result", handler) event 形状。 */
+interface PiToolResultEvent {
+  name?: string;
+  toolName?: string;
+  isError?: boolean;
+}
+
 /** session-scoped logger 快捷调用（session.logger 为 null 时静默——session_start 之前不可用）。 */
 function slog(
   level: "debug" | "info" | "warn" | "error",
@@ -413,18 +438,18 @@ export default function (pi: ExtensionAPI): void {
   });
   pi.on("turn_end", async (event, _ctx) => {
     // v10.x：event 形态可能包含 token 用量，先取几个字段塞进 ctx
-    const e = event as unknown as { reason?: string; messageCount?: number };
+    const e = event as PiTurnEndEvent;
     slog("debug", "turn:end", { reason: e.reason, messageCount: e.messageCount });
   });
   pi.on("agent_settled", async (_event, _ctx) => {
     slog("debug", "agent:settled");
   });
   pi.on("tool_call", async (event, _ctx) => {
-    const e = event as unknown as { name?: string; toolName?: string };
+    const e = event as PiToolCallEvent;
     slog("debug", "tool:call", { name: e.name ?? e.toolName });
   });
   pi.on("tool_result", async (event, _ctx) => {
-    const e = event as unknown as { name?: string; toolName?: string; isError?: boolean };
+    const e = event as PiToolResultEvent;
     slog("debug", "tool:result", { name: e.name ?? e.toolName, isError: e.isError });
   });
 

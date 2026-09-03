@@ -11,6 +11,7 @@ import { MANUAL_DIR, MOD_MANUAL } from "./constants.js";
 import { bindFlowTemplate, findFlowInBlueprint } from "./render/context-message.js";
 import { session } from "./session.js";
 import type { Profile } from "./schema.js";
+import { isFlowTemplateLike } from "./compile/type-guards.js";
 
 /** 按 Profile 范围过滤 domains（listManuals 需作用域）。
  *  从 src/index.ts 迁移到此处——纯函数，command + tool 双壳共享。 */
@@ -136,7 +137,7 @@ export function buildManualDoc(cwd: string, procedure: string, args: string): Ma
       const manual = d.modules[MOD_MANUAL];
       return (
         Array.isArray(manual) &&
-        manual.some((t: unknown) => (t as { name?: string }).name === procedure)
+        manual.some((t: unknown) => isFlowTemplateLike(t) && t.name === procedure)
       );
     })?.name ?? "";
   const now = new Date().toISOString();
