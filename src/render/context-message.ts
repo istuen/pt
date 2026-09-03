@@ -199,12 +199,9 @@ export function findFlowInBlueprint(
     const hit = manual.find((t) => t.name === tplName);
     if (hit) {
       const bt: BoundableTemplate = { ...hit };
-      // 兼容：args 里 vars 字段（如 frontmatter 残留）
-      const varsField = (bt as unknown as { vars?: unknown }).vars;
-      if (Array.isArray(varsField)) {
-        const strs = varsField.filter((x): x is string => typeof x === "string");
-        if (strs.length > 0) bt._vars = strs;
-      }
+      // P2.1：v9 BoundableTemplate = FlowTemplate & { _vars? }，vars 字段 spread 不会产生
+      // 原双重 cast (bt as unknown as { vars?: unknown }).vars 永远 undefined（dead code）。
+      // 若未来需从 args 传 vars 进来，应在调用方 bindFlowTemplate 处理，不在此处 cast 补救。
       return bt;
     }
   }
