@@ -13,12 +13,7 @@
 //   - switchProfile / session_start 加载成功后调 `pi.appendEntry()` 把 activeProfile 写回 session。
 //     session entry 与 Pi Session 生命周期对齐（resume/--session/--fork 继承；/new/ephemeral 不继承）。
 
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-  ExtensionUIContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -29,24 +24,20 @@ import { toAgentAPI } from "./agent/api-bridge.js";
 import { getAgentAdapter } from "./agent/index.js";
 import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
 import { errMsg } from "./diagnostics.js";
-import {
-  readProfileFromSession,
-  persistProfileToSession,
-  type MinimalSessionManager,
-} from "./profile-persist.js";
-import { renderInjectionFooter } from "./injection-status.js";
+import { readProfileFromSession, persistProfileToSession } from "./profile-persist.js";
 import { LOG_DIR, PtLogger } from "./log.js";
-import {
-  isManualActive,
-  parseManualProgress,
-  renderManualFooterSuffix,
-  renderManualWidgetLines,
-} from "./manual-track.js";
-
-import { type ActiveManual, type ProfileLoadSource, resetSession, session } from "./session.js";
+import { type ProfileLoadSource, resetSession, session } from "./session.js";
 import { buildFullPrompt, buildManualDoc, flowsText, statusText } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
 import type { AgentAPI } from "./schema.js";
+import {
+  persistManualToSession,
+  refreshInjectionFooter,
+  refreshManualWidget,
+  resetManualSession,
+  tryRestoreManual,
+} from "./manual-session.js";
+import { slog } from "./slog.js";
 
 type AgentUIContext = NonNullable<AgentAPI["ui"]>;
 
@@ -73,148 +64,6 @@ interface PiToolResultEvent {
   name?: string;
   toolName?: string;
   isError?: boolean;
-}
-
-/** session-scoped logger 快捷调用（session.logger 为 null 时静默——session_start 之前不可用）。 */
-function slog(
-  level: "debug" | "info" | "warn" | "error",
-  msg: string,
-  ctx?: Record<string, unknown>
-): void {
-  if (!session.logger) return;
-  session.logger[level](msg, ctx);
-}
-
-/** v11.x：手动跟踪的 ActiveManual 持久化 + widget 刷新。 */
-
-/** session JSONL 中持久化 ActiveManual 的 custom entry customType。 */
-const PT_MANUAL_ENTRY = "pt:active-manual";
-
-/** 从 session JSONL 读上次保存的 ActiveManual。读出后由 caller 校验（isManualActive）。
- *  静默 fallback：异常 / 无 entry → undefined。 */
-interface PersistedManualEntry {
-  filePath: string;
-  procedure: string;
-  args: string;
-}
-function readManualFromSession(
-  sessionManager: MinimalSessionManager
-): PersistedManualEntry | undefined {
-  try {
-    const entries = sessionManager.getEntries();
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const e = entries[i];
-      if (e && e.type === "custom" && e.customType === PT_MANUAL_ENTRY) {
-        const data = (e as { data?: unknown }).data;
-        if (data && typeof data === "object") {
-          const d = data as Record<string, unknown>;
-          const filePath = d.filePath;
-          const procedure = d.procedure;
-          const args = d.args;
-          if (typeof filePath === "string" && filePath.trim() && typeof procedure === "string") {
-            return {
-              filePath: filePath.trim(),
-              procedure,
-              args: typeof args === "string" ? args : "",
-            };
-          }
-        }
-      }
-    }
-  } catch {}
-  return undefined;
-}
-
-/** 把当前 ActiveManual 写入 session JSONL。
- *  失败静默（ephemeral session / 旧版 pi 无 appendEntry）——内存中 activeManual 仍可用本进程。 */
-function persistManualToSession(pi: ExtensionAPI, m: ActiveManual): void {
-  try {
-    if (typeof pi.appendEntry !== "function") return;
-    pi.appendEntry(PT_MANUAL_ENTRY, {
-      filePath: m.filePath,
-      procedure: m.procedure,
-      args: m.args,
-    });
-  } catch (e) {
-    slog("warn", "persistManualToSession failed", { procedure: m.procedure, err: errMsg(e) });
-  }
-}
-
-/** 刷新 footer 注入状态 + manual 后缀（合并写一次 setStatus）。 */
-function refreshInjectionFooter(ui: ExtensionUIContext): void {
-  const suffix = renderActiveManualSuffix();
-  const base = renderInjectionFooter(
-    session.injectionState,
-    session.activeProfile,
-    session.injectionError
-  );
-  ui.setStatus("pt", suffix ? `${base} ${suffix}` : base);
-}
-
-/** 计算 active manual 的 footer 后缀（空字符串 = 无 activeManual 或 completed）。 */
-function renderActiveManualSuffix(): string {
-  if (!session.activeManual) return "";
-  // 同步快速读（无 IO）—— widget 刷新会走 async parseManualProgress
-  // footer 只显示 procedure 名 + done/total，避免 IO 阻塞 setStatus
-  // 但 stepDone/total 是派生数据，需要同步可读——
-  // 这里走同步取缓存策略：保留 widget 异步 parse 的最新结果
-  if (!cachedManualProgress) return "";
-  return renderManualFooterSuffix(cachedManualProgress);
-}
-
-/** cachedManualProgress：refreshManualWidget 异步 parse 后写入，footer 同步读。
- *  单字段缓存，不需要 broadcast channel。 */
-let cachedManualProgress: import("./manual-track.js").ManualProgress | null = null;
-
-/** 刷新 widget（aboveEditor）。根据 session.activeManual 决定显示/撤掉。
- *  - 无 activeManual → 撤 widget
- *  - 文件不存在 / 已 completed → 清 activeManual + 撤 widget
- *  - in-progress → 渲染 3 行 widget + 更新 cachedManualProgress（footer 同步读） */
-async function refreshManualWidget(ui: ExtensionUIContext): Promise<void> {
-  const m = session.activeManual;
-  if (!m) {
-    cachedManualProgress = null;
-    ui.setWidget("pt-manual", undefined);
-    return;
-  }
-  const p = await parseManualProgress(m.filePath);
-  if (!p || p.status === "completed") {
-    session.activeManual = null;
-    cachedManualProgress = null;
-    ui.setWidget("pt-manual", undefined);
-    return;
-  }
-  cachedManualProgress = p;
-  ui.setWidget("pt-manual", renderManualWidgetLines(m.filePath, p), {
-    placement: "aboveEditor",
-  });
-}
-
-/** session_start 时试恢复 manual：读 pt:active-manual entry → 校验文件存在 + status !== completed。
- *  独立于 profile 加载链——profile 失败 / 无 profile 也能恢复 manual 追踪。 */
-async function tryRestoreManual(ctx: ExtensionContext): Promise<void> {
-  const entry = readManualFromSession(ctx.sessionManager);
-  if (!entry) return;
-  const active = await isManualActive(entry.filePath);
-  if (!active) {
-    session.logger?.debug("manual:restore skipped (inactive)", {
-      filePath: entry.filePath,
-    });
-    return;
-  }
-  session.activeManual = {
-    filePath: entry.filePath,
-    procedure: entry.procedure,
-    args: entry.args,
-    activatedAt: Date.now(),
-  };
-  await refreshManualWidget(ctx.ui);
-  // widget 设置后才调 footer（refreshManualWidget 写 cachedManualProgress）
-  refreshInjectionFooter(ctx.ui);
-  session.logger?.info("manual:restored", {
-    filePath: entry.filePath,
-    procedure: entry.procedure,
-  });
 }
 
 /** 当前编译产物就绪时注册 Adapter 注入；session_start 与手动切换共用。 */
@@ -422,7 +271,7 @@ export default function (pi: ExtensionAPI): void {
     // 避免新 session 在尚未重新选择 Profile 时继续注入旧内容。
     session.activeAdapter?.resetInjection?.();
     resetSession();
-    cachedManualProgress = null; // module-level 缓存，resetSession 不包含
+    resetManualSession(); // module-level 缓存，resetSession 不包含
   });
 
   // ========== turn 级 trace（P2: 覆盖 turn 生命周期） ==========
