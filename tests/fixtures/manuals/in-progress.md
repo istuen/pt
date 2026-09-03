@@ -14,8 +14,8 @@ args: p1-verify
 - [x] 按计划走 modify-* / add-* / update-* 手册 — 每步一个 commit
 - [ ] 每个改动文件走 testing#add-test-for-change — 补回归测试
 - [ ] testing#regression-verify — 全量回归
-- [ ] testing#release-readiness-check <version> — 发版就绪检查
-- [ ] ci-cd#release-flow <version> — 发版
+- [ ] testing#regression-verify — 全量回归（含发版就绪检查）
+- [ ] ci-cd#release <version> — 发版
 
 ## 执行状态
 | Step | Outcome | Message |

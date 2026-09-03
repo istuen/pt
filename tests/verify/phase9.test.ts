@@ -81,7 +81,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("pt-dev Profile 含开发流程", () => {
       const r = loadedProfiles["pt-dev"].segment;
-      expect(r.includes("modify-schema") || r.includes("pt-dev-flow")).toBe(true);
+      expect(r.includes("deliver-feature") || r.includes("pt-dev-flow")).toBe(true);
     });
 
     it("pt-dev Profile 不含业务", () => {

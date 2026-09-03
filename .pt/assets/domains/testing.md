@@ -26,16 +26,6 @@ name: testing
 
 ## Manual
 
-### write-test
-- argument-hint: <test-target>
-- intent: 给 {{test-target}} 写新测试的标准流程
-- vars: [test-target]
-- step: 定位测试目标类型 — type guard / parse 函数 / compile 逻辑 / render 产物 / 端到端
-- step: 选测试层 — 单元（纯函数，tests/verify/ 下新建 .test.ts）vs 集成（loadAndTranspile 端到端）vs 回归（phase9/flows 基线加断言）
-- step: 写 vitest describe/it/expect — 断言可独立复验，不接受 console.log 看输出（pt-quality#test-framework）
-- step: 跑 vitest run <新测试文件> — 确认通过
-- step: git commit "test: 给 {{test-target}} 加测试"
-
 ### add-test-for-change
 - argument-hint: <changed-file>
 - intent: 给 {{changed-file}} 的改动补回归测试
@@ -55,14 +45,3 @@ name: testing
 - step: 残留检查 — grep " as " src/（type guard 外的断言）/ console.error / 路径字面量散落（按 .pt/docs/designs/pt-tech-debt-audit.md 验收清单）
 - step: 产物 diff — 对比 .pt/cache/contexts/ 下 baseline context.md，确认结构对（字数允许变但段要在）
 - step: 跨项目验证 — 干净目录 npm pack + npm install + pi --pt-context pt 能启动
-
-### release-readiness-check
-- argument-hint: <version>
-- intent: 发版 {{version}} 前的就绪检查清单
-- vars: [version]
-- step: 跑 regression-verify — 全过才能继续
-- step: 确认内建资产已更新 — 走 asset-workflow#sync-builtin 手册（复制稳定资产到 src/builtin/assets/，剔除 me/引用 me 的 profile）
-- step: npm pack --dry-run — 验证只含 src/**/*.ts + src/builtin/assets/**/*.md + README.md
-- step: 检查 .pt/.pt/docs/CHANGELOG.md 已更新 — 走 ci-cd#update-changelog 手册
-- step: 检查 git working tree clean — git status 无未提交改动
-- step: 检查 baseline tag — 上一个版本 tag 存在，可回退
