@@ -8,13 +8,17 @@
 //   cache.load? 命中 → 用缓存 : cache.save(Context) → 重编译
 //     ↓
 //   render.systemPrompt(Context, Blueprint) → 给 AgentAdapter 注入 before_agent_start
+//
+// Phase 11.x / P1：单源线性（YAGNI 多源合并）——取第一个成功的 adapter。
+//   旧版多 bundle 循环 + 5 个 lastXxx 累积已删（P1.1）。bundles 仍返 [bundle]
+//   保留 SchemaBundle[] 形态（index.ts:786 r.bundles[0] 依赖）。无成功 bundle
+//   抛错（P1.2）由 index.ts:286 catch 兜底。
 
 import { errMsg, reportError, reportWarn } from "./diagnostics.js";
 import { mdAdapter } from "./parse/index.js";
 import { compileContext } from "./compile/context.js";
 import { saveContext, loadContext } from "./render/cache.js";
 import { renderSystemPrompt } from "./render/system-prompt.js";
-import { AGENT_PI, CACHE_DIR } from "./constants.js";
 import { findBlueprint, findProfile } from "./schema.js";
 import type {
   Blueprint,
@@ -43,16 +47,9 @@ export interface TranspileResult {
   profile: Profile;
 }
 
-const EMPTY_CTX: Context = { name: "", blueprint: "", sourceHash: "0", modules: {} };
-const EMPTY_BP: Blueprint = {
-  name: "",
-  agent: AGENT_PI,
-  injectionPoints: [],
-  compilation: { cacheDir: CACHE_DIR, split: "single-file" },
-};
-const EMPTY_PROFILE: Profile = { name: "", blueprint: "", domains: [], injectionPoints: [] };
-
-/** ============== Source Adapter 注册表（MVP 只有 MD） ============== */
+/** ============== Source Adapter 注册表（MVP 只有 MD） ==============
+ *  P1.1：保留数组形式作为扩展点（未来加 yamlAdapter / dbAdapter），
+ *  但 loadAndTranspile 改为"取第一个成功 adapter"——多源合并未来设计（YAGNI）。 */
 const sourceAdapters: SourceAdapter[] = [
   mdAdapter,
   // 未来：yamlAdapter, dbAdapter, ...
@@ -66,118 +63,87 @@ export async function loadAndTranspile(
 ): Promise<TranspileResult> {
   adapterCtx?.log?.debug("transpile:start", { profileName, adapterCount: sourceAdapters.length });
 
-  // 1. parse：并行调所有 adapter 拿 SchemaBundle
-  const segs = await Promise.all(
-    sourceAdapters.map((a) =>
-      a.load(cwd, profileName, adapterCtx).catch((e) => {
-        reportError(adapterCtx, `adapter ${a.name} failed: ${errMsg(e)}`, { adapter: a.name });
-        return null;
-      })
-    )
-  );
-  const bundles = segs.filter((b): b is SchemaBundle => b !== null);
+  // 1. parse：依次调所有 adapter，取第一个成功的 bundle
+  let bundle: SchemaBundle | null = null;
+  for (const a of sourceAdapters) {
+    try {
+      const b = await a.load(cwd, profileName, adapterCtx);
+      if (b) {
+        bundle = b;
+        break;
+      }
+    } catch (e) {
+      reportError(adapterCtx, `adapter ${a.name} failed: ${errMsg(e)}`, { adapter: a.name });
+    }
+  }
+  if (!bundle) {
+    throw new Error(`transpile: no adapter succeeded for profile "${profileName}"`);
+  }
   adapterCtx?.log?.info("transpile:parse done", {
     profileName,
-    bundleCount: bundles.length,
-    profileCount: bundles.reduce((a, b) => a + b.profiles.length, 0),
-    blueprintCount: bundles.reduce((a, b) => a + b.blueprints.length, 0),
-    domainCount: bundles.reduce((a, b) => a + b.domains.length, 0),
+    profileCount: bundle.profiles.length,
+    blueprintCount: bundle.blueprints.length,
+    domainCount: bundle.domains.length,
   });
 
-  if (bundles.length === 0) {
-    adapterCtx?.log?.warn("transpile:no bundles", { profileName });
-    return {
-      segment: "",
-      bundles: [],
-      cacheHit: false,
-      context: { ...EMPTY_CTX, name: profileName },
-      blueprint: EMPTY_BP,
-      domains: [],
-      activeProfile: profileName,
-      profile: { ...EMPTY_PROFILE, name: profileName },
-    };
+  // 2. compile：profile → blueprint → context
+  const profile = findProfile(bundle.profiles, bundle.activeProfile);
+  if (!profile) {
+    throw new Error(
+      `transpile: profile "${bundle.activeProfile}" not found in bundle (available: ${bundle.profiles.map((p) => p.name).join(", ") || "<none>"})`
+    );
   }
-
-  // 2. compile + cache + render：对每个 bundle 处理（取 activeProfile）
-  const segments: string[] = [];
-  let anyHit = false;
-  let lastContext: Context | null = null;
-  let lastBlueprint: Blueprint | null = null;
-  let lastDomains: Domain[] = [];
-  let lastActiveProfile = profileName;
-  let lastProfile: Profile | null = null;
-
-  for (const bundle of bundles) {
-    const profile = findProfile(bundle.profiles, bundle.activeProfile);
-    if (!profile) {
-      adapterCtx?.log?.debug("transpile:skip bundle — profile not found", {
-        activeProfile: bundle.activeProfile,
-      });
-      continue;
-    }
-    const blueprint = findBlueprint(bundle.blueprints, profile.blueprint);
-    if (!blueprint) {
-      reportWarn(
-        adapterCtx,
-        `Profile "${profile.name}" 引用未知 Blueprint "${profile.blueprint}"`,
-        {
-          profileName: profile.name,
-          referencedBlueprint: profile.blueprint,
-          availableBlueprints: bundle.blueprints.map((b) => b.name),
-        }
-      );
-      continue;
-    }
-    const ctx = compileContext(profile, blueprint, bundle.domains);
-    adapterCtx?.log?.debug("transpile:compile done", {
+  const blueprint = findBlueprint(bundle.blueprints, profile.blueprint);
+  if (!blueprint) {
+    reportWarn(adapterCtx, `Profile "${profile.name}" 引用未知 Blueprint "${profile.blueprint}"`, {
       profileName: profile.name,
-      sourceHashPrefix: ctx.sourceHash.slice(0, 8),
-      moduleCount: Object.keys(ctx.modules).length,
+      referencedBlueprint: profile.blueprint,
+      availableBlueprints: bundle.blueprints.map((b) => b.name),
     });
+    throw new Error(
+      `transpile: blueprint "${profile.blueprint}" not found for profile "${profile.name}"`
+    );
+  }
+  const ctx = compileContext(profile, blueprint, bundle.domains);
+  adapterCtx?.log?.debug("transpile:compile done", {
+    profileName: profile.name,
+    sourceHashPrefix: ctx.sourceHash.slice(0, 8),
+    moduleCount: Object.keys(ctx.modules).length,
+  });
 
-    // 3. cache：load 命中 → 用缓存（跳过写入），未命中 → save
-    const cached = await loadContext(cwd, ctx.name, ctx.sourceHash, blueprint.compilation);
-    let used: Context;
-    if (cached) {
-      anyHit = true;
-      adapterCtx?.log?.info("transpile:cache hit", { contextName: ctx.name });
-      used = cached;
-    } else {
-      adapterCtx?.log?.info("transpile:cache miss → save", { contextName: ctx.name });
-      await saveContext(cwd, ctx, blueprint.compilation);
-      used = ctx;
-    }
-
-    segments.push(renderSystemPrompt(used, blueprint));
-    lastContext = used;
-    lastBlueprint = blueprint;
-    lastDomains = bundle.domains;
-    lastActiveProfile = profile.name;
-    lastProfile = profile;
+  // 3. cache：load 命中 → 用缓存（跳过写入），未命中 → save
+  const cached = await loadContext(cwd, ctx.name, ctx.sourceHash, blueprint.compilation);
+  let used: Context;
+  let cacheHit = false;
+  if (cached) {
+    cacheHit = true;
+    adapterCtx?.log?.info("transpile:cache hit", { contextName: ctx.name });
+    used = cached;
+  } else {
+    adapterCtx?.log?.info("transpile:cache miss → save", { contextName: ctx.name });
+    await saveContext(cwd, ctx, blueprint.compilation);
+    used = ctx;
   }
 
-  // 4. 注入版剥 asset 分隔注释
-  const segment = segments
-    .join("\n\n")
+  // 4. render：剥 asset 分隔注释
+  const segment = renderSystemPrompt(used, blueprint)
     .replace(/<!-- =====[^\n]*-->\n?/g, "")
     .trim();
 
   adapterCtx?.log?.info("transpile:done", {
-    profileName: lastActiveProfile,
+    profileName: profile.name,
     segmentLen: segment.length,
-    cacheHit: anyHit,
+    cacheHit,
   });
 
   return {
     segment,
-    bundles,
-    cacheHit: anyHit,
-    context: lastContext ?? { ...EMPTY_CTX, name: lastActiveProfile },
-    blueprint: lastBlueprint ?? EMPTY_BP,
-    domains: lastDomains,
-    activeProfile: lastActiveProfile,
-    profile: lastProfile ?? { ...EMPTY_PROFILE, name: lastActiveProfile },
+    bundles: [bundle],
+    cacheHit,
+    context: used,
+    blueprint,
+    domains: bundle.domains,
+    activeProfile: profile.name,
+    profile,
   };
 }
-
-// ==================== 辅助 ====================
