@@ -93,6 +93,12 @@ describe("manual track 集成", () => {
   });
 
   it("pt_manual tool → 写 activeManual + widget setWidget + appendEntry", async () => {
+    // 隔离 cwd：pt_manual 按 ctx.cwd 解析 .pt/manuals/ 写入路径，避免污染真实仓库
+    // （issue pt-manual-test-residual 方案 A：原测试硬编码 ctx.cwd = process.cwd() 导致残留堆积）
+    const tempDir = await mkdtemp(join(tmpdir(), "pt-manual-write-"));
+    tempDirs.push(tempDir);
+    await mkdir(join(tempDir, ".pt", "manuals"), { recursive: true });
+
     const m = makePi();
     installExtension(m.pi as never);
 
@@ -103,6 +109,11 @@ describe("manual track 集成", () => {
     // 用 /pt-context 强制加载 pt-dev（项目根有两个 profile，auto 不会 pick）
     const switchCmd = m.commands.get("pt-context")!;
     await switchCmd.handler("pt-dev", m.ctx);
+
+    // 隔离 cwd：profile 已加载到全局 session（cachedBundles/cachedBlueprint 已设），
+    // 此时切 cwd 让 pt_manual 写入到 tempDir，避免污染真实仓库
+    // （issue pt-manual-test-residual 方案 A：profile 加载前不能切 cwd，否则 transpileActive 读不到 .pt/assets/）
+    m.ctx.cwd = tempDir;
 
     // 清掉前置 status/widget 调用，便于断言
     m.statusCalls.length = 0;
@@ -276,6 +287,12 @@ status: completed
   });
 
   it("/pt manual 命令 → 同 tool 路径（activeManual + widget + entry）", async () => {
+    // 隔离 cwd：/pt manual 命令按 ctx.cwd 解析 .pt/manuals/ 写入路径，避免污染真实仓库
+    // （issue pt-manual-test-residual 方案 A）
+    const tempDir = await mkdtemp(join(tmpdir(), "pt-manual-write-"));
+    tempDirs.push(tempDir);
+    await mkdir(join(tempDir, ".pt", "manuals"), { recursive: true });
+
     const m = makePi();
     installExtension(m.pi as never);
 
@@ -284,6 +301,10 @@ status: completed
 
     const switchCmd = m.commands.get("pt-context")!;
     await switchCmd.handler("pt-dev", m.ctx);
+
+    // 隔离 cwd：profile 已加载到全局 session，切 cwd 让 /pt manual 命令写入到 tempDir（避免污染真实仓库）
+    // （issue pt-manual-test-residual 方案 A）
+    m.ctx.cwd = tempDir;
 
     m.statusCalls.length = 0;
     m.widgetCalls.length = 0;
