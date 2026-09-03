@@ -32,8 +32,8 @@ args: p1-verify
 - [x] 按计划走 modify-* — 每步一个 commit
 - [ ] 每个改动文件走 testing#add-test-for-change — 补回归测试
 - [ ] testing#regression-verify — 全量回归
-- [ ] testing#release-readiness-check <version>
-- [ ] ci-cd#release-flow <version>
+- [ ] testing#regression-verify — 全量回归（含发版就绪检查）
+- [ ] ci-cd#release <version>
 `;
     const p = parseManualProgressFromContent(content);
     expect(p).not.toBeNull();
@@ -146,14 +146,14 @@ describe("renderManualWidgetLines", () => {
 
   it("in-progress + nextStep=null：不显示 next 行", () => {
     const lines = renderManualWidgetLines("/x.md", {
-      procedure: "modify-schema",
+      procedure: "deliver-feature",
       stepDone: 5,
       stepTotal: 5,
       status: "in-progress",
       nextStep: null,
     });
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toBe("pt ▶ modify-schema  step 5/5  (in-progress)");
+    expect(lines[0]).toBe("pt ▶ deliver-feature  step 5/5  (in-progress)");
   });
 });
 
