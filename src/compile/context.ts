@@ -40,6 +40,7 @@ import {
   isTriggerItemArray,
   isWorkflowScene,
 } from "./type-guards.js";
+import { formatManualBody } from "./format-manual-body.js";
 
 // ==================== Context 编译入口 ====================
 
@@ -213,39 +214,16 @@ function renderTriggerModule(d: Domain, content: unknown): string {
 // ==================== Manual module renderer（聚合参考手册） ====================
 
 /** Manual 段聚合：workflow→FlowTemplate 列表 / term→Rule 列表。
- *  v9：context_message 注入点（参考手册）主要消费 Manual 段。 */
+ *  v9：context_message 注入点（参考手册）主要消费 Manual 段。
+ *  P3.6：列表渲染逻辑抽到 formatManualBody（与 renderDomainManual 共享）。 */
 function renderManualModule(d: Domain, content: unknown): string {
-  const lines: string[] = [`### ${d.name}`, ""];
-
-  switch (d.type) {
-    case "workflow": {
-      if (!isFlowTemplateArray(content)) return "";
-      for (const t of content) {
-        const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
-        lines.push(`- ${t.name}${hint}: ${t.intent}`);
-      }
-      break;
-    }
-    case "term": {
-      if (!isRuleArray(content)) return "";
-      for (const r of content) {
-        if (r.type === "invariant") {
-          if (r.check) lines.push(`- ${r.name}: ${r.check}`);
-          else lines.push(`- ${r.name}`);
-        } else if (r.type === "ban" && r.items && r.items.length > 0) {
-          if (r.check) lines.push(`- ${r.name}: ${r.check} (${r.items.join(" / ")})`);
-          else lines.push(`- ${r.name}: ${r.items.join(" / ")}`);
-        }
-      }
-      break;
-    }
-    case "stack":
-      // stack 无 Manual 段
-      return "";
-    default:
-      return renderGenericModule(d, content);
+  if (d.type === "stack") return ""; // stack 无 Manual 段
+  if (d.type !== "term" && d.type !== "workflow") {
+    return renderGenericModule(d, content);
   }
-  return lines.join("\n").trimEnd();
+  const body = formatManualBody(d, content);
+  if (!body) return "";
+  return `### ${d.name}\n\n${body}`.trimEnd();
 }
 
 // ==================== Generic fallback（扩展 modName 时自动适用） ====================
