@@ -35,7 +35,6 @@ import { join } from "node:path";
 import { CACHE_DIR, SUFFIX_BLUEPRINT } from "../constants.js";
 import type {
   Blueprint,
-  CacheSplitStrategy,
   CompilationConfig,
   InjectionPointConfig,
   StructureLayout,
@@ -101,9 +100,9 @@ function parseCompilationFromSection(section: Section | undefined): CompilationC
     return { cacheDir: CACHE_DIR, split: "single-file" };
   }
   const cacheDir = extractFieldValue(section, "cache-dir") || CACHE_DIR;
-  const splitRaw = extractFieldValue(section, "split") || "single-file";
-  const split: CacheSplitStrategy =
-    splitRaw === "by-injection-point" ? "by-injection-point" : "single-file";
+  // v11.x：split 仅支持 "single-file"——by-injection-point 预留移除（schema.ts CacheSplitStrategy 收紧）
+  // Blueprint YAML 写 split: single-file 仍接受；写其他值 fallback 到 single-file（无静默 warn）
+  const split = "single-file" as const;
   return { cacheDir, split };
 }
 
