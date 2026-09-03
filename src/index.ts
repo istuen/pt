@@ -29,6 +29,11 @@ import { toAgentAPI } from "./agent/api-bridge.js";
 import { getAgentAdapter } from "./agent/index.js";
 import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
 import { errMsg } from "./diagnostics.js";
+import {
+  readProfileFromSession,
+  persistProfileToSession,
+  type MinimalSessionManager,
+} from "./profile-persist.js";
 import { renderInjectionFooter } from "./injection-status.js";
 import { LOG_DIR, PtLogger } from "./log.js";
 import {
@@ -59,51 +64,6 @@ function slog(
 ): void {
   if (!session.logger) return;
   session.logger[level](msg, ctx);
-}
-
-/** v10.x：session JSONL 中用于持久化 activeProfile 的 custom entry customType。
- *  用 `pt:` 命名空间避免污染 pi 通用命名空间。 */
-const PT_PROFILE_ENTRY = "pt:active-profile";
-
-/** v10.x：从 session JSONL 读上次保存的 profile。
- *  - 反向遍历 entries，取最后一个 `pt:active-profile`（最新一次切换覆盖前一次）。
- *  - 静默 fallback：SessionManager 不可用 / ephemeral session / entry 损坏 → 返 undefined。
- *  - 不校验 profile 是否仍存在于 assets——校验留给 transpileActive（transpile 失败会被 session_start catch）。
- *  - 用结构类型而非 `ReadonlySessionManager`（该类型不在 pi 包顶层 export.d.ts 里）。 */
-interface MinimalSessionManager {
-  getEntries(): Array<{ type: string; customType?: string; data?: unknown }>;
-}
-function readProfileFromSession(sessionManager: MinimalSessionManager): string | undefined {
-  try {
-    const entries = sessionManager.getEntries();
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const e = entries[i];
-      if (e && e.type === "custom" && e.customType === PT_PROFILE_ENTRY) {
-        const data = (e as { data?: unknown }).data;
-        if (data && typeof data === "object") {
-          const profile = (data as { profile?: unknown }).profile;
-          if (typeof profile === "string" && profile.trim()) {
-            return profile.trim();
-          }
-        }
-      }
-    }
-  } catch {
-    // SessionManager 异常（如不存在 / 旧版 pi）→ 静默
-  }
-  return undefined;
-}
-
-/** v10.x：把当前 activeProfile 写入 session JSONL（Pi 自带持久化）。
- *  - 用 `pi.appendEntry()`（dist/core/extensions/types.d.ts:78 官方 API）。
- *  - 失败静默（ephemeral session / 旧版 pi 无此 API）——内存中 activeProfile 仍可用本进程。 */
-function persistProfileToSession(pi: ExtensionAPI, name: string): void {
-  try {
-    if (typeof pi.appendEntry !== "function") return;
-    pi.appendEntry(PT_PROFILE_ENTRY, { profile: name });
-  } catch (e) {
-    slog("warn", "persistProfileToSession failed", { profileName: name, err: errMsg(e) });
-  }
 }
 
 /** v11.x：手动跟踪的 ActiveManual 持久化 + widget 刷新。 */
