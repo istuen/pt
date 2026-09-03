@@ -1,7 +1,11 @@
 // tests/verify/ref-check.test.ts — P2：引用完整性校验
 import { describe, it, expect } from "vitest";
 import { loadAndTranspile } from "../../src/transpile.js";
-import { checkAllRefs, checkProfileRefs, formatRefCheckResult } from "../../src/verify/ref-check.js";
+import {
+  checkAllRefs,
+  checkProfileRefs,
+  formatRefCheckResult,
+} from "../../src/verify/ref-check.js";
 import type { Profile, Blueprint, Domain } from "../../src/schema.js";
 
 describe("P2: 引用完整性校验", () => {

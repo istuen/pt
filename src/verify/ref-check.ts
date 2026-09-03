@@ -17,7 +17,7 @@ export interface RefCheckResult {
 export function checkProfileRefs(
   profile: Profile,
   blueprints: Blueprint[],
-  domains: Domain[],
+  domains: Domain[]
 ): RefCheckResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -44,7 +44,9 @@ export function checkProfileRefs(
     if (bp) {
       const bpIp = bp.injectionPoints.find((bip) => bip.name === ip.name);
       if (!bpIp) {
-        errors.push(`Profile "${profile.name}" 的注入点 "${ip.name}" 在 Blueprint "${bp.name}" 里无对应`);
+        errors.push(
+          `Profile "${profile.name}" 的注入点 "${ip.name}" 在 Blueprint "${bp.name}" 里无对应`
+        );
       }
     }
 
@@ -61,7 +63,9 @@ export function checkProfileRefs(
     for (const bpIp of bp.injectionPoints) {
       const hasProfileIp = profile.injectionPoints.some((pip) => pip.name === bpIp.name);
       if (!hasProfileIp) {
-        warnings.push(`Blueprint "${bp.name}" 的注入点 "${bpIp.name}" 在 Profile "${profile.name}" 里未实例化`);
+        warnings.push(
+          `Blueprint "${bp.name}" 的注入点 "${bpIp.name}" 在 Profile "${profile.name}" 里未实例化`
+        );
       }
     }
   }
@@ -73,7 +77,7 @@ export function checkProfileRefs(
 export function checkAllRefs(
   profiles: Profile[],
   blueprints: Blueprint[],
-  domains: Domain[],
+  domains: Domain[]
 ): RefCheckResult {
   const allErrors: string[] = [];
   const allWarnings: string[] = [];
