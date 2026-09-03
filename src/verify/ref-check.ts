@@ -3,6 +3,9 @@
 // pt 引用图是三层星型（非 OXN Domain→Domain 网状），无环风险。
 // 校验重点是完整性：悬空引用检测。
 // 不校验 Blueprint.injectionPoints[].modules（H2 段名是模块类型声明，非 Domain 引用）。
+//
+// v11.x：Profile 全局 domains 覆盖是主用例——"未实例化"警告在该模式下静默
+// （未实例化 = 走全局分发，无 warning；只有 Profile 完全空 + 注入点全空时才报 warning）。
 
 import type { Blueprint, Domain, Profile } from "../schema.js";
 
@@ -59,7 +62,9 @@ export function checkProfileRefs(
   }
 
   // 4. 警告：Blueprint 声明了注入点但 Profile 未实例化（非错误——Profile 可只实例化部分注入点）
-  if (bp) {
+  //    v11.x：Profile 有全局 domains 时，注入点未 H2 实例化是合法用法（全局分发到所有注入点），
+  //    静默不报。只有 Profile 全空（无全局 domains + 无 H2 实例化）时才报"未实例化" warning。
+  if (bp && profile.domains.length === 0) {
     for (const bpIp of bp.injectionPoints) {
       const hasProfileIp = profile.injectionPoints.some((pip) => pip.name === bpIp.name);
       if (!hasProfileIp) {
