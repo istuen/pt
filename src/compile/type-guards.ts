@@ -20,6 +20,11 @@ export function isNonEmptyArray<T>(x: unknown): x is T[] {
   return Array.isArray(x) && x.length > 0;
 }
 
+/** unknown 是否为索引签名对象（非数组的 object）。 */
+export function isRecord(x: unknown): x is Record<string, unknown> {
+  return !!x && typeof x === "object" && !Array.isArray(x);
+}
+
 // ==================== Term[] 守卫 ====================
 
 /** 校验元素是否具备 Term 最小形状（{ name: string }）。 */

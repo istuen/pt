@@ -41,9 +41,7 @@ args: p1-verify
     expect(p?.status).toBe("in-progress");
     expect(p?.stepDone).toBe(2);
     expect(p?.stepTotal).toBe(6);
-    expect(p?.nextStep).toBe(
-      "每个改动文件走 testing#add-test-for-change — 补回归测试"
-    );
+    expect(p?.nextStep).toBe("每个改动文件走 testing#add-test-for-change — 补回归测试");
   });
 
   it("completed 文件：done=total, nextStep=null", () => {

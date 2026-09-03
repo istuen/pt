@@ -27,6 +27,7 @@ import { randomUUID } from "node:crypto";
 import { FULL_DIR, MANUAL_DIR, MOD_MANUAL, PROFILES_DIR, RAW_DIR } from "./constants.js";
 import { getAgentAdapter } from "./agent/index.js";
 import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
+import { errMsg } from "./diagnostics.js";
 import { renderInjectionFooter } from "./injection-status.js";
 import { LOG_DIR, PtLogger } from "./log.js";
 import {
@@ -35,13 +36,8 @@ import {
   renderManualFooterSuffix,
   renderManualWidgetLines,
 } from "./manual-track.js";
-import { findFlowInBlueprint } from "./render/context-message.js";
-import {
-  type ActiveManual,
-  type ProfileLoadSource,
-  resetSession,
-  session,
-} from "./session.js";
+
+import { type ActiveManual, type ProfileLoadSource, resetSession, session } from "./session.js";
 import {
   buildFullPrompt,
   buildManualDoc,
@@ -62,10 +58,6 @@ function slog(
 ): void {
   if (!session.logger) return;
   session.logger[level](msg, ctx);
-}
-
-function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }
 
 /** v10.x：session JSONL 中用于持久化 activeProfile 的 custom entry customType。
@@ -125,7 +117,9 @@ interface PersistedManualEntry {
   procedure: string;
   args: string;
 }
-function readManualFromSession(sessionManager: MinimalSessionManager): PersistedManualEntry | undefined {
+function readManualFromSession(
+  sessionManager: MinimalSessionManager
+): PersistedManualEntry | undefined {
   try {
     const entries = sessionManager.getEntries();
     for (let i = entries.length - 1; i >= 0; i--) {
@@ -137,11 +131,7 @@ function readManualFromSession(sessionManager: MinimalSessionManager): Persisted
           const filePath = d.filePath;
           const procedure = d.procedure;
           const args = d.args;
-          if (
-            typeof filePath === "string" &&
-            filePath.trim() &&
-            typeof procedure === "string"
-          ) {
+          if (typeof filePath === "string" && filePath.trim() && typeof procedure === "string") {
             return {
               filePath: filePath.trim(),
               procedure,
@@ -337,18 +327,6 @@ async function switchProfile(
   }
 }
 
-/** 在 session.cachedBundles 里找指定名的 FlowTemplate（跨 bundle 查找）。 */
-function findFlow(name: string) {
-  if (!session.cachedBundles) return undefined;
-  for (const b of session.cachedBundles) {
-    const bp = b.blueprints.find((x) => x.name === b.blueprints[0]?.name);
-    if (!bp) continue;
-    const tpl = findFlowInBlueprint(bp, b.domains, name);
-    if (tpl) return tpl;
-  }
-  return undefined;
-}
-
 export default function (pi: ExtensionAPI): void {
   // 启动时 flag（CLI 优先）
   pi.registerFlag("pt-context", {
@@ -375,7 +353,9 @@ export default function (pi: ExtensionAPI): void {
       const flag = pi.getFlag("pt-context");
       const flagVal = typeof flag === "string" && flag.trim() ? flag.trim() : undefined;
 
-      const fromSettings = await readProjectSetting<string>(ctx.cwd, "au.pt-context");
+      const fromSettings =
+        (await readProjectSetting<string>(ctx.cwd, "pt.pt-context")) ??
+        (await readProjectSetting<string>(ctx.cwd, "au.pt-context"));
       const fromSession = readProfileFromSession(ctx.sessionManager); // v10.x
       const auto = await detectSingleProfile(ctx.cwd);
 
@@ -404,7 +384,7 @@ export default function (pi: ExtensionAPI): void {
         session.injectionError = null;
         refreshInjectionFooter(ctx.ui);
         ctx.ui.notify(
-          "Pt：未找到 Profile。用 /pt-context <name> 选择，或在 .pi/settings.json 设 au.pt-context。",
+          "Pt：未找到 Profile。用 /pt-context <name> 选择，或在 .pi/settings.json 设 pt.pt-context。",
           "info"
         );
         session.loadedFrom = null;
@@ -866,29 +846,4 @@ function toAgentAPI(pi: ExtensionAPI, ctx: { ui: AgentUIContext }): AgentAPI {
     holder.setContext(ctx);
   }
   return holder.api;
-}
-
-/** 暴露 activeProfile 用于调试（未来可挂 /pt status）。 */
-export function _debugActive(): {
-  profile: string | null;
-  segmentLen: number;
-  flowCount: number;
-  cacheHit: boolean;
-} {
-  const flowCount =
-    session.cachedBundles?.reduce((acc, b) => {
-      let n = 0;
-      for (const d of b.domains)
-        if (d.type === "workflow") {
-          const tpls = Array.isArray(d.modules[MOD_MANUAL]) ? d.modules[MOD_MANUAL] : [];
-          n += tpls.length;
-        }
-      return acc + n;
-    }, 0) ?? 0;
-  return {
-    profile: session.activeProfile,
-    segmentLen: session.cachedSegment?.length ?? 0,
-    flowCount,
-    cacheHit: session.lastCacheHit,
-  };
 }

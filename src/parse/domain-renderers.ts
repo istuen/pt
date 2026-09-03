@@ -6,7 +6,7 @@
 //
 // 替换 parse/domain.ts 中的 switch-case 主逻辑。switch-case 仅留兜底 default fallback。
 
-import type { Item } from "./shared.js";
+import { s, sArr, type Item } from "./shared.js";
 import type { FlowStep } from "../schema.js";
 
 /** 单个 H2 段内容解析器。 */
@@ -90,18 +90,6 @@ export function getDomainSectionParser(
 }
 
 // ==================== shared 辅助 ====================
-
-function s(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string").join(", ");
-  return "";
-}
-
-function sArr(v: unknown): string[] {
-  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string");
-  if (typeof v === "string" && v) return [v];
-  return [];
-}
 
 function collectSteps(itemName: string, sectionRaw: string): FlowStep[] {
   const lines = sectionRaw.split(/\r?\n/);

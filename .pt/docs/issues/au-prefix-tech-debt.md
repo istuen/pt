@@ -1,9 +1,10 @@
 ---
 type: issue
 name: au-prefix-tech-debt
-status: open
+status: closed
 severity: low
 created: 2025-09-02
+closed: 2026-09-03
 domain: pt-dev
 ---
 
@@ -62,3 +63,24 @@ const fromSettings =
 
 - **issue: pt-context-persist-lost**——该 issue 的自愈方案用 `au.pt-context`，本 issue 修复后应改用 `pt.pt-context`
 - **src/config.ts:12** `readProjectSetting` 实现（通用 dotted key 读取，不绑前缀）
+## 修复 commit
+
+`refactor: P0 去噪去重（死代码 + 重复辅助函数 + au 前缀）` (P0 单 commit)
+
+## 修复方式
+
+`src/index.ts` session_start 的 settings 读取改为双读：
+
+```typescript
+const fromSettings =
+  (await readProjectSetting<string>(ctx.cwd, "pt.pt-context")) ??
+  (await readProjectSetting<string>(ctx.cwd, "au.pt-context"));
+```
+
+迁移期兼容旧键，notify 文案同步改为 `pt.pt-context`。
+
+## 验证
+
+- typecheck 零输出
+- verify 124/124 passed（含 switch-injection 4 + persist-profile 13 行为回归门）
+- lint 0 error

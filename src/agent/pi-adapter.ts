@@ -77,10 +77,7 @@ export class PiAdapter implements AgentAdapter {
           // 无 segment（未加载 Profile / 已被 reset）→ idle
           session.injectionState = "idle";
           session.injectionError = null;
-          api.ui?.setStatus(
-            "pt",
-            renderInjectionFooter("idle", session.activeProfile, null)
-          );
+          api.ui?.setStatus("pt", renderInjectionFooter("idle", session.activeProfile, null));
           return undefined;
         }
         const event = args[0];
@@ -88,10 +85,7 @@ export class PiAdapter implements AgentAdapter {
           // 事件形状异常：归类为 idle（不视为失败——Pi 可能改了事件签名）
           session.injectionState = "idle";
           session.injectionError = null;
-          api.ui?.setStatus(
-            "pt",
-            renderInjectionFooter("idle", session.activeProfile, null)
-          );
+          api.ui?.setStatus("pt", renderInjectionFooter("idle", session.activeProfile, null));
           return undefined;
         }
         const final = event.systemPrompt + "\n\n## 当前任务上下文\n\n" + currentSegment;
@@ -105,10 +99,7 @@ export class PiAdapter implements AgentAdapter {
         // 成功注入 → injected
         session.injectionState = "injected";
         session.injectionError = null;
-        api.ui?.setStatus(
-          "pt",
-          renderInjectionFooter("injected", session.activeProfile, null)
-        );
+        api.ui?.setStatus("pt", renderInjectionFooter("injected", session.activeProfile, null));
         return { systemPrompt: final };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

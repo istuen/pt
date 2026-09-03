@@ -9,6 +9,7 @@
 //     ↓
 //   render.systemPrompt(Context, Blueprint) → 给 AgentAdapter 注入 before_agent_start
 
+import { errMsg, reportError, reportWarn } from "./diagnostics.js";
 import { mdAdapter } from "./parse/index.js";
 import { compileContext } from "./compile/context.js";
 import { saveContext, loadContext } from "./render/cache.js";
@@ -180,28 +181,3 @@ export async function loadAndTranspile(
 }
 
 // ==================== 辅助 ====================
-
-/** 三通道 fallback: log → notify → console。v10.x：增 details 让 log/UI 用户能看到 structured 上下文。 */
-function reportWarn(
-  adapterCtx: SourceAdapterContext | undefined,
-  msg: string,
-  details?: Record<string, unknown>
-): void {
-  if (adapterCtx?.log) adapterCtx.log.warn(msg, details);
-  if (adapterCtx?.notify) adapterCtx.notify(msg, "warning");
-  if (!adapterCtx?.log && !adapterCtx?.notify) console.warn(`[pt] ${msg}`);
-}
-
-function reportError(
-  adapterCtx: SourceAdapterContext | undefined,
-  msg: string,
-  details?: Record<string, unknown>
-): void {
-  if (adapterCtx?.log) adapterCtx.log.error(msg, details);
-  if (adapterCtx?.notify) adapterCtx.notify(msg, "error");
-  if (!adapterCtx?.log && !adapterCtx?.notify) console.error(`[pt] ${msg}`);
-}
-
-function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}

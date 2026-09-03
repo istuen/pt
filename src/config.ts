@@ -7,6 +7,7 @@ import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BUILTIN_ASSETS_DIR, PROFILES_DIR } from "./constants.js";
+import { isRecord } from "./compile/type-guards.js";
 
 /** 读项目 settings.json 的指定 dotted key。文件不存在/解析失败 → undefined */
 export async function readProjectSetting<T = unknown>(
@@ -27,11 +28,6 @@ export async function readProjectSetting<T = unknown>(
     }
     return undefined;
   }, json) as T | undefined;
-}
-
-/** 判断 unknown 是否为索引签名对象。 */
-function isRecord(x: unknown): x is Record<string, unknown> {
-  return !!x && typeof x === "object" && !Array.isArray(x);
 }
 
 /** 列出可选 Profile 名：项目 + 内建合并，同名时项目覆盖内建。

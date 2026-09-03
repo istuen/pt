@@ -25,10 +25,7 @@ type CtxLike = Record<string, unknown>;
 /** mock pi：track setStatus / setWidget 调用 + appendEntry 调用 */
 function makePi() {
   const events = new Map<string, GenericHandler[]>();
-  const commands = new Map<
-    string,
-    { handler: (args: string, ctx: CtxLike) => Promise<void> }
-  >();
+  const commands = new Map<string, { handler: (args: string, ctx: CtxLike) => Promise<void> }>();
   const tools = new Map<string, { execute: (...a: unknown[]) => Promise<unknown> }>();
   const statusCalls: Array<[string, string | undefined]> = [];
   const widgetCalls: Array<[string, unknown, unknown?]> = [];
@@ -142,9 +139,7 @@ describe("manual track 集成", () => {
     // 3. appendEntry 已调（pt:active-manual）
     const manualEntries = m.appendedEntries.filter(([t]) => t === "pt:active-manual");
     expect(manualEntries.length).toBe(1);
-    expect((manualEntries[0]![1] as { procedure: string }).procedure).toBe(
-      "deliver-feature"
-    );
+    expect((manualEntries[0]![1] as { procedure: string }).procedure).toBe("deliver-feature");
 
     // 4. footer 已 setStatus（含 "manual: deliver-feature" 后缀）
     const lastStatus = m.statusCalls[m.statusCalls.length - 1]!;

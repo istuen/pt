@@ -34,6 +34,7 @@ import type {
 import {
   isFlowTemplateArray,
   isNamedItemArray,
+  isRecord,
   isRuleArray,
   isTermArray,
   isTriggerItemArray,
@@ -261,24 +262,6 @@ function renderGenericModule(_d: Domain, content: unknown): string {
   return lines.join("\n");
 }
 
-// ==================== 公共段（mode-based，hybrid 模式的全局约束段保留） ====================
-
-/** hybrid mode 下的全局约束段：从 term-Domain 的 Manual 段聚合 global slot 的 Rule。
- *  v9：保留此逻辑但不在 dispatchInjectionPoint 主路径调用——如有 Blueprint 扩展需要，
- *      可通过 registerModuleRenderer 加 modName 复用。 */
-function renderGlobalRules(rules: Rule[]): string {
-  const lines: string[] = ["### 全局约束"];
-  for (const r of rules.filter((x) => x.type === "invariant")) {
-    lines.push(`- ${r.name}: ${r.check}`);
-  }
-  for (const r of rules.filter((x) => x.type === "ban")) {
-    if (r.items && r.items.length > 0) {
-      lines.push(`- ${r.name}: ${r.check} (${r.items.join(" / ")})`);
-    }
-  }
-  return lines.join("\n");
-}
-
 // ==================== sourceHash ====================
 
 /** sha256(JSON.stringify(profile) + blueprint + domains) → hex */
@@ -301,10 +284,6 @@ function stableStringify(obj: unknown): string {
   if (!isRecord(obj)) return JSON.stringify(obj);
   const keys = Object.keys(obj).sort();
   return "{" + keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",") + "}";
-}
-
-function isRecord(x: unknown): x is Record<string, unknown> {
-  return !!x && typeof x === "object" && !Array.isArray(x);
 }
 
 /** FNV-1a 32-bit hash，足够用于缓存标识。 */

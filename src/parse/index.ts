@@ -15,6 +15,7 @@ import type {
   SourceAdapter,
   SourceAdapterContext,
 } from "../schema.js";
+import { errMsg, reportError, reportWarn } from "../diagnostics.js";
 import { findBlueprint, findProfile } from "../schema.js";
 import { parseBlueprint } from "./blueprint.js";
 import { parseDomain } from "./domain.js";
@@ -152,29 +153,4 @@ async function loadDir<T>(
     })
   );
   return results.filter((r): r is T => r !== null);
-}
-
-/** 三通道 fallback: log → notify → console（pt-quality #9 + 自定义细节）。
- *  顺序：log 优先（持久 trace），再 notify（UI 瞬时），最后 console（debug 兜底）。
- *  v10.x：增 details 参数，让 log/UI 用户能看到 structured 上下文。 */
-function reportWarn(
-  adapterCtx: SourceAdapterContext | undefined,
-  msg: string,
-  details?: Record<string, unknown>
-): void {
-  if (adapterCtx?.log) adapterCtx.log.warn(msg, details);
-  if (adapterCtx?.notify) adapterCtx.notify(msg, "warning");
-  if (!adapterCtx?.log && !adapterCtx?.notify) console.warn(`[pt] ${msg}`);
-}
-function reportError(
-  adapterCtx: SourceAdapterContext | undefined,
-  msg: string,
-  details?: Record<string, unknown>
-): void {
-  if (adapterCtx?.log) adapterCtx.log.error(msg, details);
-  if (adapterCtx?.notify) adapterCtx.notify(msg, "error");
-  if (!adapterCtx?.log && !adapterCtx?.notify) console.error(`[pt] ${msg}`);
-}
-function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }

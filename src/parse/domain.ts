@@ -22,7 +22,7 @@
 
 import { join } from "node:path";
 import type { Domain, Term } from "../schema.js";
-import { readAsset, type Item } from "./shared.js";
+import { readAsset, s, type Item } from "./shared.js";
 import { getDomainSectionParser } from "./domain-renderers.js";
 
 /** 读 domains/<fileName>.md → Domain { name, type, modules: Record<H2名, 内容> }
@@ -69,12 +69,6 @@ function fallbackTerms(items: Item[]): Term[] {
     name: it.name,
     desc: s(it.fields.desc) || s(it.fields.description),
   }));
-}
-
-function s(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string").join(", ");
-  return "";
 }
 
 function stripTypeSuffix(fileBase: string, _type: string): string {
