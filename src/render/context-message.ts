@@ -11,7 +11,8 @@
 // Tech Debt T2: 用 constants 模块名常量（pt-quality #5）
 
 import { MOD_MANUAL } from "../constants.js";
-import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
+import { isFlowTemplateArray } from "../compile/type-guards.js";
+import { formatManualBody } from "../compile/format-manual-body.js";
 import type { Blueprint, Context, Domain, FlowStep, FlowTemplate } from "../schema.js";
 
 /** FlowTemplate + 元数据（adapter 附加的 _vars）。_vars 优先于 argument-hint fallback。 */
@@ -68,42 +69,16 @@ export function renderContextMessage(
 
 /**
  * 渲染 Domain 的 Manual 段内容（term→Rule checklist / workflow→FlowTemplate 列表）。
- *  复用 renderManualModule 的格式逻辑。
- */
+ *  P3.6：列表渲染逻辑抽到 formatManualBody（与 renderManualModule 共享）。 */
 function renderDomainManual(d: Domain, content: unknown): string | null {
-  const lines: string[] = [`# /manual:${d.name}`, ""];
+  if (d.type !== "term" && d.type !== "workflow") return null;
+  if (Array.isArray(content) && content.length === 0) return null;
 
-  switch (d.type) {
-    case "workflow": {
-      if (!isFlowTemplateArray(content)) return null;
-      if (content.length === 0) return null;
-      lines.push("## 可用手册");
-      for (const t of content) {
-        const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
-        lines.push(`- ${t.name}${hint}: ${t.intent}`);
-      }
-      break;
-    }
-    case "term": {
-      if (!isRuleArray(content)) return null;
-      if (content.length === 0) return null;
-      lines.push("## 规范清单");
-      for (const r of content) {
-        if (r.type === "invariant") {
-          if (r.check) lines.push(`- ${r.name}: ${r.check}`);
-          else lines.push(`- ${r.name}`);
-        } else if (r.type === "ban" && r.items && r.items.length > 0) {
-          if (r.check) lines.push(`- ${r.name}: ${r.check} (${r.items.join(" / ")})`);
-          else lines.push(`- ${r.name}: ${r.items.join(" / ")}`);
-        }
-      }
-      break;
-    }
-    default:
-      return null;
-  }
+  const body = formatManualBody(d, content);
+  if (!body) return null;
 
-  return lines.join("\n");
+  const sectionTitle = d.type === "workflow" ? "## 可用手册" : "## 规范清单";
+  return `# /manual:${d.name}\n\n${sectionTitle}\n\n${body}`.trimEnd();
 }
 
 /**
