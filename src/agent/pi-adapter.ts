@@ -8,14 +8,29 @@
 //
 // Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
 // Tech Debt T2: 用 constants 模块名常量（pt-quality #5）
+//
+// v12.x（issue pt-session-singleton-pi-web-pollution 修复）：
+//   - handler 内部读 `args[1]?.sessionManager?.getSessionId()` 拿 per-session sessionId
+//   - 通过 `getSessionById(sessionId)` 拿 per-session SessionState，**不再读 module-level 单例**
+//   - 配合 `src/agent/registry.ts` 的 per-pi WeakMap 改造，
+//     `this.ctx / this.blueprint / this.domains / this.segment / this.injectedApi` 五个实例字段
+//     现在是 per-pi 隔离——其他 session 的 setContext 不会覆盖本 session 的 segment
 
 import { AGENT_PI, MOD_MANUAL } from "../constants.js";
 import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
 import { renderInjectionFooter } from "../injection-status.js";
-import { session } from "../session.js";
+import { getSessionById } from "../session.js";
 import type { AgentAdapter, AgentAPI, Blueprint, Context, Domain } from "../schema.js";
 import { renderContextMessage } from "../render/context-message.js";
 import { renderSystemPrompt } from "../render/system-prompt.js";
+
+/** v12.x：从 handler 的 args[1] ctx 提取 sessionId。
+ *  pi 的 `pi.on(event, handler)` 触发时传 `(event, ctx)` 两个参数；通过 AgentAPI 包装后
+ *  handler 拿到 `(...args)`，args[0] = event, args[1] = ctx (ExtensionContext)。 */
+function sessionIdFromArgs(args: unknown[]): string | undefined {
+  const ctx = args[1] as { sessionManager?: { getSessionId?: () => string } } | undefined;
+  return ctx?.sessionManager?.getSessionId?.();
+}
 
 /** PiAdapter：封装 Pi Agent 的注入机制。 */
 export class PiAdapter implements AgentAdapter {
@@ -26,10 +41,13 @@ export class PiAdapter implements AgentAdapter {
   private blueprint: Blueprint | null = null;
   private domains: Domain[] = [];
   private segment: string | null = null;
-  /** 与当前 Pi runtime 的 AgentAPI 绑定；同一 runtime 不重复注册 handler。 */
+  /** 与当前 Pi runtime 的 AgentAPI 绑定；同一 runtime 不重复注册 handler。
+   *  v12.x：per-pi 实例字段——`registry.ts` 给每个 pi 一个新 PiAdapter，所以 `injectedApi`
+   *  不会被其他 session 覆盖。 */
   private injectedApi: AgentAPI | null = null;
 
-  /** 设置编译产物（transpile 后调）。 */
+  /** 设置编译产物（transpile 后调）。v12.x：per-pi 实例字段——本 session 的 segment
+   *  不会被其他 session 覆盖。 */
   setContext(ctx: Context, blueprint: Blueprint, domains: Domain[]): void {
     this.ctx = ctx;
     this.blueprint = blueprint;
@@ -37,7 +55,8 @@ export class PiAdapter implements AgentAdapter {
     this.segment = renderSystemPrompt(ctx, blueprint);
   }
 
-  /** 清除当前 session 的 context；保留当前 runtime 的 handler 绑定。 */
+  /** 清除当前 session 的 context；保留当前 runtime 的 handler 绑定。
+   *  v12.x：per-pi 实例字段——只清本 session 的状态。 */
   resetInjection(): void {
     this.ctx = null;
     this.blueprint = null;
@@ -69,23 +88,37 @@ export class PiAdapter implements AgentAdapter {
     // v10.x：包 try/catch，运行时异常走 api.log.error + ui.notify，不再 swallow
     // v11.x（issue pt-injection-status-manual-track）：三分支写 session.injectionState +
     //   调 api.ui?.setStatus，让 footer 三态文字真实反映注入结果（自报，不检测 Pi）
+    // v12.x：从 args[1] ctx 拿 per-session sessionId，写 per-session SessionState
     api.on("before_agent_start", async (...args: unknown[]) => {
       const t0 = Date.now();
       try {
+        const sessionId = sessionIdFromArgs(args);
+        const sessionState = sessionId ? getSessionById(sessionId) : null;
+
         const currentSegment = this.segment;
         if (!currentSegment) {
           // 无 segment（未加载 Profile / 已被 reset）→ idle
-          session.injectionState = "idle";
-          session.injectionError = null;
-          api.ui?.setStatus("pt", renderInjectionFooter("idle", session.activeProfile, null));
+          if (sessionState) {
+            sessionState.injectionState = "idle";
+            sessionState.injectionError = null;
+            api.ui?.setStatus(
+              "pt",
+              renderInjectionFooter("idle", sessionState.activeProfile, null)
+            );
+          }
           return undefined;
         }
         const event = args[0];
         if (!isSystemPromptEvent(event)) {
           // 事件形状异常：归类为 idle（不视为失败——Pi 可能改了事件签名）
-          session.injectionState = "idle";
-          session.injectionError = null;
-          api.ui?.setStatus("pt", renderInjectionFooter("idle", session.activeProfile, null));
+          if (sessionState) {
+            sessionState.injectionState = "idle";
+            sessionState.injectionError = null;
+            api.ui?.setStatus(
+              "pt",
+              renderInjectionFooter("idle", sessionState.activeProfile, null)
+            );
+          }
           return undefined;
         }
         const final = `${event.systemPrompt}\n\n## 当前任务上下文\n\n${currentSegment}`;
@@ -95,11 +128,18 @@ export class PiAdapter implements AgentAdapter {
           deltaLen: final.length - event.systemPrompt.length,
           durationMs: Date.now() - t0,
         });
-        api.onInjected?.(final);
-        // 成功注入 → injected
-        session.injectionState = "injected";
-        session.injectionError = null;
-        api.ui?.setStatus("pt", renderInjectionFooter("injected", session.activeProfile, null));
+        if (sessionState) {
+          api.onInjected?.(final);
+          // 成功注入 → injected
+          sessionState.injectionState = "injected";
+          sessionState.injectionError = null;
+          api.ui?.setStatus(
+            "pt",
+            renderInjectionFooter("injected", sessionState.activeProfile, null)
+          );
+        } else {
+          api.onInjected?.(final);
+        }
         return { systemPrompt: final };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -109,9 +149,13 @@ export class PiAdapter implements AgentAdapter {
         });
         api.ui?.notify(`[pt] before_agent_start failed: ${msg}`, "error");
         // 异常 → failed + 错误消息（footer 追加）
-        session.injectionState = "failed";
-        session.injectionError = msg;
-        api.ui?.setStatus("pt", renderInjectionFooter("failed", session.activeProfile, msg));
+        const sessionId = sessionIdFromArgs(args);
+        const sessionState = sessionId ? getSessionById(sessionId) : null;
+        if (sessionState) {
+          sessionState.injectionState = "failed";
+          sessionState.injectionError = msg;
+          api.ui?.setStatus("pt", renderInjectionFooter("failed", sessionState.activeProfile, msg));
+        }
         return undefined; // 失败降级, 不影响主流程
       }
     });

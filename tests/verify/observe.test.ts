@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { loadAndTranspile } from "../../src/transpile.js";
 import { bindFlowTemplate, findFlowInBlueprint } from "../../src/render/context-message.js";
 import { buildManualDoc } from "../../src/commands.js";
-import { session } from "../../src/session.js";
+import { s } from "./session-fixtures.js";
 
 describe("P0: observe 字段", () => {
   it("FlowStep.observe 被正确解析", async () => {
@@ -32,11 +32,11 @@ describe("P0: observe 字段", () => {
 
   it("buildManualDoc 生成执行状态表", async () => {
     const r = await loadAndTranspile(process.cwd(), "pt-dev");
-    session.cachedBundles = r.bundles;
-    session.cachedBlueprint = r.blueprint;
-    session.cachedContext = r.context;
+    s().cachedBundles = r.bundles;
+    s().cachedBlueprint = r.blueprint;
+    s().cachedContext = r.context;
 
-    const doc = buildManualDoc(process.cwd(), "resolve-issue", "test-issue");
+    const doc = buildManualDoc(process.cwd(), s(), "resolve-issue", "test-issue");
     expect(doc.error).toBeUndefined();
     expect(doc.content).toContain("## 执行状态");
     expect(doc.content).toContain("| Step | Outcome | Message |");

@@ -3,9 +3,11 @@
 // 替代 index.ts 10 个模块级 let 变量——收拢到单 state 对象，便于维护和单元测试。
 //
 // 设计：
-// - 单例 state（per-process = per-session，因为 Pi Extension 是模块单例）
+// - Map<sessionId, SessionState>（v12.x）—— key 用 pi SessionManager.getSessionId()
+//   支持 pi-web 多 session 并发：不同 session 各自一份 SessionState。
+//   TUI 模式下只有一个 session，Map 只有一个 entry，等同 module-level 单例行为。
 // - 所有 setter 都通过 state 字段赋值（不解构）
-// - resetSession 暴露给测试 / session_shutdown
+// - clearSessionById 暴露给 session_shutdown / 测试
 //
 // v10.x：session-state 升级为 session-scoped daemon 级——
 //   - sessionId：crypto 生成的 8-hex 短 id（多并发 `pi` 进程的日志隔离键）
@@ -13,9 +15,18 @@
 //
 // v10.x（issue pt-context-persist-lost 修复）：loadedFrom 记录当前 activeProfile 的来源，
 //   用于 /pt status 可观测性 + 排查"为什么没选到我预期的 profile"。
+//
+// v12.x（issue pt-session-singleton-pi-web-pollution 修复）：
+//   - 移除 module-level `session` 单例（设计假设 per-process = per-session 在 pi-web 下不成立）
+//   - state 容器改为 Map<sessionId, SessionState>，key 用 pi SessionManager.getSessionId()
+//   - 调用方通过 `getSessionById(ctx.sessionManager.getSessionId())` 取 state
+//   - 对应 `src/agent/registry.ts` 把 Adapter 注册表也改成 WeakMap<ExtensionAPI, ...>，
+//     保证 Adapter 实例 per-pi，避免"单例 PiAdapter.this.segment 被其他 session 覆盖"。
+//   - `cachedManualProgress` 从 module-level let 搬到 SessionState 字段。
 
 import type { AgentAdapter, Blueprint, Context, Domain, Profile, SchemaBundle } from "./schema.js";
 import type { PtLogger } from "./log.js";
+import type { ManualProgress } from "./manual-track.js";
 
 /** activeProfile 的来源（session_start fallback 命中点）。 */
 export type ProfileLoadSource = "flag" | "settings" | "session" | "auto" | null;
@@ -62,33 +73,64 @@ export interface SessionState {
   injectionError: string | null;
   /** 当前追踪的 Manual 实例（widget + footer 后缀 + 持久化恢复）。 */
   activeManual: ActiveManual | null;
+  /** v12.x：当前 manual widget 的 async parse 缓存（替代原 module-level `cachedManualProgress`）。 */
+  cachedManualProgress: ManualProgress | null;
 }
 
 /** 默认空 SessionState。 */
-export const createSessionState = (): SessionState => ({
-  activeProfile: null,
-  cachedSegment: null,
-  cachedBundles: null,
-  cachedContext: null,
-  cachedBlueprint: null,
-  cachedDomains: [],
-  cachedProfile: null,
-  lastCwd: "",
-  lastBuiltPrompt: null,
-  lastCacheHit: false,
-  activeAdapter: null,
-  sessionId: "",
-  logger: null,
-  loadedFrom: null,
-  injectionState: "idle",
-  injectionError: null,
-  activeManual: null,
-});
+export function createSessionState(): SessionState {
+  return {
+    activeProfile: null,
+    cachedSegment: null,
+    cachedBundles: null,
+    cachedContext: null,
+    cachedBlueprint: null,
+    cachedDomains: [],
+    cachedProfile: null,
+    lastCwd: "",
+    lastBuiltPrompt: null,
+    lastCacheHit: false,
+    activeAdapter: null,
+    sessionId: "",
+    logger: null,
+    loadedFrom: null,
+    injectionState: "idle",
+    injectionError: null,
+    activeManual: null,
+    cachedManualProgress: null,
+  };
+}
 
-/** Module-level singleton（Pi Extension 是单例模块）。 */
-export const session: SessionState = createSessionState();
+/** v12.x：Map<sessionId, SessionState> 容器，key = pi SessionManager.getSessionId()。
+ *  对外不导出（避免外部直接 mutate 绕过懒加载）。 */
+const sessionMap = new Map<string, SessionState>();
 
-/** 清空 session（session_shutdown 调用）。 */
-export function resetSession(): void {
-  Object.assign(session, createSessionState());
+/** 取指定 sessionId 的 state（lazy create）。TUI 模式下只有一个 entry。 */
+export function getSessionById(sessionId: string): SessionState {
+  let s = sessionMap.get(sessionId);
+  if (!s) {
+    s = createSessionState();
+    sessionMap.set(sessionId, s);
+  }
+  return s;
+}
+
+/** 列表所有 session state（debug / 诊断用，如 /pt sessions 列表）。 */
+export function listAllSessions(): SessionState[] {
+  return [...sessionMap.values()];
+}
+
+/** 清空指定 sessionId 的 state（session_shutdown 调用）。 */
+export function clearSessionById(sessionId: string): void {
+  sessionMap.delete(sessionId);
+}
+
+/** 清空所有 session state（仅测试 / 重启进程等需要）。 */
+export function clearAllSessions(): void {
+  sessionMap.clear();
+}
+
+/** 测试 / 诊断：Map 的当前大小。 */
+export function sessionCount(): number {
+  return sessionMap.size;
 }

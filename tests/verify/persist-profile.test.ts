@@ -4,7 +4,7 @@
 //   - readProfileFromSession：反向遍历 entries，取最后一个 pt:active-profile。
 //   - persistProfileToSession：调 pi.appendEntry() 写入 session。
 //   - session_start fallback 链：flag > settings > session > auto。
-//   - session.loadedFrom 记录来源（可观测性）。
+//   - s().loadedFrom 记录来源（可观测性）。
 //
 // 测试策略：
 //   - 不启动真实 Pi 进程（无法注入 mock ExtensionAPI）。
@@ -12,12 +12,8 @@
 //   - 端到端验证靠 issue 文档列出的「重启 pi 后 footer 显示 pt: pt-dev」手动验证。
 
 import { describe, it, expect, beforeEach } from "vitest";
-import {
-  createSessionState,
-  session,
-  resetSession,
-  type ProfileLoadSource,
-} from "../../src/session.js";
+import { createSessionState, type ProfileLoadSource } from "../../src/session.js";
+import { resetTestSession, s } from "./session-fixtures.js";
 import { statusText } from "../../src/commands.js";
 
 /** 模拟 MinimalSessionManager（与 src/index.ts 同构）。 */
@@ -52,9 +48,9 @@ function readProfileFromSession(sm: ReturnType<typeof makeSessionManager>): stri
   return undefined;
 }
 
-describe("session.activeProfile 持久化（issue pt-context-persist-lost 修复）", () => {
+describe("s().activeProfile 持久化（issue pt-context-persist-lost 修复）", () => {
   beforeEach(() => {
-    resetSession();
+    resetTestSession();
   });
 
   describe("1. SessionState 字段", () => {
@@ -64,16 +60,16 @@ describe("session.activeProfile 持久化（issue pt-context-persist-lost 修复
     });
 
     it("resetSession 后 loadedFrom 恢复 null", () => {
-      session.loadedFrom = "session";
-      resetSession();
-      expect(session.loadedFrom).toBeNull();
+      s().loadedFrom = "session";
+      resetTestSession();
+      expect(s().loadedFrom).toBeNull();
     });
 
     it("loadedFrom 可被赋值四种来源", () => {
       const sources: ProfileLoadSource[] = ["flag", "settings", "session", "auto"];
       for (const src of sources) {
-        session.loadedFrom = src;
-        expect(session.loadedFrom).toBe(src);
+        s().loadedFrom = src;
+        expect(s().loadedFrom).toBe(src);
       }
     });
   });
@@ -129,23 +125,23 @@ describe("session.activeProfile 持久化（issue pt-context-persist-lost 修复
 
   describe("3. statusText 输出 loadedFrom", () => {
     it("默认状态 → 'pt loadedFrom: (none)'", () => {
-      const s = statusText();
-      expect(s).toContain("pt loadedFrom: (none)");
+      const text = statusText(s());
+      expect(text).toContain("pt loadedFrom: (none)");
     });
 
     it("loadedFrom = session → 输出 'session'", () => {
-      session.activeProfile = "pt-dev";
-      session.loadedFrom = "session";
-      const s = statusText();
-      expect(s).toContain("pt loadedFrom: session");
-      expect(s).toContain("pt profile: pt-dev");
+      s().activeProfile = "pt-dev";
+      s().loadedFrom = "session";
+      const text = statusText(s());
+      expect(text).toContain("pt loadedFrom: session");
+      expect(text).toContain("pt profile: pt-dev");
     });
 
     it("loadedFrom 四种合法值都能渲染", () => {
       const sources: ProfileLoadSource[] = ["flag", "settings", "session", "auto"];
       for (const src of sources) {
-        session.loadedFrom = src;
-        expect(statusText()).toContain(`pt loadedFrom: ${src}`);
+        s().loadedFrom = src;
+        expect(statusText(s())).toContain(`pt loadedFrom: ${src}`);
       }
     });
   });
@@ -157,20 +153,20 @@ describe("session.activeProfile 持久化（issue pt-context-persist-lost 修复
     //   - flag > settings > session > auto 优先级由 src/index.ts:186-191 if/else 实现
     //     （生产代码 review-only 验证；详细行为靠 issue 列出的「重启验证」端到端测）
 
-    it("session.loadedFrom 用于可观测性，不会反过来影响 fallback 选择", () => {
+    it("s().loadedFrom 用于可观测性，不会反过来影响 fallback 选择", () => {
       // 模拟 fallback 后状态
-      session.activeProfile = "pt-dev";
-      session.loadedFrom = "session";
+      s().activeProfile = "pt-dev";
+      s().loadedFrom = "session";
 
       // /pt status 显示来源
-      const s = statusText();
-      expect(s).toContain("pt profile: pt-dev");
-      expect(s).toContain("pt loadedFrom: session");
+      const text = statusText(s());
+      expect(text).toContain("pt profile: pt-dev");
+      expect(text).toContain("pt loadedFrom: session");
 
       // resetSession 清空
-      resetSession();
-      expect(session.activeProfile).toBeNull();
-      expect(session.loadedFrom).toBeNull();
+      resetTestSession();
+      expect(s().activeProfile).toBeNull();
+      expect(s().loadedFrom).toBeNull();
     });
   });
 });
