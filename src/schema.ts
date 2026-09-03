@@ -342,7 +342,21 @@ export interface AgentAdapter {
   registerInject(api: AgentAPI, ctx: Context, blueprint: Blueprint, domains?: Domain[]): void;
   /** 清理 session 上下文；handler 仍可由当前 Pi runtime 复用。 */
   resetInjection?(): void;
-  /** 查询可用手册（/pt flows 用） */
+  /** 查询可用手册（/pt flows 命令 + /manual:xxx 触发 共同消费）。
+   *
+   * 参数语义：
+   *  - `ctx`：当前激活的 Context IR（含缓存 sourceHash / 各注入点 modules 内容）
+   *  - `blueprint`：当前 Profile 引用的 Blueprint（遍历 injectionPoints 找 context_message 注入点）
+   *  - `domains`：**Profile 注入点 scope 过滤后的 Domain 集**——非全集
+   *    - 由调用方（如 commands.ts flowsText）通过 filterDomainsByProfile 预过滤
+   *    - Adapter 内部无需再过滤（信任传入的就是 scope 内）
+   *    - v9 当前实现（pi-adapter.ts:listManuals）按"全集"处理——这是历史简化，v10+ 应改
+   *
+   * 返回值：可触发手册列表。每项含 name（FlowTemplate.name / Rule.name）+ hint（argumentHint）+ domain（来源 Domain）。
+   *  - term-Domain 的 Rule[] 也作为 /manual:<domain> 暴露
+   *  - workflow-Domain 的 FlowTemplate[] 作为 /<flow-name> 暴露
+   *
+   * 可选方法——Adapter 不实现时 /pt flows 返空。 */
   listManuals?(
     ctx: Context,
     blueprint: Blueprint,
