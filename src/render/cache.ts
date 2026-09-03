@@ -2,14 +2,10 @@
 //
 // Phase 8.5：v8 缓存配置从 Blueprint.Compilation 取（替代 v7 硬编码 .pt/cache/contexts）。
 //   - cacheDir：从 Blueprint.compilation.cacheDir 读
-//   - split：single-file / by-injection-point（v9 只实现 single-file——by-injection-point 预留）
+//   - split：仅支持 "single-file"（v11.x：by-injection-point 预留移除，YAGNI）
 //
 // v9 失效策略：sourceHash = hash(Profile + Blueprint + Domains) 组合。
 // 三者任一变化即失效重编译。
-//
-// Tech Debt T12：by-injection-point 缓存拆分当前未实现——v9.1 保留为预留
-// （schema.ts CacheSplitStrategy 含 "by-injection-point" 但未生效）。
-// 决策：保留类型选项 + 标 v10+ TODO——Blueprint 配置切换不触发错误但 fallback single-file。
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -25,13 +21,7 @@ export async function saveContext(
   const dir = join(cwd, compilation.cacheDir);
   await mkdir(dir, { recursive: true });
 
-  if (compilation.split === "by-injection-point") {
-    // v9 预留：by-injection-point 拆分多文件（<name>.<ipName>.md + ipName 标记）。
-    // v9.1 未实现——fallback 到 single-file。Blueprint 配此选项不报错。
-    // v10+ 实现计划：每个 ipConfig 一个 <name>.<ipName>.md，frontmatter 含 source-hash/ipName/agent。
-  }
-
-  // single-file：默认路径
+  // single-file：默认路径（<name>.context.md）
   const file = join(dir, `${ctx.name}.context.md`);
   const body = serializeContext(ctx);
   await writeFile(file, body, "utf8");
@@ -48,9 +38,7 @@ export async function loadContext(
   expectedHash: string,
   compilation: CompilationConfig
 ): Promise<Context | null> {
-  // v8：按 compilation.split 决定文件名
-  //   - single-file：<name>.context.md
-  //   - by-injection-point：<name>.<ipName>.md（多文件）→ 本步未实现，按 single-file fallback
+  // v11.x：单文件路径 <name>.context.md（by-injection-point 拆分移除）
   const file = join(cwd, compilation.cacheDir, `${name}.context.md`);
   let raw: string;
   try {

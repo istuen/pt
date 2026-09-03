@@ -158,8 +158,11 @@ export interface InjectionPointInstance {
 
 // ==================== v9 Compilation（Context 缓存配置） ====================
 
-/** Context 缓存拆分策略。 */
-export type CacheSplitStrategy = "single-file" | "by-injection-point";
+/** Context 缓存拆分策略。
+ *  v11.x：仅 single-file——by-injection-point 拆分是 v9 预留，v10+ 未实现
+ *  （原 CacheSplitStrategy = "single-file" | "by-injection-point"，但 by-injection-point
+ *  静默 fallback single-file，等于噪音。YAGNI 原则移除该字面量）。 */
+export type CacheSplitStrategy = "single-file";
 
 /** Blueprint 的编译方式配置（## Compilation 段）。 */
 export interface CompilationConfig {
