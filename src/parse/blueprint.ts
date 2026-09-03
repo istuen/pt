@@ -59,7 +59,7 @@ export async function parseBlueprint(absDir: string, fileName: string): Promise<
   }
 
   // compilation：## Compilation 段
-  const compilation = parseCompilationFromSection(asset.sections["Compilation"]);
+  const compilation = parseCompilationFromSection(asset.sections.Compilation);
 
   return {
     name:

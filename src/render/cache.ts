@@ -94,8 +94,8 @@ function deserializeContext(name: string, raw: string): Context | null {
     if (kv) fm[kv[1]] = kv[2].trim();
   }
   const hash = fm["source-hash"];
-  const fmName = fm["profile"] ?? fm["name"] ?? name;
-  const fmBlueprint = fm["blueprint"] ?? "";
+  const fmName = fm.profile ?? fm.name ?? name;
+  const fmBlueprint = fm.blueprint ?? "";
   if (!hash) return null;
 
   const body = fmMatch[2];
@@ -112,7 +112,7 @@ function deserializeContext(name: string, raw: string): Context | null {
   for (let i = 0; i < matches.length; i++) {
     const cur = matches[i];
     const next = matches[i + 1];
-    cur.end = next ? next.start - ("## " + next.name).length - 2 : body.length;
+    cur.end = next ? next.start - `## ${next.name}`.length - 2 : body.length;
   }
   for (const sec of matches) {
     modules[sec.name] = body.slice(sec.start, sec.end).trim();

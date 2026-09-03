@@ -23,7 +23,7 @@ export function checkProfileRefs(
   const warnings: string[] = [];
 
   const domainNames = new Set(domains.map((d) => d.name));
-  const blueprintNames = new Set(blueprints.map((b) => b.name));
+  const _blueprintNames = new Set(blueprints.map((b) => b.name));
 
   // 1. Profile → Blueprint 存在性
   const bp = blueprints.find((b) => b.name === profile.blueprint);

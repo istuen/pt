@@ -48,7 +48,7 @@ describe("saveContext + loadContext round-trip", () => {
     expect(loaded).not.toBeNull();
     expect(loaded?.name).toBe(ctx.name);
     expect(loaded?.sourceHash).toBe(ctx.sourceHash);
-    expect(loaded?.modules["会话知识"]).toBe("some rendered content");
+    expect(loaded?.modules.会话知识).toBe("some rendered content");
   });
 
   it("hash mismatch 降级 → 返 null", async () => {
@@ -102,7 +102,7 @@ describe("saveContext + loadContext round-trip", () => {
     });
     await saveContext(tmpDir, ctx, COMPILATION);
     const loaded = await loadContext(tmpDir, ctx.name, ctx.sourceHash, COMPILATION);
-    expect(loaded?.modules["会话知识"]).toBe("scene + trigger content");
-    expect(loaded?.modules["参考手册"]).toBe("manual content");
+    expect(loaded?.modules.会话知识).toBe("scene + trigger content");
+    expect(loaded?.modules.参考手册).toBe("manual content");
   });
 });

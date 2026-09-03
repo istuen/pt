@@ -153,7 +153,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("pt-quality Manual 规范 checklist 不污染会话知识段", async () => {
       const raw = await readFile(join(cwd, ".pt/cache/contexts/pt-dev.context.md"), "utf8");
-      const canKaoIdx = raw.indexOf("## 参考手册");
+      const _canKaoIdx = raw.indexOf("## 参考手册");
       const huiHuaIdx = raw.indexOf("## 会话知识");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
       const modulesTypeSafetyIdx = raw.indexOf("- modules-type-safety:");
@@ -228,8 +228,8 @@ describe("Phase 9.9 v9 完整回归", () => {
       const src = await readFile("src/schema.ts", "utf8");
       const m = src.match(/interface InjectionPointInstance\s*\{[\s\S]*?\}/);
       expect(m).not.toBeNull();
-      expect(m![0]).not.toContain("trigger");
-      expect(m![0]).not.toContain("boundaries");
+      expect(m?.[0]).not.toContain("trigger");
+      expect(m?.[0]).not.toContain("boundaries");
     });
   });
 
@@ -295,7 +295,7 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
     it("pt-writing 含 参考手册 注入点", async () => {
       const r = await loadAndTranspile("/Users/issac/pro/pt-writing", "writing");
-      expect(r.context.modules["参考手册"]).toBeDefined();
+      expect(r.context.modules.参考手册).toBeDefined();
     });
   });
 

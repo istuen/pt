@@ -100,8 +100,8 @@ describe("manual profile switch and injection", () => {
 
     adapter.setContext(first.context, first.blueprint, first.domains);
     adapter.registerInject(api, first.context, first.blueprint, first.domains);
-    const beforeHandler = handlers.get("before_agent_start")![0];
-    const inputHandler = handlers.get("input")![0];
+    const beforeHandler = handlers.get("before_agent_start")?.[0];
+    const inputHandler = handlers.get("input")?.[0];
 
     adapter.setContext(second.context, second.blueprint, second.domains);
     adapter.registerInject(api, second.context, second.blueprint, second.domains);
@@ -131,7 +131,7 @@ describe("manual profile switch and injection", () => {
     const first = makeFixture("A");
     adapter.setContext(first.context, first.blueprint, first.domains);
     adapter.registerInject(api, first.context, first.blueprint, first.domains);
-    const beforeHandler = handlers.get("before_agent_start")![0];
+    const beforeHandler = handlers.get("before_agent_start")?.[0];
 
     adapter.resetInjection();
     const result = await beforeHandler({
@@ -174,13 +174,13 @@ describe("manual profile switch and injection", () => {
     };
 
     installExtension(pi as never);
-    const sessionStart = events.get("session_start")![0];
+    const sessionStart = events.get("session_start")?.[0];
     await sessionStart({ type: "session_start" }, ctx);
     expect(events.get("before_agent_start")).toBeUndefined();
 
     const switchCommand = commands.get("pt-context")!;
     await switchCommand.handler("pt-dev", ctx);
-    const beforeHandler = events.get("before_agent_start")![0];
+    const beforeHandler = events.get("before_agent_start")?.[0];
     const firstSegment = session.cachedSegment;
     const firstResult = (await beforeHandler({
       type: "before_agent_start",
@@ -193,7 +193,7 @@ describe("manual profile switch and injection", () => {
     expect(events.get("before_agent_start")).toHaveLength(1);
 
     await switchCommand.handler("pt-chat", ctx);
-    const secondBeforeHandler = events.get("before_agent_start")![0];
+    const secondBeforeHandler = events.get("before_agent_start")?.[0];
     const secondSegment = session.cachedSegment;
     const secondResult = (await secondBeforeHandler({
       type: "before_agent_start",
@@ -205,7 +205,7 @@ describe("manual profile switch and injection", () => {
     expect(session.lastBuiltPrompt).toBe(secondResult.systemPrompt);
     expect(secondResult.systemPrompt).not.toContain(firstSegment);
 
-    const shutdown = events.get("session_shutdown")![0];
+    const shutdown = events.get("session_shutdown")?.[0];
     await shutdown({ type: "session_shutdown" }, ctx);
     await sessionStart({ type: "session_start" }, ctx);
     expect(

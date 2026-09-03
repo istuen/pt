@@ -16,10 +16,10 @@
     "lint": "biome check",
     "lint:fix": "biome check --write",
     "format": "biome format --write",
-    "verify": "vitest run tests/verify/",
+    "verify": "biome check && vitest run tests/verify/",
     "verify:phase9": "vitest run tests/verify/phase9.test.ts",
     "verify:flows": "vitest run tests/verify/flows.test.ts",
-    "prebuild": "tsc --noEmit",
+    "prebuild": "tsc --noEmit && biome check",
     "build": "tsup",
     "prepublishOnly": "npm run build && npm run verify"
   },

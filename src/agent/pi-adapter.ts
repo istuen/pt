@@ -88,7 +88,7 @@ export class PiAdapter implements AgentAdapter {
           api.ui?.setStatus("pt", renderInjectionFooter("idle", session.activeProfile, null));
           return undefined;
         }
-        const final = event.systemPrompt + "\n\n## 当前任务上下文\n\n" + currentSegment;
+        const final = `${event.systemPrompt}\n\n## 当前任务上下文\n\n${currentSegment}`;
         api.log?.debug("agent:before_agent_start ok", {
           originalLen: event.systemPrompt.length,
           injectedLen: final.length,

@@ -97,7 +97,7 @@ describe("manual track 集成", () => {
     installExtension(m.pi as never);
 
     // 触发 session_start（auto 可能不加载——项目根有多个 profile；用 switchProfile 加载 pt-dev）
-    const sessionStart = m.events.get("session_start")![0]!;
+    const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
     // 用 /pt-context 强制加载 pt-dev（项目根有两个 profile，auto 不会 pick）
@@ -139,7 +139,7 @@ describe("manual track 集成", () => {
     // 3. appendEntry 已调（pt:active-manual）
     const manualEntries = m.appendedEntries.filter(([t]) => t === "pt:active-manual");
     expect(manualEntries.length).toBe(1);
-    expect((manualEntries[0]![1] as { procedure: string }).procedure).toBe("deliver-feature");
+    expect((manualEntries[0]?.[1] as { procedure: string }).procedure).toBe("deliver-feature");
 
     // 4. footer 已 setStatus（含 "manual: deliver-feature" 后缀）
     const lastStatus = m.statusCalls[m.statusCalls.length - 1]!;
@@ -151,7 +151,7 @@ describe("manual track 集成", () => {
     const m = makePi();
     installExtension(m.pi as never);
 
-    const sessionStart = m.events.get("session_start")![0]!;
+    const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
     // 模拟已有 activeManual
@@ -163,7 +163,7 @@ describe("manual track 集成", () => {
     };
     session.injectionState = "injected";
 
-    const shutdown = m.events.get("session_shutdown")![0]!;
+    const shutdown = m.events.get("session_shutdown")?.[0]!;
     await shutdown({ type: "session_shutdown" }, m.ctx);
 
     expect(session.activeManual).toBeNull();
@@ -202,7 +202,7 @@ status: in-progress
     ];
     m.ctx.sessionManager = { getEntries: () => entries };
 
-    const sessionStart = m.events.get("session_start")![0]!;
+    const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
     // 恢复成功
@@ -245,7 +245,7 @@ status: completed
     ];
     m.ctx.sessionManager = { getEntries: () => entries };
 
-    const sessionStart = m.events.get("session_start")![0]!;
+    const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
     // 不恢复
@@ -269,7 +269,7 @@ status: completed
     ];
     m.ctx.sessionManager = { getEntries: () => entries };
 
-    const sessionStart = m.events.get("session_start")![0]!;
+    const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
     expect(session.activeManual).toBeNull();
@@ -279,7 +279,7 @@ status: completed
     const m = makePi();
     installExtension(m.pi as never);
 
-    const sessionStart = m.events.get("session_start")![0]!;
+    const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
     const switchCmd = m.commands.get("pt-context")!;
@@ -306,7 +306,7 @@ status: completed
     const m = makePi();
     installExtension(m.pi as never);
 
-    const sessionStart = m.events.get("session_start")![0]!;
+    const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
     // 模拟一次成功注入（injected）

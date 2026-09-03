@@ -26,7 +26,7 @@
 import { join } from "node:path";
 import { SUFFIX_PROFILE } from "../constants.js";
 import type { InjectionPointInstance, Profile } from "../schema.js";
-import { extractDomainsList, readAsset, sArr, type Section } from "./shared.js";
+import { extractDomainsList, readAsset, sArr } from "./shared.js";
 
 /** 读 profiles/<fileName>.md → Profile { name, blueprint, domains, injectionPoints }
  *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。 */

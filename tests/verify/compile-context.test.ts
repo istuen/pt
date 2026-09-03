@@ -56,8 +56,8 @@ describe("compileContext", () => {
     const bp = makeBlueprint();
     const ds = [makeDomain({ modules: { Scene: [{ name: "t1", desc: "term 1" }] } })];
     const ctx = compileContext(p, bp, ds);
-    expect(ctx.modules["会话知识"]).toContain("t1");
-    expect(ctx.modules["会话知识"]).toContain("term 1");
+    expect(ctx.modules.会话知识).toContain("t1");
+    expect(ctx.modules.会话知识).toContain("term 1");
   });
 
   it("Profile 注入点追加的 Domain（injectionPoints[].domains）也参与聚合", () => {
@@ -74,8 +74,8 @@ describe("compileContext", () => {
       }),
     ];
     const ctx = compileContext(p, bp, ds);
-    expect(ctx.modules["会话知识"]).toContain("t2");
-    expect(ctx.modules["会话知识"]).not.toContain("t1"); // d1 不在追加列表
+    expect(ctx.modules.会话知识).toContain("t2");
+    expect(ctx.modules.会话知识).not.toContain("t1"); // d1 不在追加列表
   });
 
   it("Blueprint 未声明的注入点不在 Context.modules 中", () => {
@@ -87,8 +87,8 @@ describe("compileContext", () => {
     });
     const bp = makeBlueprint();
     const ctx = compileContext(p, bp, [makeDomain()]);
-    expect(ctx.modules["会话知识"]).toBeDefined();
-    expect(ctx.modules["未声明注入点"]).toBeUndefined();
+    expect(ctx.modules.会话知识).toBeDefined();
+    expect(ctx.modules.未声明注入点).toBeUndefined();
   });
 });
 
