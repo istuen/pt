@@ -5,7 +5,7 @@ import { join } from "node:path";
 import installExtension from "../../src/index.js";
 import { PiAdapter } from "../../src/agent/pi-adapter.js";
 import { detectSingleProfile, listProfiles } from "../../src/config.js";
-import { resetSession, session } from "../../src/session.js";
+import { resetTestSession, s, TEST_SESSION_ID } from "./session-fixtures.js";
 import type { AgentAPI, Blueprint, Context, Domain, FlowTemplate } from "../../src/schema.js";
 
 type GenericHandler = (...args: unknown[]) => unknown;
@@ -83,12 +83,12 @@ describe("manual profile switch and injection", () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
-    resetSession();
+    resetTestSession();
   });
 
   afterEach(async () => {
-    session.activeAdapter?.resetInjection?.();
-    resetSession();
+    s().activeAdapter?.resetInjection?.();
+    resetTestSession();
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
@@ -164,7 +164,7 @@ describe("manual profile switch and injection", () => {
     };
     const ctx = {
       cwd: process.cwd(),
-      sessionManager: { getEntries: () => [] },
+      sessionManager: { getEntries: () => [], getSessionId: () => TEST_SESSION_ID },
       hasUI: true,
       ui: {
         notify: () => undefined,
@@ -181,28 +181,28 @@ describe("manual profile switch and injection", () => {
     const switchCommand = commands.get("pt-context")!;
     await switchCommand.handler("pt-dev", ctx);
     const beforeHandler = events.get("before_agent_start")?.[0];
-    const firstSegment = session.cachedSegment;
-    const firstResult = (await beforeHandler({
-      type: "before_agent_start",
-      systemPrompt: "BASE",
-    })) as {
+    const firstSegment = s().cachedSegment;
+    const firstResult = (await beforeHandler(
+      { type: "before_agent_start", systemPrompt: "BASE" },
+      ctx
+    )) as {
       systemPrompt: string;
     };
     expect(firstResult.systemPrompt).toBe(`BASE\n\n## 当前任务上下文\n\n${firstSegment}`);
-    expect(session.lastBuiltPrompt).toBe(firstResult.systemPrompt);
+    expect(s().lastBuiltPrompt).toBe(firstResult.systemPrompt);
     expect(events.get("before_agent_start")).toHaveLength(1);
 
     await switchCommand.handler("pt-chat", ctx);
     const secondBeforeHandler = events.get("before_agent_start")?.[0];
-    const secondSegment = session.cachedSegment;
-    const secondResult = (await secondBeforeHandler({
-      type: "before_agent_start",
-      systemPrompt: "BASE",
-    })) as { systemPrompt: string };
+    const secondSegment = s().cachedSegment;
+    const secondResult = (await secondBeforeHandler(
+      { type: "before_agent_start", systemPrompt: "BASE" },
+      ctx
+    )) as { systemPrompt: string };
 
     expect(events.get("before_agent_start")).toHaveLength(1);
     expect(secondResult.systemPrompt).toBe(`BASE\n\n## 当前任务上下文\n\n${secondSegment}`);
-    expect(session.lastBuiltPrompt).toBe(secondResult.systemPrompt);
+    expect(s().lastBuiltPrompt).toBe(secondResult.systemPrompt);
     expect(secondResult.systemPrompt).not.toContain(firstSegment);
 
     const shutdown = events.get("session_shutdown")?.[0];

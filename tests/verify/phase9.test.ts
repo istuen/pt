@@ -323,7 +323,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("16. /pt-context Q1 修复", () => {
     it("getArgumentCompletions 用 lastCwd || process.cwd()", async () => {
       const src = await readFile("src/index.ts", "utf8");
-      expect(src).toContain("lastCwd || process.cwd()");
+      expect(src).toContain(".lastCwd) || process.cwd()");
     });
   });
 
@@ -442,31 +442,35 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("19. command + tool 双注册（纯函数内核）", () => {
     // 预热 session——buildManualDoc/flowsText 读 session.cachedBundles（pt-dev 有 deliver-feature 手册）
     beforeAll(async () => {
-      const { session, resetSession } = await import("../../src/session.js");
+      const { getSessionById } = await import("../../src/session.js");
+      const { resetTestSession, TEST_SESSION_ID } = await import("./session-fixtures.js");
       const { loadAndTranspile } = await import("../../src/transpile.js");
       const { getAgentAdapter } = await import("../../src/agent/index.js");
       const r = await loadAndTranspile(process.cwd(), "pt-dev");
-      resetSession();
-      session.cachedBundles = r.bundles;
-      session.cachedBlueprint = r.blueprint;
-      session.cachedContext = r.context;
-      session.cachedDomains = r.domains;
-      session.cachedProfile = r.profile;
-      session.cachedSegment = r.segment;
-      session.activeProfile = "pt-dev";
-      session.activeAdapter = getAgentAdapter(r.blueprint.agent);
-      session.activeAdapter.setContext(r.context, r.blueprint, r.domains);
+      resetTestSession();
+      const sessionState = getSessionById(TEST_SESSION_ID);
+      sessionState.cachedBundles = r.bundles;
+      sessionState.cachedBlueprint = r.blueprint;
+      sessionState.cachedContext = r.context;
+      sessionState.cachedDomains = r.domains;
+      sessionState.cachedProfile = r.profile;
+      sessionState.cachedSegment = r.segment;
+      sessionState.activeProfile = "pt-dev";
+      const adapter = getAgentAdapter({} as never, r.blueprint.agent);
+      sessionState.activeAdapter = adapter;
+      adapter.setContext(r.context, r.blueprint, r.domains);
     });
 
     // 避免 session 污染后续 test
     afterAll(async () => {
-      const { resetSession } = await import("../../src/session.js");
-      resetSession();
+      const { resetTestSession } = await import("./session-fixtures.js");
+      resetTestSession();
     });
 
     it("statusText 返回状态摘要文本", async () => {
       const { statusText } = await import("../../src/commands.js");
-      const text = statusText();
+      const { s } = await import("./session-fixtures.js");
+      const text = statusText(s());
       expect(text).toContain("pt profile:");
       expect(text).toContain("pt segment length:");
       expect(text).toContain("pt-dev");
@@ -474,20 +478,23 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("flowsText 返回可用手册列表", async () => {
       const { flowsText } = await import("../../src/commands.js");
-      const text = flowsText();
+      const { s } = await import("./session-fixtures.js");
+      const text = flowsText(s());
       expect(text).toContain("可用手册");
       expect(text).toContain("deliver-feature");
     });
 
     it("buildManualDoc 未找到手册返回 error", async () => {
       const { buildManualDoc } = await import("../../src/commands.js");
-      const r = buildManualDoc(process.cwd(), "nonexistent-proc", "");
+      const { s } = await import("./session-fixtures.js");
+      const r = buildManualDoc(process.cwd(), s(), "nonexistent-proc", "");
       expect(r.error).toContain("未找到手册");
     });
 
     it("buildManualDoc 构建实例文档内容", async () => {
       const { buildManualDoc } = await import("../../src/commands.js");
-      const doc = buildManualDoc(process.cwd(), "deliver-feature", "req-001");
+      const { s } = await import("./session-fixtures.js");
+      const doc = buildManualDoc(process.cwd(), s(), "deliver-feature", "req-001");
       expect(doc.error).toBeUndefined();
       expect(doc.content).toContain("deliver-feature");
       expect(doc.content).toContain("- [ ]");

@@ -17,7 +17,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import installExtension from "../../src/index.js";
-import { resetSession, session } from "../../src/session.js";
+import { resetTestSession, s, TEST_SESSION_ID } from "./session-fixtures.js";
 
 type GenericHandler = (...args: unknown[]) => unknown;
 type CtxLike = Record<string, unknown>;
@@ -53,7 +53,10 @@ function makePi() {
 
   const ctx: CtxLike = {
     cwd: process.cwd(),
-    sessionManager: { getEntries: () => [] },
+    sessionManager: {
+      getEntries: () => [],
+      getSessionId: () => TEST_SESSION_ID,
+    },
     hasUI: true,
     ui: {
       notify: () => undefined,
@@ -83,12 +86,12 @@ describe("manual track 集成", () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
-    resetSession();
+    resetTestSession();
   });
 
   afterEach(async () => {
-    session.activeAdapter?.resetInjection?.();
-    resetSession();
+    s().activeAdapter?.resetInjection?.();
+    resetTestSession();
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
@@ -135,10 +138,10 @@ describe("manual track 集成", () => {
     expect(result.details).toBeDefined();
     expect(result.details.path).toMatch(/deliver-feature-\d+\.md$/);
 
-    // 1. session.activeManual 已设
-    expect(session.activeManual).not.toBeNull();
-    expect(session.activeManual?.procedure).toBe("deliver-feature");
-    expect(session.activeManual?.args).toBe("manual-track-test");
+    // 1. s().activeManual 已设
+    expect(s().activeManual).not.toBeNull();
+    expect(s().activeManual?.procedure).toBe("deliver-feature");
+    expect(s().activeManual?.args).toBe("manual-track-test");
 
     // 2. widget 已 set（aboveEditor）
     const widgetSetCalls = m.widgetCalls.filter(([k]) => k === "pt-manual");
@@ -166,20 +169,20 @@ describe("manual track 集成", () => {
     await sessionStart({ type: "session_start" }, m.ctx);
 
     // 模拟已有 activeManual
-    session.activeManual = {
+    s().activeManual = {
       filePath: "/tmp/fake.md",
       procedure: "fake",
       args: "",
       activatedAt: Date.now(),
     };
-    session.injectionState = "injected";
+    s().injectionState = "injected";
 
     const shutdown = m.events.get("session_shutdown")?.[0]!;
     await shutdown({ type: "session_shutdown" }, m.ctx);
 
-    expect(session.activeManual).toBeNull();
-    expect(session.injectionState).toBe("idle");
-    expect(session.injectionError).toBeNull();
+    expect(s().activeManual).toBeNull();
+    expect(s().injectionState).toBe("idle");
+    expect(s().injectionError).toBeNull();
   });
 
   it("session_start fallback: pt:active-manual entry → activeManual 恢复", async () => {
@@ -211,14 +214,14 @@ status: in-progress
         data: { filePath: fixtureManualPath, procedure: "restore-test", args: "" },
       },
     ];
-    m.ctx.sessionManager = { getEntries: () => entries };
+    m.ctx.sessionManager = { getEntries: () => entries, getSessionId: () => TEST_SESSION_ID };
 
     const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
     // 恢复成功
-    expect(session.activeManual?.procedure).toBe("restore-test");
-    expect(session.activeManual?.filePath).toBe(fixtureManualPath);
+    expect(s().activeManual?.procedure).toBe("restore-test");
+    expect(s().activeManual?.filePath).toBe(fixtureManualPath);
 
     // widget set（in-progress）
     const widgetSetCalls = m.widgetCalls.filter(([k]) => k === "pt-manual");
@@ -254,13 +257,13 @@ status: completed
         data: { filePath: fixtureManualPath, procedure: "done-test", args: "" },
       },
     ];
-    m.ctx.sessionManager = { getEntries: () => entries };
+    m.ctx.sessionManager = { getEntries: () => entries, getSessionId: () => TEST_SESSION_ID };
 
     const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
     // 不恢复
-    expect(session.activeManual).toBeNull();
+    expect(s().activeManual).toBeNull();
   });
 
   it("session_start fallback: 文件已被删的 manual 不恢复", async () => {
@@ -278,12 +281,12 @@ status: completed
         },
       },
     ];
-    m.ctx.sessionManager = { getEntries: () => entries };
+    m.ctx.sessionManager = { getEntries: () => entries, getSessionId: () => TEST_SESSION_ID };
 
     const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
-    expect(session.activeManual).toBeNull();
+    expect(s().activeManual).toBeNull();
   });
 
   it("/pt manual 命令 → 同 tool 路径（activeManual + widget + entry）", async () => {
@@ -313,8 +316,8 @@ status: completed
     const ptCmd = m.commands.get("pt")!;
     await ptCmd.handler("manual deliver-feature cmd-test", m.ctx);
 
-    expect(session.activeManual?.procedure).toBe("deliver-feature");
-    expect(session.activeManual?.args).toBe("cmd-test");
+    expect(s().activeManual?.procedure).toBe("deliver-feature");
+    expect(s().activeManual?.args).toBe("cmd-test");
 
     const widgetSetCalls = m.widgetCalls.filter(([k]) => k === "pt-manual");
     expect(widgetSetCalls.length).toBeGreaterThanOrEqual(1);
@@ -331,13 +334,13 @@ status: completed
     await sessionStart({ type: "session_start" }, m.ctx);
 
     // 模拟一次成功注入（injected）
-    session.injectionState = "injected";
+    s().injectionState = "injected";
 
     // 切换 profile
     const switchCmd = m.commands.get("pt-context")!;
     await switchCmd.handler("pt-chat", m.ctx);
 
     // 切换后立即 pending
-    expect(session.injectionState).toBe("pending");
+    expect(s().injectionState).toBe("pending");
   });
 });

@@ -20,7 +20,7 @@ describe("Profile 触发手册（listManuals）", () => {
       return profile.injectionPoints.some((ip) => ip.domains.includes(d.name));
     });
 
-    const adapter = getAgentAdapter(r.blueprint.agent);
+    const adapter = getAgentAdapter({} as never, r.blueprint.agent);
     const flows = adapter.listManuals?.(r.context, r.blueprint, filteredDomains) ?? [];
     expect(flows.length).toBeGreaterThan(0);
   });
@@ -36,7 +36,7 @@ describe("Profile 触发手册（listManuals）", () => {
       return profile.injectionPoints.some((ip) => ip.domains.includes(d.name));
     });
 
-    const adapter = getAgentAdapter(r.blueprint.agent);
+    const adapter = getAgentAdapter({} as never, r.blueprint.agent);
     const flows = adapter.listManuals?.(r.context, r.blueprint, filteredDomains) ?? [];
     expect(flows.length).toBeGreaterThan(0);
   });

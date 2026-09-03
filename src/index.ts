@@ -12,6 +12,13 @@
 //     优先级：flag > settings > session > auto。session 优先于 auto，保留用户上次选择。
 //   - switchProfile / session_start 加载成功后调 `pi.appendEntry()` 把 activeProfile 写回 session。
 //     session entry 与 Pi Session 生命周期对齐（resume/--session/--fork 继承；/new/ephemeral 不继承）。
+//
+// v12.x（issue pt-session-singleton-pi-web-pollution 修复）：
+//   - 移除 module-level `session` 单例访问，state 容器改为 Map<sessionId, SessionState>
+//   - 所有 handler 入口从 `ctx.sessionManager.getSessionId()` 拿 sessionId，传给 per-session 函数
+//   - `getAgentAdapter(pi, ...)` 返回 per-pi adapter（每个 session 一个 PiAdapter 实例）
+//   - tool handler 通过 `ctx.sessionManager.getSessionId()` 取 per-session state
+//   - `session_shutdown` 调 `clearSessionById(sessionId)` 精确清本 session
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
@@ -26,7 +33,7 @@ import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.
 import { errMsg } from "./diagnostics.js";
 import { readProfileFromSession, persistProfileToSession } from "./profile-persist.js";
 import { LOG_DIR, PtLogger } from "./log.js";
-import { type ProfileLoadSource, resetSession, session } from "./session.js";
+import { type ProfileLoadSource, clearSessionById, getSessionById } from "./session.js";
 import { buildFullPrompt, buildManualDoc, flowsText, statusText } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
 import type { AgentAPI } from "./schema.js";
@@ -34,7 +41,6 @@ import {
   persistManualToSession,
   refreshInjectionFooter,
   refreshManualWidget,
-  resetManualSession,
   tryRestoreManual,
 } from "./manual-session.js";
 import { slog } from "./slog.js";
@@ -66,46 +72,62 @@ interface PiToolResultEvent {
   isError?: boolean;
 }
 
-/** 当前编译产物就绪时注册 Adapter 注入；session_start 与手动切换共用。 */
-function registerInjectionIfReady(pi: ExtensionAPI, ctx: { ui: AgentUIContext }): boolean {
-  const adapter = session.activeAdapter;
-  const context = session.cachedContext;
-  const blueprint = session.cachedBlueprint;
+/** 从 ExtensionContext 拿 sessionId（tool / command handler ctx 形态）。 */
+function getSessionIdFromCtx(ctx: { sessionManager?: { getSessionId?: () => string } }): string {
+  return ctx.sessionManager?.getSessionId?.() ?? "";
+}
+
+/** 当前编译产物就绪时注册 Adapter 注入；session_start 与手动切换共用。
+ *  v12.x：传 pi + sessionId，按 sessionId 拿 per-session state，按 pi 拿 per-pi adapter。 */
+function registerInjectionIfReady(
+  pi: ExtensionAPI,
+  ctx: { ui: AgentUIContext },
+  sessionId: string
+): boolean {
+  if (!sessionId) return false;
+  const sessionState = getSessionById(sessionId);
+  const adapter = sessionState.activeAdapter;
+  const context = sessionState.cachedContext;
+  const blueprint = sessionState.cachedBlueprint;
   if (!adapter || !context || !blueprint) return false;
 
-  adapter.registerInject(toAgentAPI(pi, ctx), context, blueprint, session.cachedDomains);
+  adapter.registerInject(toAgentAPI(pi, ctx), context, blueprint, sessionState.cachedDomains);
   return true;
 }
 
-/** 转译当前选定的 Profile，结果写入 session；失败降级。
- *  v10.x：使用 session-scoped logger（不再 per-transpile 实例化）→ 多并发 session 隔离。 */
+/** 转译当前选定的 Profile，结果写入 per-session state；失败降级。
+ *  v12.x：pi + sessionId 参数，按 sessionId 写 per-session state，按 pi 拿 per-pi adapter。 */
 async function transpileActive(
+  pi: ExtensionAPI,
   cwd: string,
   profileName: string,
+  sessionId: string,
   notify: (msg: string, level: "warning" | "error") => void
 ): Promise<void> {
   const t0 = Date.now();
-  slog("info", "transpileActive:start", { profileName });
+  slog(sessionId, "info", "transpileActive:start", { profileName });
 
   try {
     const result = await loadAndTranspile(cwd, profileName, {
       notify,
-      log: session.logger?.toWriter(),
+      log: getSessionById(sessionId).logger?.toWriter(),
     });
-    session.cachedSegment = result.segment;
-    session.cachedBundles = result.bundles;
-    session.cachedContext = result.context;
-    session.cachedBlueprint = result.blueprint;
-    session.cachedDomains = result.domains;
-    session.cachedProfile = result.profile;
-    session.activeProfile = profileName;
-    session.lastCacheHit = result.cacheHit;
+    const s = getSessionById(sessionId);
+    s.cachedSegment = result.segment;
+    s.cachedBundles = result.bundles;
+    s.cachedContext = result.context;
+    s.cachedBlueprint = result.blueprint;
+    s.cachedDomains = result.domains;
+    s.cachedProfile = result.profile;
+    s.activeProfile = profileName;
+    s.lastCacheHit = result.cacheHit;
 
-    // 设置 AgentAdapter 的编译产物（默认 pi）
-    session.activeAdapter = getAgentAdapter(result.blueprint.agent);
-    session.activeAdapter.setContext(result.context, result.blueprint, result.domains);
+    // v12.x：per-pi adapter——registry.ts 给每个 pi 一个新 PiAdapter 实例，
+    // 单例字段 this.segment 不会被其他 session 覆盖。
+    s.activeAdapter = getAgentAdapter(pi, result.blueprint.agent);
+    s.activeAdapter.setContext(result.context, result.blueprint, result.domains);
 
-    slog("info", "transpileActive:done", {
+    slog(sessionId, "info", "transpileActive:done", {
       profileName,
       agent: result.blueprint.agent,
       domainCount: result.domains.length,
@@ -114,7 +136,7 @@ async function transpileActive(
       durationMs: Date.now() - t0,
     });
   } catch (e) {
-    slog("error", "transpileActive:failed", {
+    slog(sessionId, "error", "transpileActive:failed", {
       err: errMsg(e),
       profileName,
       durationMs: Date.now() - t0,
@@ -124,35 +146,38 @@ async function transpileActive(
 }
 
 /** 切换 Profile：重转译 + 通知 + 持久化。
- *  v10.x：增 log entry，让会话 trace 能分辨"用户主动切换" vs "session_start 自动加载"。
- *  v10.x：成功后调 `persistProfileToSession(pi, name)` 把选择写到 session JSONL，下次进程启动自动恢复。
- *  v11.x：成功后调 `refreshInjectionFooter`（pending 状态）+ `refreshManualWidget`（保留 manual 追踪）。 */
+ *  v12.x：sessionId 参数。 */
 async function switchProfile(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   name: string
 ): Promise<void> {
-  slog("info", "command:switchProfile start", { profileName: name });
+  const sessionId = getSessionIdFromCtx(ctx);
+  slog(sessionId, "info", "command:switchProfile start", { profileName: name });
   try {
-    await transpileActive(ctx.cwd, name, (msg, level) => ctx.ui.notify(msg, level));
-    session.loadedFrom = null; // 用户手动切换不属于 auto/flag/settings/session 任何源；null 表达"用户主动"
+    await transpileActive(pi, ctx.cwd, name, sessionId, (msg, level) => ctx.ui.notify(msg, level));
+    const s = getSessionById(sessionId);
+    s.loadedFrom = null; // 用户手动切换不属于 auto/flag/settings/session 任何源；null 表达"用户主动"
     persistProfileToSession(pi, name); // v10.x：session 持久化（issue pt-context-persist-lost）
-    const injected = registerInjectionIfReady(pi, ctx);
+    const injected = registerInjectionIfReady(pi, ctx, sessionId);
     // v11.x：切换后立即标 pending，等下一轮 before_agent_start 翻成 injected
-    session.injectionState = "pending";
-    session.injectionError = null;
-    refreshInjectionFooter(ctx.ui);
-    await refreshManualWidget(ctx.ui);
-    slog("info", "command:switchProfile inject", { profileName: name, injected });
-    const hint = session.lastCacheHit ? "（缓存命中）" : "（已重编译）";
+    s.injectionState = "pending";
+    s.injectionError = null;
+    refreshInjectionFooter(ctx.ui, s);
+    await refreshManualWidget(ctx.ui, s);
+    slog(sessionId, "info", "command:switchProfile inject", { profileName: name, injected });
+    const hint = s.lastCacheHit ? "（缓存命中）" : "（已重编译）";
     ctx.ui.notify(`已切换到 ${name}，下一轮生效 ${hint}`, "info");
-    slog("info", "command:switchProfile done", {
+    slog(sessionId, "info", "command:switchProfile done", {
       profileName: name,
-      cacheHit: session.lastCacheHit,
+      cacheHit: s.lastCacheHit,
     });
   } catch (e) {
     ctx.ui.notify(`切换失败：${errMsg(e)}`, "error");
-    slog("error", "command:switchProfile failed", { profileName: name, err: errMsg(e) });
+    slog(sessionId, "error", "command:switchProfile failed", {
+      profileName: name,
+      err: errMsg(e),
+    });
   }
 }
 
@@ -171,13 +196,19 @@ export default function (pi: ExtensionAPI): void {
   //     （flag/settings/session 任意来源加载的 profile 都写回 session，作为下次 fallback 的首选）。
   // v11.x：fallback 链额外加 manual 恢复（独立于 profile 链——profile 失败不影响 manual 恢复）。
   //   manual 读出后校验文件存在 + status !== completed；满足才挂载 widget。
+  // v12.x：从 ctx.sessionManager.getSessionId() 拿 sessionId，按 sessionId 写 per-session state。
   pi.on("session_start", async (_event, ctx) => {
-    // v10.x：先生成 sessionId + logger，让后续事件 trace 有归属
-    session.sessionId = randomUUID().slice(0, 8);
-    session.logger = new PtLogger(ctx.cwd, "", session.sessionId);
-    session.logger.info("session:start", { sessionId: session.sessionId, cwd: ctx.cwd });
+    const sessionId = getSessionIdFromCtx(ctx);
+    if (!sessionId) {
+      ctx.ui.notify("Pt：无法获取 session id（pi 版本不兼容）", "error");
+      return;
+    }
+    const s = getSessionById(sessionId);
+    s.sessionId = randomUUID().slice(0, 8); // 短期 ID for logger
+    s.logger = new PtLogger(ctx.cwd, "", sessionId);
+    s.logger.info("session:start", { sessionId: s.sessionId, cwd: ctx.cwd });
 
-    session.lastCwd = ctx.cwd;
+    s.lastCwd = ctx.cwd;
     try {
       const flag = pi.getFlag("pt-context");
       const flagVal = typeof flag === "string" && flag.trim() ? flag.trim() : undefined;
@@ -209,91 +240,102 @@ export default function (pi: ExtensionAPI): void {
       }
 
       if (!picked) {
-        session.injectionState = "idle";
-        session.injectionError = null;
-        refreshInjectionFooter(ctx.ui);
+        s.injectionState = "idle";
+        s.injectionError = null;
+        refreshInjectionFooter(ctx.ui, s);
         ctx.ui.notify(
           "Pt：未找到 Profile。用 /pt-context <name> 选择，或在 .pi/settings.json 设 pt.pt-context。",
           "info"
         );
-        session.loadedFrom = null;
-        session.logger.info("session:no profile picked", {
+        s.loadedFrom = null;
+        s.logger.info("session:no profile picked", {
           flagVal,
           fromSettings,
           fromSession,
           auto,
         });
         // v11.x：manual fallback 即使无 profile 也要试（手动追踪可独立于 profile）
-        await tryRestoreManual(ctx);
+        await tryRestoreManual(ctx, s);
         return;
       }
 
-      await transpileActive(ctx.cwd, picked, (msg, level) => ctx.ui.notify(msg, level));
-      session.loadedFrom = pickedFrom; // v10.x：可观测性
+      await transpileActive(pi, ctx.cwd, picked, sessionId, (msg, level) =>
+        ctx.ui.notify(msg, level)
+      );
+      s.loadedFrom = pickedFrom; // v10.x：可观测性
       persistProfileToSession(pi, picked); // v10.x：把当前来源同步到 JSONL（下次进程默认走 session）
       // 注册 AgentAdapter 注入（封装 before_agent_start + input）
-      const injected = registerInjectionIfReady(pi, ctx);
+      const injected = registerInjectionIfReady(pi, ctx, sessionId);
       // v11.x：profile 已加载但还没轮到下一轮 before_agent_start → pending
-      session.injectionState = "pending";
-      session.injectionError = null;
-      refreshInjectionFooter(ctx.ui);
-      session.logger.info("session:profile loaded", {
+      s.injectionState = "pending";
+      s.injectionError = null;
+      refreshInjectionFooter(ctx.ui, s);
+      s.logger.info("session:profile loaded", {
         profileName: picked,
         loadedFrom: pickedFrom,
         injected,
       });
 
       // v11.x：profile 加载后试恢复 manual（独立于 profile 链）
-      await tryRestoreManual(ctx);
+      await tryRestoreManual(ctx, s);
     } catch (e) {
       ctx.ui.notify(`Pt 加载失败：${errMsg(e)}`, "error");
-      session.injectionState = "failed";
-      session.injectionError = errMsg(e);
-      refreshInjectionFooter(ctx.ui);
-      session.cachedSegment = null;
-      session.cachedBundles = null;
-      session.loadedFrom = null;
-      session.logger?.error("session:start failed", { err: errMsg(e) });
+      s.injectionState = "failed";
+      s.injectionError = errMsg(e);
+      refreshInjectionFooter(ctx.ui, s);
+      s.cachedSegment = null;
+      s.cachedBundles = null;
+      s.loadedFrom = null;
+      s.logger?.error("session:start failed", { err: errMsg(e) });
       // v11.x：profile 失败但 manual 仍可能独立恢复（手动追踪不依赖 profile）
-      await tryRestoreManual(ctx);
+      await tryRestoreManual(ctx, s);
     }
   });
 
   // ========== session_shutdown：flush logger + 清内存态 ==========
   // v10.x：先 flush 避免丢尾，再 reset 清状态
   // v11.x：resetSession 覆盖 injectionState / activeManual / cachedManualProgress（widget 不持久）
-  pi.on("session_shutdown", async () => {
-    if (session.logger) {
-      session.logger.info("session:shutdown");
-      await session.logger.flush();
+  // v12.x：调 clearSessionById(sessionId) 精确清本 session state，pi-web 多 session 互不污染
+  pi.on("session_shutdown", async (_event, ctx) => {
+    const sessionId = getSessionIdFromCtx(ctx);
+    if (!sessionId) return;
+    const s = getSessionById(sessionId);
+    if (s.logger) {
+      s.logger.info("session:shutdown");
+      await s.logger.flush();
     }
     // 同一运行时保留 Pi handler 绑定，但清除旧 session 的 segment/context，
     // 避免新 session 在尚未重新选择 Profile 时继续注入旧内容。
-    session.activeAdapter?.resetInjection?.();
-    resetSession();
-    resetManualSession(); // module-level 缓存，resetSession 不包含
+    s.activeAdapter?.resetInjection?.();
+    clearSessionById(sessionId);
   });
 
   // ========== turn 级 trace（P2: 覆盖 turn 生命周期） ==========
   // 任何 turn 异常都能从日志反查；不写入主要因为 UI 噪音，只到 file log。
-  pi.on("turn_start", async (_event, _ctx) => {
-    slog("debug", "turn:start");
+  pi.on("turn_start", async (_event, ctx) => {
+    slog(getSessionIdFromCtx(ctx), "debug", "turn:start");
   });
-  pi.on("turn_end", async (event, _ctx) => {
+  pi.on("turn_end", async (event, ctx) => {
     // v10.x：event 形态可能包含 token 用量，先取几个字段塞进 ctx
     const e = event as PiTurnEndEvent;
-    slog("debug", "turn:end", { reason: e.reason, messageCount: e.messageCount });
+    slog(getSessionIdFromCtx(ctx), "debug", "turn:end", {
+      reason: e.reason,
+      messageCount: e.messageCount,
+    });
   });
-  pi.on("agent_settled", async (_event, _ctx) => {
-    slog("debug", "agent:settled");
+  pi.on("agent_settled", async (_event, ctx) => {
+    slog(getSessionIdFromCtx(ctx), "debug", "agent:settled");
   });
-  pi.on("tool_call", async (event, _ctx) => {
+  pi.on("tool_call", async (event, ctx) => {
     const e = event as PiToolCallEvent;
-    slog("debug", "tool:call", { name: e.name ?? e.toolName });
+    slog(getSessionIdFromCtx(ctx), "debug", "tool:call", { name: e.name ?? e.toolName });
   });
-  pi.on("tool_result", async (event, _ctx) => {
+  pi.on("tool_result", async (event, ctx) => {
     const e = event as PiToolResultEvent;
-    slog("debug", "tool:result", { name: e.name ?? e.toolName, isError: e.isError });
+    slog(getSessionIdFromCtx(ctx), "debug", "tool:result", {
+      name: e.name ?? e.toolName,
+      isError: e.isError,
+    });
   });
 
   // ========== /pt-context 命令：即时切换 ==========
@@ -301,7 +343,10 @@ export default function (pi: ExtensionAPI): void {
     description:
       "切换当前 Profile（编译成 Context 注入 System Prompt），即时重转译（无参则弹出选择器）",
     getArgumentCompletions: async (prefix) => {
-      const cwd = session.lastCwd || process.cwd(); // Q1 修复：fallback 到 process.cwd()
+      const sessionId = getSessionIdFromCtx({
+        sessionManager: undefined,
+      });
+      const cwd = (sessionId && getSessionById(sessionId).lastCwd) || process.cwd(); // Q1 修复：fallback 到 process.cwd()
       const names = await listProfiles(cwd);
       const items = names.map((n) => ({ value: n, label: n }));
       const hit = items.filter((i) => i.value.startsWith(prefix));
@@ -340,18 +385,25 @@ export default function (pi: ExtensionAPI): void {
       const tail = firstSpace === -1 ? "" : args.slice(firstSpace + 1);
       const sub = head.trim().toLowerCase();
       const subArgs = tail;
-      slog("info", "command:/pt invoked", { sub }); // v10.x: P4 子命令 trace
+      const sessionId = getSessionIdFromCtx(ctx);
+      slog(sessionId, "info", "command:/pt invoked", { sub }); // v10.x: P4 子命令 trace
+
+      if (!sessionId) {
+        ctx.ui.notify("Pt：无法获取 session id（pi 版本不兼容）", "error");
+        return;
+      }
+      const s = getSessionById(sessionId);
 
       if (sub === "status" || sub === "") {
-        ctx.ui.notify(statusText(), "info");
-        if (sub === "" && session.cachedSegment) {
-          ctx.ui.notify(session.cachedSegment, "info");
+        ctx.ui.notify(statusText(s), "info");
+        if (sub === "" && s.cachedSegment) {
+          ctx.ui.notify(s.cachedSegment, "info");
         }
         return;
       }
 
       if (sub === "flows") {
-        ctx.ui.notify(flowsText(), "info");
+        ctx.ui.notify(flowsText(s), "info");
         return;
       }
 
@@ -364,7 +416,7 @@ export default function (pi: ExtensionAPI): void {
           return;
         }
         // 优先当前 session，其次最近修改的 session file，最后 fallback 主文件
-        let targetFile = `pt-${session.sessionId}.log`;
+        let targetFile = `pt-${s.sessionId}.log`;
         if (!files.includes(targetFile)) {
           if (files.includes("pt.log")) targetFile = "pt.log";
           else targetFile = files[files.length - 1];
@@ -394,9 +446,9 @@ export default function (pi: ExtensionAPI): void {
       }
 
       if (sub === "logs:clear") {
-        await PtLogger.clear(ctx.cwd, session.sessionId || undefined);
+        await PtLogger.clear(ctx.cwd, s.sessionId || undefined);
         ctx.ui.notify(
-          `已清空 .pt/logs/${session.sessionId ? `pt-${session.sessionId}.log` : "pt.log"}`,
+          `已清空 .pt/logs/${s.sessionId ? `pt-${s.sessionId}.log` : "pt.log"}`,
           "info"
         );
         return;
@@ -410,34 +462,30 @@ export default function (pi: ExtensionAPI): void {
           return;
         }
         ctx.ui.notify(
-          `已存在的 session 日志:\n${files.map((f) => `  ${f}${f === `pt-${session.sessionId}.log` ? " (current)" : ""}`).join("\n")}`,
+          `已存在的 session 日志:\n${files.map((f) => `  ${f}${f === `pt-${s.sessionId}.log` ? " (current)" : ""}`).join("\n")}`,
           "info"
         );
         return;
       }
 
       if (sub === "raw") {
-        if (!session.cachedSegment) {
+        if (!s.cachedSegment) {
           ctx.ui.notify("无 segment 可显示", "warning");
           return;
         }
         const dir = join(ctx.cwd, RAW_DIR);
         await mkdir(dir, { recursive: true });
         const file = join(dir, `segment-${Date.now()}.md`);
-        await writeFile(file, session.cachedSegment, "utf8");
-        ctx.ui.notify(`已写入 ${file}（${session.cachedSegment.length} chars）`, "info");
+        await writeFile(file, s.cachedSegment, "utf8");
+        ctx.ui.notify(`已写入 ${file}（${s.cachedSegment.length} chars）`, "info");
         return;
       }
 
       if (sub === "full") {
         // v10.x（fix pt-full-duplicate-segment）：用 lastBuiltPrompt 作 canonical source
         // 第一轮之后 = LLM 实际看到的；第一轮之前 fallback 到模拟注入（保留旧版语义）
-        const full = buildFullPrompt(
-          ctx.getSystemPrompt(),
-          session.cachedSegment,
-          session.lastBuiltPrompt
-        );
-        if (!session.cachedSegment) {
+        const full = buildFullPrompt(ctx.getSystemPrompt(), s.cachedSegment, s.lastBuiltPrompt);
+        if (!s.cachedSegment) {
           ctx.ui.notify(
             "警告：无 cachedSegment（未加载 Profile）。用 /pt-context <name> 选择",
             "warning"
@@ -456,7 +504,7 @@ export default function (pi: ExtensionAPI): void {
         const procedureParts = subArgs.trim().split(/\s+/);
         const procedureName = procedureParts[0] ?? "";
         const procedureArgs = procedureParts.slice(1).join(" ");
-        const r = buildManualDoc(ctx.cwd, procedureName, procedureArgs);
+        const r = buildManualDoc(ctx.cwd, s, procedureName, procedureArgs);
         if (r.error) {
           ctx.ui.notify(r.error, "warning");
           return;
@@ -464,15 +512,15 @@ export default function (pi: ExtensionAPI): void {
         await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
         await writeFile(r.filePath, r.content, "utf8");
         // v11.x：手动跟踪实例 + widget + footer + 持久化
-        session.activeManual = {
+        s.activeManual = {
           filePath: r.filePath,
           procedure: procedureName,
           args: procedureArgs,
           activatedAt: Date.now(),
         };
-        persistManualToSession(pi, session.activeManual);
-        await refreshManualWidget(ctx.ui);
-        refreshInjectionFooter(ctx.ui);
+        persistManualToSession(pi, s.activeManual);
+        await refreshManualWidget(ctx.ui, s);
+        refreshInjectionFooter(ctx.ui, s);
         ctx.ui.notify(`手册实例已创建: ${r.filePath}`, "info");
         return;
       }
@@ -491,8 +539,13 @@ export default function (pi: ExtensionAPI): void {
       "Show Pt compilation status: active profile, domain/flow counts, segment length, cache hit. Read-only.",
     promptSnippet: "Show Pt status (profile, counts, cache)",
     parameters: Type.Object({}),
-    async execute() {
-      return { content: [{ type: "text", text: statusText() }], details: {} };
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const sessionId = getSessionIdFromCtx(ctx);
+      const s = sessionId ? getSessionById(sessionId) : null;
+      return {
+        content: [{ type: "text", text: s ? statusText(s) : "no session" }],
+        details: {},
+      };
     },
   });
 
@@ -506,8 +559,13 @@ export default function (pi: ExtensionAPI): void {
       "Use pt_flows when you need to know which Pt manuals are available before starting a multi-step procedure.",
     ],
     parameters: Type.Object({}),
-    async execute() {
-      return { content: [{ type: "text", text: flowsText() }], details: {} };
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const sessionId = getSessionIdFromCtx(ctx);
+      const s = sessionId ? getSessionById(sessionId) : null;
+      return {
+        content: [{ type: "text", text: s ? flowsText(s) : "no session" }],
+        details: {},
+      };
     },
   });
 
@@ -531,7 +589,15 @@ export default function (pi: ExtensionAPI): void {
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const r = buildManualDoc(ctx.cwd, params.procedure, params.args ?? "");
+      const sessionId = getSessionIdFromCtx(ctx);
+      if (!sessionId) {
+        return {
+          content: [{ type: "text", text: "no session" }],
+          details: { error: "no session" },
+        };
+      }
+      const s = getSessionById(sessionId);
+      const r = buildManualDoc(ctx.cwd, s, params.procedure, params.args ?? "");
       if (r.error) {
         return { content: [{ type: "text", text: r.error }], details: { error: r.error } };
       }
@@ -539,15 +605,15 @@ export default function (pi: ExtensionAPI): void {
         await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
         await writeFile(r.filePath, r.content, "utf8");
         // v11.x：手动跟踪实例 + widget + footer + 持久化
-        session.activeManual = {
+        s.activeManual = {
           filePath: r.filePath,
           procedure: params.procedure,
           args: params.args ?? "",
           activatedAt: Date.now(),
         };
-        persistManualToSession(pi, session.activeManual);
-        await refreshManualWidget(ctx.ui);
-        refreshInjectionFooter(ctx.ui);
+        persistManualToSession(pi, s.activeManual);
+        await refreshManualWidget(ctx.ui, s);
+        refreshInjectionFooter(ctx.ui, s);
         return {
           content: [{ type: "text", text: `手册实例已创建: ${r.filePath}` }],
           details: { path: r.filePath },
@@ -588,9 +654,11 @@ export default function (pi: ExtensionAPI): void {
             : `? ${result.message}`;
       // v11.x：verify 后重读文件刷新 widget（用户可能手动 tick 了 checklist）
       // 不改 session.activeManual，只 refresh 派生数据（widget + cachedManualProgress）
-      if (session.activeManual) {
-        await refreshManualWidget(ctx.ui);
-        refreshInjectionFooter(ctx.ui);
+      const sessionId = getSessionIdFromCtx(ctx);
+      const s = sessionId ? getSessionById(sessionId) : null;
+      if (s?.activeManual) {
+        await refreshManualWidget(ctx.ui, s);
+        refreshInjectionFooter(ctx.ui, s);
       }
       return {
         content: [{ type: "text", text }],
@@ -611,7 +679,9 @@ export default function (pi: ExtensionAPI): void {
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const { checkAllRefs, formatRefCheckResult } = await import("./verify/ref-check.js");
-      const r = await loadAndTranspile(ctx.cwd, session.activeProfile ?? "");
+      const sessionId = getSessionIdFromCtx(ctx);
+      const s = sessionId ? getSessionById(sessionId) : null;
+      const r = await loadAndTranspile(ctx.cwd, s?.activeProfile ?? "");
       const b = r.bundles[0];
       const result = checkAllRefs(b.profiles, b.blueprints, b.domains);
       return {

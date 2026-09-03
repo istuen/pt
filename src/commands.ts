@@ -5,11 +5,15 @@
 //   - command 壳：ctx.ui.notify 呈现（src/index.ts）
 //   - tool 壳：return { content: [{ text }] } 呈现（src/index.ts）
 //   - 纪律：内核不依赖 ExtensionAPI / ExtensionCommandContext，只读 session + 调内部模块
+//
+// v12.x（issue pt-session-singleton-pi-web-pollution 修复）：
+//   - 内核函数签名加 `session: SessionState` 参数，调用方传 per-session state
+//   - 不再 import module-level `session` 单例（已删除）
 
 import { join } from "node:path";
 import { MANUAL_DIR, MOD_MANUAL } from "./constants.js";
 import { bindFlowTemplate, findFlowInBlueprint } from "./render/context-message.js";
-import { session } from "./session.js";
+import type { SessionState } from "./session.js";
 import type { Profile } from "./schema.js";
 import { isFlowTemplateLike } from "./compile/type-guards.js";
 
@@ -27,7 +31,7 @@ export function filterDomainsByProfile<T extends { name: string }>(
 }
 
 /** /pt status 内核：返回状态摘要文本（单行 | 分隔）。 */
-export function statusText(): string {
+export function statusText(session: SessionState): string {
   const flowCount =
     session.cachedBundles?.reduce((acc, b) => {
       let n = 0;
@@ -58,7 +62,7 @@ export function statusText(): string {
  *
  * 调用 listManuals 时**已用 filterDomainsByProfile 预过滤**——按当前 Profile 注入点 scope
  * 过滤后传入（见 schema.ts:AgentAdapter.listManuals JSDoc）。 */
-export function flowsText(): string {
+export function flowsText(session: SessionState): string {
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.activeAdapter) {
     return "无激活 Profile，先用 /pt-context <name> 激活";
   }
@@ -117,7 +121,12 @@ export interface ManualDocResult {
   error?: string;
 }
 
-export function buildManualDoc(cwd: string, procedure: string, args: string): ManualDocResult {
+export function buildManualDoc(
+  cwd: string,
+  session: SessionState,
+  procedure: string,
+  args: string
+): ManualDocResult {
   if (!procedure) {
     return { content: "", filePath: "", error: "用法: /pt manual <procedure-name> [args...]" };
   }

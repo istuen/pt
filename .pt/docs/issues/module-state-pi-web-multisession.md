@@ -1,9 +1,11 @@
 ---
 type: issue
 name: module-state-pi-web-multisession
-status: open
+status: resolved
 severity: medium
 created: 2025-09-03
+resolved: 2026-09-03
+resolved-by: pt-session-singleton-pi-web-pollution
 domain: pt-dev
 ---
 
@@ -149,3 +151,18 @@ v11.x 在 `session` 上加 `activeManual` + 新增 `cachedManualProgress`（`src
   - `src/index.ts`（`cachedManualProgress` 改造）
   - `src/agent/pi-adapter.ts`（before_agent_start 回调需要 sessionId）
   - pi ExtensionAPI 是否暴露 sessionId（需查 pi 文档）
+
+## 修复记录（v12.x，被 pt-session-singleton-pi-web-pollution 顺手解决）
+
+### 修复日期
+2026-09-03
+
+### 解决方式
+**本 issue 描述的现象（`activeManual` / `cachedManualProgress` / widget 串）是 `session` module-level 单例污染的子集**。根因 issue `pt-session-singleton-pi-web-pollution` v12.x 修复时已把 `activeManual` 改 per-session 字段（搬到 `SessionState.activeManual`），`cachedManualProgress` 改 per-session 字段（搬到 `SessionState.cachedManualProgress`），整个 `session` 单例改 `Map<sessionId, SessionState>`。所以本 issue 描述的所有 widget 串现象自动消失。
+
+### 验证
+- `npm run verify` 全过：18 文件 / 167 测试
+- `tests/verify/multi-session-isolation.test.ts` 第 4 个测试明确验证：`session_shutdown` 精确清本 session state，不影响其他 session
+
+### 涉及 commit
+随 `pt-session-singleton-pi-web-pollution` v12.x 修复一起提交
