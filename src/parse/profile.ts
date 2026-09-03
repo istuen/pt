@@ -33,11 +33,10 @@ import { extractDomainsList, readAsset, sArr, type Section } from "./shared.js";
 export async function parseProfile(absDir: string, fileName: string): Promise<Profile> {
   const asset = await readAsset(join(absDir, fileName));
 
-  const blueprint = typeof asset.frontmatter.blueprint === "string"
-    ? asset.frontmatter.blueprint
-    : "";
+  const blueprint =
+    typeof asset.frontmatter.blueprint === "string" ? asset.frontmatter.blueprint : "";
 
-  const domains = sArr(asset.frontmatter.domains);  // YAML 全局 domains
+  const domains = sArr(asset.frontmatter.domains); // YAML 全局 domains
 
   // injectionPoints：每个 H2 = 注入点实例化（只读 ### Domains 追加列表）
   const injectionPoints: InjectionPointInstance[] = [];
@@ -47,7 +46,10 @@ export async function parseProfile(absDir: string, fileName: string): Promise<Pr
   }
 
   return {
-    name: typeof asset.frontmatter.name === "string" ? asset.frontmatter.name : stripProfileSuffix(asset.name),
+    name:
+      typeof asset.frontmatter.name === "string"
+        ? asset.frontmatter.name
+        : stripProfileSuffix(asset.name),
     blueprint,
     domains,
     injectionPoints,

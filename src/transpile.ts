@@ -15,7 +15,15 @@ import { saveContext, loadContext } from "./render/cache.js";
 import { renderSystemPrompt } from "./render/system-prompt.js";
 import { AGENT_PI, CACHE_DIR } from "./constants.js";
 import { findBlueprint, findProfile } from "./schema.js";
-import type { Blueprint, Context, Domain, Profile, SchemaBundle, SourceAdapter, SourceAdapterContext } from "./schema.js";
+import type {
+  Blueprint,
+  Context,
+  Domain,
+  Profile,
+  SchemaBundle,
+  SourceAdapter,
+  SourceAdapterContext,
+} from "./schema.js";
 
 export interface TranspileResult {
   /** 注入 systemPrompt 的字符串段（聚合所有 target=system_prompt 的注入点） */
@@ -35,7 +43,12 @@ export interface TranspileResult {
 }
 
 const EMPTY_CTX: Context = { name: "", blueprint: "", sourceHash: "0", modules: {} };
-const EMPTY_BP: Blueprint = { name: "", agent: AGENT_PI, injectionPoints: [], compilation: { cacheDir: CACHE_DIR, split: "single-file" } };
+const EMPTY_BP: Blueprint = {
+  name: "",
+  agent: AGENT_PI,
+  injectionPoints: [],
+  compilation: { cacheDir: CACHE_DIR, split: "single-file" },
+};
 const EMPTY_PROFILE: Profile = { name: "", blueprint: "", domains: [], injectionPoints: [] };
 
 /** ============== Source Adapter 注册表（MVP 只有 MD） ============== */
@@ -48,7 +61,7 @@ const sourceAdapters: SourceAdapter[] = [
 export async function loadAndTranspile(
   cwd: string,
   profileName: string,
-  adapterCtx?: SourceAdapterContext,
+  adapterCtx?: SourceAdapterContext
 ): Promise<TranspileResult> {
   adapterCtx?.log?.debug("transpile:start", { profileName, adapterCount: sourceAdapters.length });
 
@@ -58,8 +71,8 @@ export async function loadAndTranspile(
       a.load(cwd, profileName, adapterCtx).catch((e) => {
         reportError(adapterCtx, `adapter ${a.name} failed: ${errMsg(e)}`, { adapter: a.name });
         return null;
-      }),
-    ),
+      })
+    )
   );
   const bundles = segs.filter((b): b is SchemaBundle => b !== null);
   adapterCtx?.log?.info("transpile:parse done", {
@@ -96,7 +109,9 @@ export async function loadAndTranspile(
   for (const bundle of bundles) {
     const profile = findProfile(bundle.profiles, bundle.activeProfile);
     if (!profile) {
-      adapterCtx?.log?.debug("transpile:skip bundle — profile not found", { activeProfile: bundle.activeProfile });
+      adapterCtx?.log?.debug("transpile:skip bundle — profile not found", {
+        activeProfile: bundle.activeProfile,
+      });
       continue;
     }
     const blueprint = findBlueprint(bundle.blueprints, profile.blueprint);
@@ -108,7 +123,7 @@ export async function loadAndTranspile(
           profileName: profile.name,
           referencedBlueprint: profile.blueprint,
           availableBlueprints: bundle.blueprints.map((b) => b.name),
-        },
+        }
       );
       continue;
     }
@@ -141,7 +156,10 @@ export async function loadAndTranspile(
   }
 
   // 4. 注入版剥 asset 分隔注释
-  const segment = segments.join("\n\n").replace(/<!-- =====[^\n]*-->\n?/g, "").trim();
+  const segment = segments
+    .join("\n\n")
+    .replace(/<!-- =====[^\n]*-->\n?/g, "")
+    .trim();
 
   adapterCtx?.log?.info("transpile:done", {
     profileName: lastActiveProfile,
@@ -164,13 +182,21 @@ export async function loadAndTranspile(
 // ==================== 辅助 ====================
 
 /** 三通道 fallback: log → notify → console。v10.x：增 details 让 log/UI 用户能看到 structured 上下文。 */
-function reportWarn(adapterCtx: SourceAdapterContext | undefined, msg: string, details?: Record<string, unknown>): void {
+function reportWarn(
+  adapterCtx: SourceAdapterContext | undefined,
+  msg: string,
+  details?: Record<string, unknown>
+): void {
   if (adapterCtx?.log) adapterCtx.log.warn(msg, details);
   if (adapterCtx?.notify) adapterCtx.notify(msg, "warning");
   if (!adapterCtx?.log && !adapterCtx?.notify) console.warn(`[pt] ${msg}`);
 }
 
-function reportError(adapterCtx: SourceAdapterContext | undefined, msg: string, details?: Record<string, unknown>): void {
+function reportError(
+  adapterCtx: SourceAdapterContext | undefined,
+  msg: string,
+  details?: Record<string, unknown>
+): void {
   if (adapterCtx?.log) adapterCtx.log.error(msg, details);
   if (adapterCtx?.notify) adapterCtx.notify(msg, "error");
   if (!adapterCtx?.log && !adapterCtx?.notify) console.error(`[pt] ${msg}`);

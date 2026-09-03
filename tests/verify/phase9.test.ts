@@ -21,9 +21,21 @@ const cwd = process.cwd();
 interface LoadedProfile {
   name: string;
   segment: string;
-  context: ReturnType<typeof loadAndTranspile> extends Promise<infer T> ? T extends { context: infer C } ? C : never : never;
-  blueprint: ReturnType<typeof loadAndTranspile> extends Promise<infer T> ? T extends { blueprint: infer B } ? B : never : never;
-  bundles: ReturnType<typeof loadAndTranspile> extends Promise<infer T> ? T extends { bundles: infer Bs } ? Bs : never : never;
+  context: ReturnType<typeof loadAndTranspile> extends Promise<infer T>
+    ? T extends { context: infer C }
+      ? C
+      : never
+    : never;
+  blueprint: ReturnType<typeof loadAndTranspile> extends Promise<infer T>
+    ? T extends { blueprint: infer B }
+      ? B
+      : never
+    : never;
+  bundles: ReturnType<typeof loadAndTranspile> extends Promise<infer T>
+    ? T extends { bundles: infer Bs }
+      ? Bs
+      : never
+    : never;
   cacheHit: boolean;
 }
 
@@ -91,7 +103,9 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 3. Blueprint 复用 ==========
   describe("3. Blueprint 复用", () => {
     it("dev-knowledge Blueprint 被 ≥2 个 Profile 引用", async () => {
-      const profileFiles = (await readdir(join(cwd, ".pt/assets/profiles"))).filter((f) => f.endsWith(".profile.md"));
+      const profileFiles = (await readdir(join(cwd, ".pt/assets/profiles"))).filter((f) =>
+        f.endsWith(".profile.md")
+      );
       const refCounts: Record<string, number> = {};
       for (const f of profileFiles) {
         const raw = await readFile(join(profilesDir(), f), "utf8");
@@ -124,7 +138,10 @@ describe("Phase 9.9 v9 完整回归", () => {
       while (searchFrom !== -1) {
         const next = raw.indexOf("### pt-quality", searchFrom);
         if (next === -1) break;
-        if (next > canKaoIdx) { qualityManualIdx = next; break; }
+        if (next > canKaoIdx) {
+          qualityManualIdx = next;
+          break;
+        }
         searchFrom = next + 1;
       }
       // 必须在 ## 参考手册 之后（pt-quality Manual 段进参考手册段）
@@ -140,7 +157,10 @@ describe("Phase 9.9 v9 完整回归", () => {
       const huiHuaIdx = raw.indexOf("## 会话知识");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
       const modulesTypeSafetyIdx = raw.indexOf("- modules-type-safety:");
-      expect(modulesTypeSafetyIdx < huiHuaIdx || modulesTypeSafetyIdx > huiHuaIdx + 1 + nextH2AfterHuiHuaOffset).toBe(true);
+      expect(
+        modulesTypeSafetyIdx < huiHuaIdx ||
+          modulesTypeSafetyIdx > huiHuaIdx + 1 + nextH2AfterHuiHuaOffset
+      ).toBe(true);
     });
   });
 
@@ -184,7 +204,7 @@ describe("Phase 9.9 v9 完整回归", () => {
     it("compile/context.ts 不含 domainSceneRenderers 代码（仅历史注释提及）", async () => {
       const src = await readFile("src/compile/context.ts", "utf8");
       const codeWithoutComments = src.replace(/\/\/.*$/gm, "");
-      expect(codeWithoutComments).not.toMatch(/domainSceneRenderers[\(\.]/);
+      expect(codeWithoutComments).not.toMatch(/domainSceneRenderers[(.]/);
     });
     it("compile/context.ts 不含 target === system_prompt 硬编码", async () => {
       const src = await readFile("src/compile/context.ts", "utf8");
@@ -200,7 +220,9 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
     it("Profile 含 blueprint + domains 字段", async () => {
       const src = await readFile("src/schema.ts", "utf8");
-      expect(src).toMatch(/interface Profile[\s\S]*?blueprint:\s*string[\s\S]*?domains:\s*string\[\]/);
+      expect(src).toMatch(
+        /interface Profile[\s\S]*?blueprint:\s*string[\s\S]*?domains:\s*string\[\]/
+      );
     });
     it("InjectionPointInstance 无 trigger/boundaries", async () => {
       const src = await readFile("src/schema.ts", "utf8");
@@ -229,7 +251,12 @@ describe("Phase 9.9 v9 完整回归", () => {
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
       const ptDevBlueprint = findBlueprint(ptDevBundle.blueprints, ptDevProfile.blueprint)!;
-      const result = renderContextMessage(r9.context, ptDevBlueprint, ptDevBundle.domains, "/manual:pt-quality");
+      const result = renderContextMessage(
+        r9.context,
+        ptDevBlueprint,
+        ptDevBundle.domains,
+        "/manual:pt-quality"
+      );
       expect(result).not.toBeNull();
     });
 
@@ -238,7 +265,12 @@ describe("Phase 9.9 v9 完整回归", () => {
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
       const ptDevBlueprint = findBlueprint(ptDevBundle.blueprints, ptDevProfile.blueprint)!;
-      const result = renderContextMessage(r9.context, ptDevBlueprint, ptDevBundle.domains, "/manual:pt-quality");
+      const result = renderContextMessage(
+        r9.context,
+        ptDevBlueprint,
+        ptDevBundle.domains,
+        "/manual:pt-quality"
+      );
       expect(result).toContain("modules-type-safety");
     });
   });
@@ -271,14 +303,18 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("15. 残留 grep 检查", () => {
     it("对话记忆 零残留（脚本自身例外）", () => {
       const out = execSync(
-        `grep -rln --exclude='phase9.test.ts' --exclude='flows.test.ts' --exclude='verify-phase9.ts' --exclude='verify-flows.ts' "对话记忆" .pt/assets/ src/ tests/ 2>/dev/null || true`,
-      ).toString().trim();
+        `grep -rln --exclude='phase9.test.ts' --exclude='flows.test.ts' --exclude='verify-phase9.ts' --exclude='verify-flows.ts' "对话记忆" .pt/assets/ src/ tests/ 2>/dev/null || true`
+      )
+        .toString()
+        .trim();
       expect(out).toBe("");
     });
     it(".openxenon 零残留（任务描述例外）", () => {
       const out = execSync(
-        `grep -rln --exclude='phase9.test.ts' --exclude='flows.test.ts' --exclude='verify-phase9.ts' --exclude='verify-flows.ts' --exclude='pt-dev-phases*.md' ".openxenon" .pt/assets/ src/ tests/ docs/ 2>/dev/null || true`,
-      ).toString().trim();
+        `grep -rln --exclude='phase9.test.ts' --exclude='flows.test.ts' --exclude='verify-phase9.ts' --exclude='verify-flows.ts' --exclude='pt-dev-phases*.md' ".openxenon" .pt/assets/ src/ tests/ docs/ 2>/dev/null || true`
+      )
+        .toString()
+        .trim();
       expect(out).toBe("");
     });
   });
@@ -339,7 +375,9 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
 
     it("实例文档格式含 checklist + 产物区 + 更新指引", async () => {
-      const { bindFlowTemplate, findFlowInBlueprint } = await import("../../src/render/context-message.js");
+      const { bindFlowTemplate, findFlowInBlueprint } = await import(
+        "../../src/render/context-message.js"
+      );
       const r = await loadAndTranspile(cwd, "pt");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       const bound = bindFlowTemplate(tpl!, "term my-concept");
@@ -359,7 +397,9 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
 
     it("实例文档跳过冗余标题/参数提示/步骤段头", async () => {
-      const { bindFlowTemplate, findFlowInBlueprint } = await import("../../src/render/context-message.js");
+      const { bindFlowTemplate, findFlowInBlueprint } = await import(
+        "../../src/render/context-message.js"
+      );
       const r = await loadAndTranspile(cwd, "pt");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       const bound = bindFlowTemplate(tpl!, "term my-concept");

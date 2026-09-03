@@ -22,9 +22,15 @@ import { readFile } from "node:fs/promises";
  *  v9 删除了 "channel"（Channel 留作未来 Connector，本版本不实现）——不再出现在 kind 联合中。
  *  如解析到历史资源带 channel 段，frontmatter.kind 可 指 配 "channel"（保留为字符串兜底）。 */
 export type AssetKind =
-  | "domain" | "blueprint" | "profile"
-  | "term" | "workflow" | "stack" | "glossary"
-  | "scene" | "manual"
+  | "domain"
+  | "blueprint"
+  | "profile"
+  | "term"
+  | "workflow"
+  | "stack"
+  | "glossary"
+  | "scene"
+  | "manual"
   // 兜底：v8 channel 历史资源可能含 frontmatter.kind: "channel"
   | "channel";
 
@@ -336,9 +342,16 @@ function inferKind(body: string): AssetKind {
 /** 从 frontmatter 推断 asset kind（type guard：返 undefined 表示 frontmatter 不包含足够信息）。 */
 function inferKindFromFrontmatter(fm: Record<string, unknown>): AssetKind | undefined {
   const validKinds: ReadonlyArray<AssetKind> = [
-    "domain", "blueprint", "profile",
-    "term", "workflow", "stack", "glossary",
-    "scene", "manual", "channel",
+    "domain",
+    "blueprint",
+    "profile",
+    "term",
+    "workflow",
+    "stack",
+    "glossary",
+    "scene",
+    "manual",
+    "channel",
   ];
   const candidates = ["kind", "type", "entity"] as const;
   for (const key of candidates) {

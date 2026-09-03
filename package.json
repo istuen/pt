@@ -11,6 +11,9 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "format": "biome format --write",
     "verify": "vitest run tests/verify/",
     "verify:phase9": "vitest run tests/verify/phase9.test.ts",
     "verify:flows": "vitest run tests/verify/flows.test.ts"
@@ -26,6 +29,7 @@
     "typebox": "*"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.11",
     "@types/node": "^26.4.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",

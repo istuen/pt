@@ -60,7 +60,7 @@ export class PtLogger implements PtLoggerWriter {
   constructor(
     public readonly cwd: string,
     public readonly profile: string = "",
-    public readonly sessionId: string = "",
+    public readonly sessionId: string = ""
   ) {
     this.baseCtx = { cwd, profile, sessionId };
   }
@@ -99,7 +99,9 @@ export class PtLogger implements PtLoggerWriter {
           console.error("[pt-log] write failed:", e instanceof Error ? e.message : e);
         }
       })
-      .catch(() => {/* 链上一步失败不传染到下一步 */});
+      .catch(() => {
+        /* 链上一步失败不传染到下一步 */
+      });
   }
 
   debug(msg: string, ctx?: Record<string, unknown>): void {
@@ -133,7 +135,7 @@ export class PtLogger implements PtLoggerWriter {
     try {
       raw = await readFile(file, "utf8");
     } catch {
-      return [];  // 文件不存在 → 返空（首次启动）
+      return []; // 文件不存在 → 返空（首次启动）
     }
     const lines = raw.trim().split("\n");
     const slice = lines.slice(-n);
@@ -153,9 +155,7 @@ export class PtLogger implements PtLoggerWriter {
   static async clear(cwd: string, sessionId?: string): Promise<void> {
     const dir = join(cwd, LOG_DIR);
     await mkdir(dir, { recursive: true });
-    const file = sessionId
-      ? join(dir, `pt-${sessionId}.log`)
-      : join(dir, LOG_FILE);
+    const file = sessionId ? join(dir, `pt-${sessionId}.log`) : join(dir, LOG_FILE);
     await writeFile(file, "", "utf8");
   }
 

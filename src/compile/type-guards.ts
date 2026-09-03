@@ -6,13 +6,7 @@
 // 与 schema.ts 的区别：schema.ts 定义契约（Term/Rule/FlowTemplate 等结构），
 // type-guards.ts 定义运行时收窄（"这个 unknown 是不是 Term[]?"）。
 
-import type {
-  ExternalRef,
-  FlowTemplate,
-  Rule,
-  Term,
-  ToolRef,
-} from "../schema.js";
+import type { ExternalRef, FlowTemplate, Rule, Term, ToolRef } from "../schema.js";
 
 // ==================== 通用守卫 ====================
 
@@ -44,10 +38,7 @@ export function isTermArray(x: unknown): x is Term[] {
 function isRuleLike(x: unknown): x is Rule {
   if (!x || typeof x !== "object") return false;
   const r = x as { type?: unknown; check?: unknown };
-  return (
-    (r.type === "ban" || r.type === "invariant") &&
-    typeof r.check === "string"
-  );
+  return (r.type === "ban" || r.type === "invariant") && typeof r.check === "string";
 }
 
 /** unknown 是否为 Rule[]。 */
@@ -61,11 +52,7 @@ export function isRuleArray(x: unknown): x is Rule[] {
 function isFlowTemplateLike(x: unknown): x is FlowTemplate {
   if (!x || typeof x !== "object") return false;
   const t = x as { name?: unknown; intent?: unknown; steps?: unknown };
-  return (
-    typeof t.name === "string" &&
-    typeof t.intent === "string" &&
-    Array.isArray(t.steps)
-  );
+  return typeof t.name === "string" && typeof t.intent === "string" && Array.isArray(t.steps);
 }
 
 /** unknown 是否为 FlowTemplate[]。 */
@@ -80,12 +67,16 @@ export function isFlowTemplateArray(x: unknown): x is FlowTemplate[] {
 function isTriggerItemLike(x: unknown): x is { name: string; desc?: string; hint?: string } {
   if (!x || typeof x !== "object") return false;
   const t = x as { name?: unknown; desc?: unknown; hint?: unknown };
-  return typeof t.name === "string" && (t.desc === undefined || typeof t.desc === "string") && (t.hint === undefined || typeof t.hint === "string");
+  return (
+    typeof t.name === "string" &&
+    (t.desc === undefined || typeof t.desc === "string") &&
+    (t.hint === undefined || typeof t.hint === "string")
+  );
 }
 
 /** unknown 是否为 Trigger 项[]。 */
 export function isTriggerItemArray(
-  x: unknown,
+  x: unknown
 ): x is Array<{ name: string; desc?: string; hint?: string }> {
   return Array.isArray(x) && x.every(isTriggerItemLike);
 }
@@ -117,9 +108,7 @@ export function isToolRefArray(x: unknown): x is ToolRef[] {
 // ==================== workflow Scene 对象守卫 ====================
 
 /** workflow-Domain 的 ## Scene 段：{ externals?: ExternalRef[] }。 */
-export function isWorkflowScene(
-  x: unknown,
-): x is { externals?: ExternalRef[] } {
+export function isWorkflowScene(x: unknown): x is { externals?: ExternalRef[] } {
   if (!x || typeof x !== "object") return false;
   const s = x as { externals?: unknown };
   if (s.externals === undefined) return true;
@@ -129,9 +118,7 @@ export function isWorkflowScene(
 // ==================== 通用 fallback 守卫（带 name 字段的项） ====================
 
 /** 通用 fallback 形态：H3 + name + desc 列表项（用于未注册 type 的聚合段输出）。 */
-export function isNamedItemArray(
-  x: unknown,
-): x is Array<{ name: string; desc?: string }> {
+export function isNamedItemArray(x: unknown): x is Array<{ name: string; desc?: string }> {
   if (!Array.isArray(x)) return false;
   return x.every((it) => {
     if (!it || typeof it !== "object") return false;

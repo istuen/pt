@@ -51,7 +51,7 @@ import {
 export function compileContext(
   profile: Profile,
   blueprint: Blueprint,
-  domains: Domain[],
+  domains: Domain[]
 ): ContextIR {
   // 1. 按 Domain 名建立索引
   const domainByName = new Map(domains.map((d) => [d.name, d]));
@@ -88,7 +88,7 @@ function resolveDomains(
   profile: Profile,
   ipInstance: InjectionPointInstance | undefined,
   ipConfig: InjectionPointConfig,
-  domainByName: Map<string, Domain>,
+  domainByName: Map<string, Domain>
 ): Domain[] {
   // 合并：全局 domains + 注入点追加（去重，保序）
   const allNames = [...profile.domains];
@@ -117,7 +117,7 @@ function resolveDomains(
 function dispatchInjectionPoint(
   _ipInstance: InjectionPointInstance | undefined,
   ipConfig: InjectionPointConfig,
-  refDomains: Domain[],
+  refDomains: Domain[]
 ): string {
   const parts: string[] = [];
 
@@ -285,7 +285,7 @@ function renderGlobalRules(rules: Rule[]): string {
 export function computeSourceHash(
   profile: Profile,
   blueprint: Blueprint,
-  domains: Domain[],
+  domains: Domain[]
 ): string {
   const payload = JSON.stringify({
     profile: stableStringify(profile),

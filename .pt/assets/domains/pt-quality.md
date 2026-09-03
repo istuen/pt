@@ -50,7 +50,7 @@ name: pt-quality
 ### npm-scripts
 - slot: global
 - type: invariant
-- check: package.json 必须有 typecheck/verify 脚本入口
+- check: package.json 必须有 typecheck/verify/lint 脚本入口（lint = biome check）
 
 ### test-framework
 - slot: global
@@ -61,3 +61,8 @@ name: pt-quality
 - slot: global
 - type: invariant
 - check: 生产错误用 ctx.ui.notify，不用 console.error
+
+### biome-guarded
+- slot: global
+- type: invariant
+- check: src/ + tests/ 受 Biome 守护（biome.json：双引号/分号/2 空格/行宽 100，linter preset recommended，organizeImports off 保留人工 import 分组）。改完 src 代码必跑 `npm run lint`；CI gate 要求 0 error（warning/info 不阻塞，作为 P2 类型安全清理清单输入）。`npm run lint:fix` 自动修 safe fixes（format/useTemplate/useLiteralKeys 等），不修 unsafe（noNonNullAssertion/noUnusedVariables 需人工判断）。

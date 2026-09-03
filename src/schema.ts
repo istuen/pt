@@ -132,7 +132,7 @@ export interface BoundaryNode {
 // ==================== v9 注入点（Blueprint 拥有，注入点是 Agent 端技术位置映射） ====================
 
 /** Pi 注入位置（代码层技术名，由 InjectionPointConfig.target 映射）。
-  *  v9：注入点名是 Blueprint H2 的人类自定义语义名（不写死"会话知识/参考手册"）。 */
+ *  v9：注入点名是 Blueprint H2 的人类自定义语义名（不写死"会话知识/参考手册"）。 */
 export type InjectionTarget = "system_prompt" | "context_message" | string;
 
 /** Blueprint 的注入点定义（对应 Blueprint md 的 H2，注入点名=人类自定义语义名）。 */
@@ -343,7 +343,11 @@ export interface AgentAdapter {
   /** 清理 session 上下文；handler 仍可由当前 Pi runtime 复用。 */
   resetInjection?(): void;
   /** 查询可用手册（/pt flows 用） */
-  listManuals?(ctx: Context, blueprint: Blueprint, domains: Domain[]): Array<{ name: string; hint?: string; domain: string }>;
+  listManuals?(
+    ctx: Context,
+    blueprint: Blueprint,
+    domains: Domain[]
+  ): Array<{ name: string; hint?: string; domain: string }>;
 }
 
 // ==================== v9：Blueprint/Profile 名解析辅助 ====================

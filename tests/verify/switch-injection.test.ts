@@ -143,10 +143,16 @@ describe("manual profile switch and injection", () => {
 
   it("installs injection when the first profile is selected by the command", async () => {
     const events = new Map<string, GenericHandler[]>();
-    const commands = new Map<string, { handler: (args: string, ctx: Record<string, unknown>) => Promise<void> }>();
+    const commands = new Map<
+      string,
+      { handler: (args: string, ctx: Record<string, unknown>) => Promise<void> }
+    >();
     const pi = {
       registerFlag: () => undefined,
-      registerCommand: (name: string, spec: { handler: (args: string, ctx: Record<string, unknown>) => Promise<void> }) => {
+      registerCommand: (
+        name: string,
+        spec: { handler: (args: string, ctx: Record<string, unknown>) => Promise<void> }
+      ) => {
         commands.set(name, spec);
       },
       registerTool: () => undefined,
@@ -176,12 +182,13 @@ describe("manual profile switch and injection", () => {
     await switchCommand.handler("pt-dev", ctx);
     const beforeHandler = events.get("before_agent_start")![0];
     const firstSegment = session.cachedSegment;
-    const firstResult = (await beforeHandler({ type: "before_agent_start", systemPrompt: "BASE" })) as {
+    const firstResult = (await beforeHandler({
+      type: "before_agent_start",
+      systemPrompt: "BASE",
+    })) as {
       systemPrompt: string;
     };
-    expect(firstResult.systemPrompt).toBe(
-      `BASE\n\n## 当前任务上下文\n\n${firstSegment}`,
-    );
+    expect(firstResult.systemPrompt).toBe(`BASE\n\n## 当前任务上下文\n\n${firstSegment}`);
     expect(session.lastBuiltPrompt).toBe(firstResult.systemPrompt);
     expect(events.get("before_agent_start")).toHaveLength(1);
 
@@ -194,16 +201,16 @@ describe("manual profile switch and injection", () => {
     })) as { systemPrompt: string };
 
     expect(events.get("before_agent_start")).toHaveLength(1);
-    expect(secondResult.systemPrompt).toBe(
-      `BASE\n\n## 当前任务上下文\n\n${secondSegment}`,
-    );
+    expect(secondResult.systemPrompt).toBe(`BASE\n\n## 当前任务上下文\n\n${secondSegment}`);
     expect(session.lastBuiltPrompt).toBe(secondResult.systemPrompt);
     expect(secondResult.systemPrompt).not.toContain(firstSegment);
 
     const shutdown = events.get("session_shutdown")![0];
     await shutdown({ type: "session_shutdown" }, ctx);
     await sessionStart({ type: "session_start" }, ctx);
-    expect(await secondBeforeHandler({ type: "before_agent_start", systemPrompt: "BASE" })).toBeUndefined();
+    expect(
+      await secondBeforeHandler({ type: "before_agent_start", systemPrompt: "BASE" })
+    ).toBeUndefined();
   });
 
   it("does not let the built-in profile affect project auto detection", async () => {
