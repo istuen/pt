@@ -152,3 +152,80 @@ describe("computeSourceHash", () => {
     expect(h1).not.toBe(h2);
   });
 });
+
+describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () => {
+  // 背景：parse 阶段 Term 拿到 fields/note 后，compile 渲染要输出
+  // `- name: desc（字段：a/b/c）` 和 `- name: desc — note`；两者都有则两者都输出。
+  // 无 fields/note 时保持 v9 输出：`- name: desc`。
+  it("有 fields → 产物含 `（字段：a/b/c）`", () => {
+    const ds: Domain[] = [
+      makeDomain({
+        modules: {
+          Scene: [
+            {
+              name: "task-description",
+              desc: "派给执行者的任务描述",
+              fields: ["必读", "设计原则", "步骤"],
+            },
+          ],
+        },
+      }),
+    ];
+    const ctx = compileContext(makeProfile(), makeBlueprint(), ds);
+    expect(ctx.modules.会话知识).toContain("（字段：必读/设计原则/步骤）");
+  });
+
+  it("有 note → 产物含 ` — note`", () => {
+    const ds: Domain[] = [
+      makeDomain({
+        modules: {
+          Scene: [
+            {
+              name: "acceptance",
+              desc: "验收者独立复验的准则",
+              note: "每个硬指标都要有独立验证方式",
+            },
+          ],
+        },
+      }),
+    ];
+    const ctx = compileContext(makeProfile(), makeBlueprint(), ds);
+    expect(ctx.modules.会话知识).toContain(" — 每个硬指标都要有独立验证方式");
+  });
+
+  it("fields + note 同时有 → 两个追加都输出", () => {
+    const ds: Domain[] = [
+      makeDomain({
+        modules: {
+          Scene: [
+            {
+              name: "task-description",
+              desc: "desc",
+              fields: ["a", "b"],
+              note: "note text",
+            },
+          ],
+        },
+      }),
+    ];
+    const ctx = compileContext(makeProfile(), makeBlueprint(), ds);
+    // 顺序：name: desc（字段：a/b） — note
+    const out = ctx.modules.会话知识;
+    expect(out).toContain("（字段：a/b）");
+    expect(out).toContain(" — note text");
+    expect(out).toContain("- task-description: desc");
+  });
+
+  it("无 fields/note → 输出保持 v9 兼容（无中文括号 / 破折号追加）", () => {
+    const ds: Domain[] = [
+      makeDomain({
+        modules: { Scene: [{ name: "plain", desc: "just desc" }] },
+      }),
+    ];
+    const ctx = compileContext(makeProfile(), makeBlueprint(), ds);
+    expect(ctx.modules.会话知识).toContain("- plain: just desc");
+    // 不应出现 fields/note 追加
+    expect(ctx.modules.会话知识).not.toContain("（字段：");
+    expect(ctx.modules.会话知识).not.toContain(" — ");
+  });
+});

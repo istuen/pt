@@ -27,7 +27,10 @@ export function isRecord(x: unknown): x is Record<string, unknown> {
 
 // ==================== Term[] 守卫 ====================
 
-/** 校验元素是否具备 Term 最小形状（{ name: string }）。 */
+/** 校验元素是否具备 Term 最小形状（{ name: string }）。
+ *  v9.2：Term 加可选 fields/note 后仍只检查 name（最小形状），不强制 desc——
+ *  这样 parse 阶段产出的 Term 即使 desc 为空也过关，renderer 走 `else lines.push("- name")` 分支。
+ *  fields/note 是可选，向后兼容旧 IR。 */
 function isTermLike(x: unknown): x is Term {
   return !!x && typeof x === "object" && typeof (x as { name?: unknown }).name === "string";
 }

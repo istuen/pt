@@ -29,6 +29,15 @@ export interface Term {
   desc: string;
   /** 可选标签，不强制：作者判定放哪层（公理 = 业务语义源；定理 = 公理的组合或业务具体描述） */
   level?: "axiom" | "theorem";
+  /** 结构化字段清单（如 task-description 的 [必读, 设计原则, 步骤, ...]）。
+   *  来自资产 `- fields: [a, b, c]` 行；renderer 输出 `（字段：a/b/c）`。
+   *  v9.2 扩展：之前作者写的 fields/purpose/rule 等附加信息在 parse 阶段被静默丢弃，
+   *  加此字段让作者的结构化表达进入 IR。 */
+  fields?: string[];
+  /** 补充说明（purpose / rule 等非 desc 的语义信息统一收纳）。
+   *  renderer 在 desc 后追加 ` — note`。
+   *  v9.2 扩展：与 fields 同步，让作者写在 Scene 段的 purpose/rule 不再被丢。 */
+  note?: string;
 }
 
 /** 外部数据源引用（声明式：路径 + 协议，不在此处拉取） */

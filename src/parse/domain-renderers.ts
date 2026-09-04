@@ -17,10 +17,20 @@ const domainSectionRenderers: Record<string, Record<string, DomainSectionParser>
   // H2="Scene"
   Scene: {
     term: (items) =>
-      items.map((it) => ({
-        name: it.name,
-        desc: s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "",
-      })),
+      items.map((it) => {
+        const desc = s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "";
+        // v9.2 扩展：保留作者写在 Scene 段的附加信息（fields / purpose / rule）
+        // 之前这些字段在 parse 阶段被静默丢弃，扩展后进入 IR 让 compile 渲染
+        const fields = sArr(it.fields.fields);
+        const note = s(it.fields.purpose) || s(it.fields.rule);
+        const term: { name: string; desc: string; fields?: string[]; note?: string } = {
+          name: it.name,
+          desc,
+        };
+        if (fields.length > 0) term.fields = fields;
+        if (note) term.note = note;
+        return term;
+      }),
     workflow: (items) => ({
       externals: items.map((it) => ({
         name: it.name,
