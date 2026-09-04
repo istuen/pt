@@ -117,13 +117,6 @@ export interface FlowTemplate {
   externals: ExternalRef[];
 }
 
-/** 工具引用（stack-Domain.## Scene 段） */
-export interface ToolRef {
-  name: string;
-  role?: string;
-  operations?: string[];
-}
-
 /** Phase term-P9.2：验收清单（Domain.## Checklists 段内容）。
  *  与 Rule[] 不同：Checklist 只列条目，不带 slot/type/check——是“待验证项列表”。
  *  Renderer：``### name\\n- item1\\n- item2``。 */
@@ -192,8 +185,9 @@ export interface InjectionPointInstance {
  */
 export interface Domain {
   name: string;
-  /** 内容性质标签：term/workflow/stack/扩展 */
-  type: string;
+  /** Phase term-P9.3：删除 type 字段——Type 一身二任（知识性质标签 + schema 选择器）导致 stack 死类型
+   *  + 加新 Type 要改所有 H2 段的 renderer。Type 拆后由 H2 段名直接决定 schema（一个 H2 段一个 schema）。
+   *  不再加 frontmatter.type；Domain 不再有 type 字段。 */
   /** H2 段名 → 段内容。Pt 核心按 H2 名读段，不硬编码段名。 */
   modules: Record<string, unknown>;
 }

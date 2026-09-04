@@ -1,5 +1,4 @@
 ---
-type: workflow
 name: test-workflow-domain
 ---
 
@@ -8,7 +7,7 @@ name: test-workflow-domain
 - [external-one](external-one.md) 外部引用一
 - [external-two](external-two.md) 外部引用二
 
-## Manual
+## Flows
 
 - [step-one](step-one.md) 步骤一
 - [step-two](step-two.md) 步骤二

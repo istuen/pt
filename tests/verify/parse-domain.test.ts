@@ -1,10 +1,10 @@
 // tests/verify/parse-domain.test.ts — parseDomain 单元测试（P2.4）
 //
 // 直接调 parseDomain，绕开 loadAndTranspile（端到端路径），验证：
-// - frontmatter.type / .name 正确解析
+// - frontmatter.name 正确解析（Phase term-P9.3：type 字段已删）
 // - H2 段映射到 modules
-// - term 形态走 fallback Term[]
-// - workflow 形态的 ## Scene 段被注册表 parser 解析为 { externals? }
+// - ## Scene 统一 Term[]（P9.1）；## Manual 段为 FlowTemplate[]（P9.2 workflow 拆 Manual→Flows）
+// - term Scene 项 fields/note 保留（v9.2）
 
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
@@ -17,11 +17,12 @@ import {
 
 const FIXTURE_DIR = join(process.cwd(), "tests/fixtures/parse");
 
-describe("parseDomain — term 类型", () => {
-  it("frontmatter: type=term, name=test-term-domain", async () => {
+describe("parseDomain — term Domain（Phase term-P9.3：type 字段已删）", () => {
+  it("frontmatter: name=test-term-domain", async () => {
     const d = await parseDomain(FIXTURE_DIR, "domain-term.md");
-    expect(d.type).toBe("term");
     expect(d.name).toBe("test-term-domain");
+    // Phase term-P9.3：Domain 不再有 type 字段
+    expect((d as { type?: unknown }).type).toBeUndefined();
   });
 
   it("H2 段 → modules（## Scene / ## Trigger 都解析为数组）", async () => {
@@ -36,16 +37,16 @@ describe("parseDomain — term 类型", () => {
   });
 });
 
-describe("parseDomain — workflow 类型", () => {
-  it("frontmatter: type=workflow", async () => {
+describe("parseDomain — workflow Domain（Phase term-P9.3：type 字段已删）", () => {
+  it("frontmatter: name=test-workflow-domain", async () => {
     const d = await parseDomain(FIXTURE_DIR, "domain-workflow.md");
-    expect(d.type).toBe("workflow");
     expect(d.name).toBe("test-workflow-domain");
+    expect((d as { type?: unknown }).type).toBeUndefined();
   });
 
-  it("## Manual 段解析为 FlowTemplate[]（workflow Scene 走注册表 parser）", async () => {
+  it("## Flows 段解析为 FlowTemplate[]（Phase term-P9.2：从 Manual 拆出）", async () => {
     const d = await parseDomain(FIXTURE_DIR, "domain-workflow.md");
-    expect(isFlowTemplateArray(d.modules.Manual)).toBe(true);
+    expect(isFlowTemplateArray(d.modules.Flows)).toBe(true);
   });
 });
 

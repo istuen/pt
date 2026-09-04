@@ -201,7 +201,8 @@ function replaceVars(text: string, bound: Map<string, string>): string {
  *  Phase term-P4.3：target 语义值 context_message → turn。 */
 export function findFlowInBlueprint(
   blueprint: Blueprint,
-  domains: Array<{ name: string; type: string; modules: Record<string, unknown> }>,
+  // Phase term-P9.3：type 字段删除——Domain 不再有 type 维度，按 H2 段名（这里是 ## Flows）识别 FlowTemplate
+  domains: Array<{ name: string; modules: Record<string, unknown> }>,
   tplName: string
 ): BoundableTemplate | undefined {
   // 验证 Blueprint 里有 target=turn 的注入点（间接确认 input 事件该由本实例覆盖接管）
