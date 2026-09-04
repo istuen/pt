@@ -48,3 +48,58 @@ describe("parseDomain — workflow 类型", () => {
     expect(isFlowTemplateArray(d.modules.Manual)).toBe(true);
   });
 });
+
+describe("parseDomain — term Scene 项 fields/note 保留（v9.2 修复）", () => {
+  // 背景：pt-collab.md 等 term-Domain 在 Scene 段用了 `fields:` / `purpose:` / `rule:` 行，
+  // 原 parse 层只取 desc/description/role，其余静默丢弃 → 编译产物只输出 `- name: desc`。
+  // 修复后 parse 读 fields + purpose/rule，进 Term IR 的 fields?/note? 可选字段。
+  it("fields 数组保留为 Term.fields", async () => {
+    const d = await parseDomain(FIXTURE_DIR, "domain-term-fields-note.md");
+    const scene = d.modules.Scene as Array<{
+      name: string;
+      desc: string;
+      fields?: string[];
+      note?: string;
+    }>;
+    expect(isTermArray(scene)).toBe(true);
+    const td = scene.find((t) => t.name === "task-description");
+    expect(td).toBeDefined();
+    expect(td?.fields).toEqual(["必读", "设计原则", "步骤", "验收标准", "边界纪律", "baseline"]);
+  });
+
+  it("purpose 收纳为 Term.note", async () => {
+    const d = await parseDomain(FIXTURE_DIR, "domain-term-fields-note.md");
+    const scene = d.modules.Scene as Array<{
+      name: string;
+      desc: string;
+      note?: string;
+    }>;
+    const td = scene.find((t) => t.name === "task-description");
+    expect(td?.note).toBe("执行者不猜设计意图，按步骤执行即可");
+  });
+
+  it("rule 字段也走 note 路径（与 purpose 统一收纳）", async () => {
+    const d = await parseDomain(FIXTURE_DIR, "domain-term-fields-note.md");
+    const scene = d.modules.Scene as Array<{
+      name: string;
+      desc: string;
+      note?: string;
+    }>;
+    const acc = scene.find((t) => t.name === "acceptance");
+    expect(acc?.note).toBe("每个硬指标都要有独立验证方式，不只看执行者给的结果");
+  });
+
+  it("无 fields/note 的项不进 IR 字段（向后兼容）", async () => {
+    const d = await parseDomain(FIXTURE_DIR, "domain-term-fields-note.md");
+    const scene = d.modules.Scene as Array<{
+      name: string;
+      desc: string;
+      fields?: string[];
+      note?: string;
+    }>;
+    const plain = scene.find((t) => t.name === "plain-term");
+    expect(plain?.desc).toBe("没 fields/note 的术语（向后兼容基线）");
+    expect(plain?.fields).toBeUndefined();
+    expect(plain?.note).toBeUndefined();
+  });
+});

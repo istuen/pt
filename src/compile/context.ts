@@ -164,8 +164,18 @@ function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout[
     case "term": {
       if (!isTermArray(content)) return "";
       for (const t of content) {
-        if (t.desc) lines.push(`- ${t.name}: ${t.desc}`);
-        else lines.push(`- ${t.name}`);
+        // v9.2：有 fields 追加 `（字段：a/b/c）`；有 note 追加 ` — note`；都有则两者都加。
+        // 无 fields/note 时输出与 v9 兼容：`- name: desc`
+        let line: string;
+        if (t.desc) line = `- ${t.name}: ${t.desc}`;
+        else line = `- ${t.name}`;
+        if (t.fields && t.fields.length > 0) {
+          line += `（字段：${t.fields.join("/")}）`;
+        }
+        if (t.note) {
+          line += ` — ${t.note}`;
+        }
+        lines.push(line);
       }
       break;
     }
