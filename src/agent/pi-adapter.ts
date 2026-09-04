@@ -87,7 +87,7 @@ export class PiAdapter implements AgentAdapter {
     }
     this.injectedApi = api;
 
-    // system_prompt 注入：每轮追加 segment
+    // session 注入（target=session → Pi system_prompt 事件）：每轮追加 segment
     // v10.x：包 try/catch，运行时异常走 api.log.error + ui.notify，不再 swallow
     // v11.x（issue pt-injection-status-manual-track）：三分支写 session.injectionState +
     //   调 api.ui?.setStatus，让 footer 三态文字真实反映注入结果（自报，不检测 Pi）
