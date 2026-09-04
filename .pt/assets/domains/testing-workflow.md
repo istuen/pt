@@ -43,5 +43,5 @@ name: testing-workflow
 - step: npm run typecheck — tsc 全过
 - step: npm run verify — vitest 全过
 - step: 残留检查 — grep " as " src/（type guard 外的断言）/ console.error / 路径字面量散落（按 .pt/docs/designs/pt-tech-debt-audit.md 验收清单）
-- step: 产物 diff — 对比 .pt/cache/contexts/ 下 baseline context.md，确认结构对（字数允许变但段要在）
-- step: 跨项目验证 — 干净目录 npm pack + npm install + pi --pt-context pt 能启动
+- step: 产物 diff — 对比 .pt/cache/agent-contexts/ 下 baseline .agent-context.md，确认结构对（字数允许变但段要在）
+- step: 跨项目验证 — 干净目录 npm pack + npm install + pi --pt-profile pt 能启动

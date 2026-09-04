@@ -64,14 +64,14 @@ export function statusText(session: SessionState): string {
  * 过滤后传入（见 schema.ts:AgentAdapter.listManuals JSDoc）。 */
 export function flowsText(session: SessionState): string {
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.activeAdapter) {
-    return "无激活 Profile，先用 /pt-context <name> 激活";
+    return "无激活 Profile，先用 /pt-profile <name> 激活";
   }
-  if (!session.cachedContext || !session.cachedBlueprint) {
-    return "无激活 Profile，先用 /pt-context <name> 激活";
+  if (!session.cachedAgentContext || !session.cachedBlueprint) {
+    return "无激活 Profile，先用 /pt-profile <name> 激活";
   }
   const flows =
     session.activeAdapter.listManuals?.(
-      session.cachedContext,
+      session.cachedAgentContext,
       session.cachedBlueprint,
       filterDomainsByProfile(session.cachedBundles[0].domains, session.cachedProfile)
     ) ?? [];
@@ -131,7 +131,7 @@ export function buildManualDoc(
     return { content: "", filePath: "", error: "用法: /pt manual <procedure-name> [args...]" };
   }
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.cachedBlueprint) {
-    return { content: "", filePath: "", error: "无激活 Profile，先用 /pt-context <name> 激活" };
+    return { content: "", filePath: "", error: "无激活 Profile，先用 /pt-profile <name> 激活" };
   }
   const tpl = findFlowInBlueprint(
     session.cachedBlueprint,

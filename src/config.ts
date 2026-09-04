@@ -33,7 +33,7 @@ export async function readProjectSetting<T = unknown>(
 /** 列出可选 Profile 名：项目 + 内建合并，同名时项目覆盖内建。
  *  必须与 mdAdapter.load 的合并语义一致——否则选择器/补全看不到内建 profile
  *  （如 builtin `pt`），但 transpile 又能加载，造成“选不到却能手敲”的不一致
- *  （issue: 内建 pt 无法通过 pt-context 选择）。 */
+ *  （issue: 内建 pt 无法通过 pt-profile 选择）。 */
 export async function listProfiles(cwd: string): Promise<string[]> {
   const project = await listProfileNamesIn(join(cwd, PROFILES_DIR));
   const builtin = await listProfileNamesIn(join(BUILTIN_ASSETS_DIR, "profiles"));

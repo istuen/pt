@@ -31,7 +31,7 @@ name: authoring
 - desc: stack Domain 写法：## Scene 下 ### 工具名 + - role: 用途说明；无 Manual 段（stack 只声明工具栈，不承载规则/流程）。适合技术栈声明。
 
 ### build-roadmap
-- desc: 从零构建 Pt 资产的顺序：（1）分析项目知识结构（参考 project-analysis 的 analyze-steps）→ 识别概念/流程/工具栈；（2）创建 Domain 资产（每种知识一个 .md）→ create-domain-procedure；（3）选 Blueprint（优先复用内建 dev-knowledge，注入点不同才 create-blueprint-procedure）→（4）创建 Profile 组装 Domain 列表 → create-profile-procedure；（5）/pt-context 验证产物。执行 procedure 时用 /pt manual <procedure-name> <args> 创建实例文档跟踪。
+- desc: 从零构建 Pt 资产的顺序：（1）分析项目知识结构（参考 project-analysis 的 analyze-steps）→ 识别概念/流程/工具栈；（2）创建 Domain 资产（每种知识一个 .md）→ create-domain-procedure；（3）选 Blueprint（优先复用内建 dev-knowledge，注入点不同才 create-blueprint-procedure）→（4）创建 Profile 组装 Domain 列表 → create-profile-procedure；（5）/pt-profile 验证产物。执行 procedure 时用 /pt manual <procedure-name> <args> 创建实例文档跟踪。
 
 ## Manual
 
@@ -44,7 +44,7 @@ name: authoring
 - step: 写 frontmatter（type: {{type}} + name: {{name}}）
 - step: 按 type 对应 pattern 写 H2 段（参考 authoring Scene 的 *-pattern 项）
 - step: 在目标 Profile 的 domains 列表追加 {{name}}
-- step: 删 .pt/cache/contexts/*.context.md + /pt-context <profile> 验证
+- step: 删 .pt/cache/agent-contexts/*.agent-context.md + /pt-profile <profile> 验证
 
 ### create-profile-procedure
 - argument-hint: <name>
@@ -53,7 +53,7 @@ name: authoring
 - step: 用 write 工具创建 .pt/assets/profiles/{{name}}.profile.md
 - step: 写 frontmatter（name: {{name}} + blueprint: dev-knowledge + domains: [按需列]）
 - step: domains 顺序：身份类 domain 放前（如 me），项目知识中段，约束类放后
-- step: 删 .pt/cache/contexts/*.context.md + /pt-context {{name}} 验证产物
+- step: 删 .pt/cache/agent-contexts/*.agent-context.md + /pt-profile {{name}} 验证产物
 
 ### create-blueprint-procedure
 - argument-hint: <name>
@@ -63,9 +63,9 @@ name: authoring
 - step: 用 write 工具创建 .pt/assets/blueprints/{{name}}.blueprint.md
 - step: 写 frontmatter（name: {{name}} + agent: pi）
 - step: 写 H2 注入点（## 注入点名 + target: system_prompt/context_message + ### Modules 列 modName）
-- step: 写 ## Compilation（cache-dir: .pt/cache/contexts/ + split: single-file）
+- step: 写 ## Compilation（cache-dir: .pt/cache/agent-contexts/ + split: single-file）
 - step: Profile frontmatter 的 blueprint 字段改为 {{name}} 引用
-- step: 删 .pt/cache/contexts/*.context.md + /pt-context <profile> 验证
+- step: 删 .pt/cache/agent-contexts/*.agent-context.md + /pt-profile <profile> 验证
 
 ### modify-asset-procedure
 - argument-hint: (无)
@@ -73,6 +73,6 @@ name: authoring
 - vars: []
 - step: 用 read 工具读目标 .md（Domain/Blueprint/Profile）
 - step: 用 edit 工具改内容（或 write 整体重写）
-- step: 删 .pt/cache/contexts/*.context.md（强制重编译）
-- step: /pt-context <profile> 重载验证
+- step: 删 .pt/cache/agent-contexts/*.agent-context.md（强制重编译）
+- step: /pt-profile <profile> 重载验证
 - step: 检查产物：/pt raw 看 segment，/pt full 看完整 prompt
