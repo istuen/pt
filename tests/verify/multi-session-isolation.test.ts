@@ -10,6 +10,9 @@
 //   - api.log / onInjected 走 per-session state
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import installExtension from "../../src/index.js";
 import { clearAllSessions, getSessionById } from "../../src/session.js";
 import { getAgentAdapter } from "../../src/agent/index.js";
@@ -70,11 +73,14 @@ function makePi(sessionId: string) {
 }
 
 describe("multi-session isolation（v12.x）", () => {
+  const tempDirs: string[] = [];
+
   beforeEach(() => {
     clearAllSessions();
   });
-  afterEach(() => {
+  afterEach(async () => {
     clearAllSessions();
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it("两个 mock pi 各自持独立 session state（Map entry 数 = 2）", async () => {
@@ -200,5 +206,55 @@ describe("multi-session isolation（v12.x）", () => {
     // （除非显式 clearSessionById）。shutdown 只清"shutdown 那一 session"。
     // 验证：session-B 的 activeProfile 仍是 "profile-B"
     expect(getSessionById("session-B").activeProfile).toBe("profile-B");
+  });
+
+  it("pt_manual tool 写 activeManual 不跨 session 串（widget / footer / cachedManualProgress 隔离）", async () => {
+    // issue module-state-pi-web-multisession 回归断言：
+    // tab A 调 pt_manual → tab B 不应显示 tab A 的 widget / footer 后缀 / cachedManualProgress。
+    // 走真实 pt_manual tool 路径（先 /pt-context 加载 profile 让 buildManualDoc 能找到 FlowTemplate）。
+    const tempDirA = await mkdtemp(join(tmpdir(), "pt-multi-manual-a-"));
+    tempDirs.push(tempDirA);
+    await mkdir(join(tempDirA, ".pt", "manuals"), { recursive: true });
+
+    const piA = makePi("session-A");
+    const piB = makePi("session-B");
+    installExtension(piA.pi as never);
+    installExtension(piB.pi as never);
+
+    // 两个 session 都加载 pt-dev profile（写各自 session state，互不串）
+    await piA.events.get("session_start")?.[0]!({ type: "session_start" }, piA.ctx);
+    await piB.events.get("session_start")?.[0]!({ type: "session_start" }, piB.ctx);
+    await piA.commands.get("pt-context")!.handler("pt-dev", piA.ctx);
+    await piB.commands.get("pt-context")!.handler("pt-dev", piB.ctx);
+
+    // tab A 切到独立 cwd 调 pt_manual（避免写真实仓库）
+    piA.ctx.cwd = tempDirA;
+    const ptManualTool = piA.tools.get("pt_manual")!;
+    await ptManualTool.execute(
+      "call-a",
+      { procedure: "deliver-feature", args: "tab-a" },
+      undefined,
+      undefined,
+      piA.ctx
+    );
+
+    // tab A：activeManual 已设 + widget 已 set
+    const sA = getSessionById("session-A");
+    expect(sA.activeManual).not.toBeNull();
+    expect(sA.activeManual?.procedure).toBe("deliver-feature");
+    expect(sA.activeManual?.args).toBe("tab-a");
+    expect(piA.widgetCalls.some(([k]) => k === "pt-manual")).toBe(true);
+
+    // 关键隔离断言：tab B 的 activeManual / cachedManualProgress 仍为 null
+    // （tab A 的 refreshManualWidget 写的是 session-A 的 cachedManualProgress，不串到 session-B）
+    const sB = getSessionById("session-B");
+    expect(sB.activeManual).toBeNull();
+    expect(sB.cachedManualProgress).toBeNull();
+    // tab B 不应被"显示" tab A 的 manual widget
+    // （撤掉调用 setWidget("pt-manual", undefined) 是 tab B 自身 session_start 时的合法行为，不算串）
+    const bWidgetShows = piB.widgetCalls.filter(
+      ([k, content]) => k === "pt-manual" && Array.isArray(content)
+    );
+    expect(bWidgetShows).toHaveLength(0);
   });
 });
