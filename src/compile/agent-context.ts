@@ -32,13 +32,7 @@ import type {
   Profile,
   StructureLayout,
 } from "../schema.js";
-import {
-  isNamedItemArray,
-  isRecord,
-  isTermArray,
-  isTriggerItemArray,
-  isWorkflowScene,
-} from "./type-guards.js";
+import { isNamedItemArray, isRecord, isTermArray, isTriggerItemArray } from "./type-guards.js";
 import { formatManualBody } from "./format-manual-body.js";
 
 // ==================== AgentContext 编译入口 ====================
@@ -160,20 +154,27 @@ export function registerModuleRenderer(modName: string, fn: ModuleRenderer): voi
 
 // ==================== Scene module renderer（按 d.type 特化） ====================
 
-/** Scene 段聚合：term→Term[] 列表 / workflow→externals / stack→空。
- *  hybrid mode 下 rule 也可从 Scene 抽——但 v9 规则在 Manual 段，Scene 段只承载场景元数据。 */
+/** Scene 段聚合：统一为 Term[] 列表（Phase term-P9.1：term + workflow Scene 合并）。
+ *  - term 类型：Term[] 渲染 `- name: desc`，附加 fields/note。
+ *  - workflow 类型：Scene 已是 Term[]（含 path），渲染 `- name: path — desc` 或 `- name: desc`。
+ *  - stack 类型：返空（stack 死类型，P9.3 删除 type 后该 case 也清）。
+ *  hybrid mode 下 rule 也可从 Scene 抽——但 v9 规则在 Rules 段（P9.2 后），Scene 段只承载场景元数据。 */
 function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout["mode"]): string {
   const lines: string[] = [`### ${d.name}`];
 
   switch (d.type) {
-    case "term": {
+    case "term":
+    case "workflow": {
+      // Phase term-P9.1：term + workflow Scene 都是 Term[]。workflow 的 externals 用带 path 的 Term。
+      //   渲染：有 path → `- name: path — desc`；无 path → `- name: desc`（与 workflow 原渲染输出一致）。
       if (!isTermArray(content)) return "";
       for (const t of content) {
-        // v9.2：有 fields 追加 `（字段：a/b/c）`；有 note 追加 ` — note`；都有则两者都加。
-        // 无 fields/note 时输出与 v9 兼容：`- name: desc`
         let line: string;
-        if (t.desc) line = `- ${t.name}: ${t.desc}`;
+        if (t.path && t.desc) line = `- ${t.name}: ${t.path} — ${t.desc}`;
+        else if (t.path) line = `- ${t.name}: ${t.path}`;
+        else if (t.desc) line = `- ${t.name}: ${t.desc}`;
         else line = `- ${t.name}`;
+        // v9.2：附加 fields/note
         if (t.fields && t.fields.length > 0) {
           line += `（字段：${t.fields.join("/")}）`;
         }
@@ -181,17 +182,6 @@ function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout[
           line += ` — ${t.note}`;
         }
         lines.push(line);
-      }
-      break;
-    }
-    case "workflow": {
-      if (!isWorkflowScene(content)) return "";
-      const externals = content.externals ?? [];
-      for (const ext of externals) {
-        if (ext.path && ext.desc) lines.push(`- ${ext.name}: ${ext.path} — ${ext.desc}`);
-        else if (ext.path) lines.push(`- ${ext.name}: ${ext.path}`);
-        else if (ext.desc) lines.push(`- ${ext.name}: ${ext.desc}`);
-        else lines.push(`- ${ext.name}`);
       }
       break;
     }

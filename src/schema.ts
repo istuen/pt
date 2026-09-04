@@ -23,10 +23,11 @@
 
 // ==================== 语义层原子 ====================
 
-/** 业务术语原子 */
+/** 业务术语原子（Domain.## Scene / ## Term / ## Glossary 等场景段的内容） */
 export interface Term {
   name: string;
-  desc: string;
+  /** 描述（人类可读语义） */
+  desc?: string;
   /** 可选标签，不强制：作者判定放哪层（公理 = 业务语义源；定理 = 公理的组合或业务具体描述） */
   level?: "axiom" | "theorem";
   /** 结构化字段清单（如 task-description 的 [必读, 设计原则, 步骤, ...]）。
@@ -38,6 +39,10 @@ export interface Term {
    *  renderer 在 desc 后追加 ` — note`。
    *  v9.2 扩展：与 fields 同步，让作者写在 Scene 段的 purpose/rule 不再被丢。 */
   note?: string;
+  /** Phase term-P9.1：外部数据源路径（替代 workflow Scene 的 ExternalRef）。
+   *  Scene 段统一为 Term[] 后，workflow 的 externals 用带 path 的 Term 表示；
+   *  渲染：有 path 输出 `- name: path — desc`，无 path 输出 `- name: desc`。 */
+  path?: string;
 }
 
 /** 外部数据源引用（声明式：路径 + 协议，不在此处拉取） */

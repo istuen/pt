@@ -113,16 +113,6 @@ export function isToolRefArray(x: unknown): x is ToolRef[] {
   return Array.isArray(x) && x.every(isToolRefLike);
 }
 
-// ==================== workflow Scene 对象守卫 ====================
-
-/** workflow-Domain 的 ## Scene 段：{ externals?: ExternalRef[] }。 */
-export function isWorkflowScene(x: unknown): x is { externals?: ExternalRef[] } {
-  if (!x || typeof x !== "object") return false;
-  const s = x as { externals?: unknown };
-  if (s.externals === undefined) return true;
-  return isExternalRefArray(s.externals);
-}
-
 // ==================== 通用 fallback 守卫（带 name 字段的项） ====================
 
 /** 通用 fallback 形态：H3 + name + desc 列表项（用于未注册 type 的聚合段输出）。 */

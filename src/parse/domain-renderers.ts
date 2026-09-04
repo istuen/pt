@@ -31,13 +31,18 @@ const domainSectionRenderers: Record<string, Record<string, DomainSectionParser>
         if (note) term.note = note;
         return term;
       }),
-    workflow: (items) => ({
-      externals: items.map((it) => ({
-        name: it.name,
-        path: s(it.fields.path) || "",
-        desc: s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "",
-      })),
-    }),
+    workflow: (items) =>
+      // Phase term-P9.1：Scene 段统一为 Term[]，workflow Scene 的 externals 用带 path 的 Term 表示。
+      //   原外部形态 ExternalRef[] 嵌在 { externals } 里，现在扁平化为 Term[] + 可选 path。
+      //   渲染逻辑在 compile/agent-context.ts renderSceneModule 合并 term + workflow case 后统一处理。
+      items.map((it) => {
+        const desc = s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "";
+        const path = s(it.fields.path);
+        const term: { name: string; desc?: string; path?: string } = { name: it.name };
+        if (desc) term.desc = desc;
+        if (path) term.path = path;
+        return term;
+      }),
     stack: (items) =>
       items.map((it) => {
         const role = s(it.fields.role);
