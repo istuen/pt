@@ -16,7 +16,7 @@ import { readFile } from "node:fs/promises";
  *  - "domain"    : Content Domain（v7/v9 内容层）
  *  - "blueprint" : Blueprint（v7 配置层 / v9 结构层）
  *  - "profile"   : Profile（v9 配置层，新增）
- *  - "term" / "workflow" / "stack" / "glossary" : Domain type 标签（frontmatter.type）
+ *  - "term" / "workflow" / "glossary" : Domain type 标签（frontmatter.type，P9 删 stack 死类型后残留的历史枚举值）
  *  - "scene" / "manual" : v6 Struct kind 兼容（v7 资产迁移期残留）
  *
  *  v9 删除了 "channel"（Channel 留作未来 Connector，本版本不实现）——不再出现在 kind 联合中。
@@ -27,7 +27,6 @@ export type AssetKind =
   | "profile"
   | "term"
   | "workflow"
-  | "stack"
   | "glossary"
   | "scene"
   | "manual"

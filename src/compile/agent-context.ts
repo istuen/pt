@@ -22,7 +22,14 @@
 //
 // Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
 
-import { MOD_CHECKLISTS, MOD_FLOWS, MOD_RULES, MOD_SCENE, MOD_TRIGGER } from "../constants.js";
+import {
+  MOD_CHECKLISTS,
+  MOD_FLOWS,
+  MOD_PARTICIPANT,
+  MOD_RULES,
+  MOD_SCENE,
+  MOD_TRIGGER,
+} from "../constants.js";
 import type {
   AgentContext,
   Blueprint,
@@ -145,7 +152,9 @@ function dispatchInjectionPoint(
 
 type ModuleRenderer = (d: Domain, content: unknown, mode?: StructureLayout["mode"]) => string;
 
-/** modName → renderer。已注册：Scene/Trigger/Manual。
+/** modName → renderer。已注册：Scene/Trigger/Rules/Flows/Checklists/Participant。
+ *  Phase term-P9.2：从 Manual 拆出 Rules/Flows/Checklists 三个 H2 段。
+ *  Phase term-P8：加 Participant，复用 renderSceneModule（与 Scene 同构——都是 Term[]）。
  *  扩展：调 registerModuleRenderer("xxx", fn) 加一行 + 一个函数即可，不动主循环。
  *  加新聚合标题（Blueprint.Modules 加项）不注册 = 走 generic fallback（自动按 H3 + name/desc 输出）。 */
 const moduleRenderers: Record<string, ModuleRenderer> = {
@@ -154,6 +163,7 @@ const moduleRenderers: Record<string, ModuleRenderer> = {
   [MOD_RULES]: renderRulesModule,
   [MOD_FLOWS]: renderFlowsModule,
   [MOD_CHECKLISTS]: renderChecklistsModule,
+  [MOD_PARTICIPANT]: renderSceneModule, // P8：复用 Scene renderer（Term[] 同构，带 ### domain 标题）
 };
 
 /** 扩展接口：加新 modName 只加一行 + 一个 renderer 函数。 */

@@ -3,7 +3,8 @@ injectionPoints:
   - name: 会话知识
     target: session
     mode: hybrid
-    modules: [Scene, Trigger]
+    # Phase term-P8：会话参与者信息段——me Domain 的 H3 项（user-profile/pt-goal/collab-mode）走 Participant
+    modules: [Scene, Trigger, Participant]
   - name: 参考手册
     target: turn
     # Phase term-P9.2：Manual 拆三段——Rules / Flows / Checklists

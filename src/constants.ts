@@ -69,6 +69,10 @@ export const MOD_RULES = "Rules";
 export const MOD_FLOWS = "Flows";
 /** Domain 的 Checklists 段（Phase term-P9.2：新增）—— Checklist[]（pt-collab 等） */
 export const MOD_CHECKLISTS = "Checklists";
+/** Phase term-P8：会话参与者信息段——me Domain 专用，Term[] 与 Scene 同构，复用 renderSceneModule。
+ *  与 Scene 的区别：语义上是"会话参与者描述"（who am I + goal + how we collaborate），
+ *  不是"领域场景元数据"。拆出来让 Blueprint 模块清单更具语义化。 */
+export const MOD_PARTICIPANT = "Participant";
 
 /** Domain 的 Term 段（fallback term 形态，未指定 type 默认走 Term[]） */
 export const MOD_TERM = "Term";
