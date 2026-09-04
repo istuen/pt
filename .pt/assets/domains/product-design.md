@@ -54,8 +54,6 @@ name: product-design
 ### git
 - role: 版本控制；每 Phase 一个 commit（Phase X.Y: ... 格式），baseline 可回退。
 
-## Manual
-
 ### inv-layer-boundary
 - desc: parse / compile / render 三层职责互不渗透；跨层调用必须经过 IR 序列化边界。
 

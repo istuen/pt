@@ -21,8 +21,6 @@ name: project-analysis
 ### injection-point
 - desc: Blueprint 的 H2 = 注入点（语义名，如"会话知识"/"参考手册"），target 字段映射到 Pi 技术注入位置（system_prompt = 每轮固定 / context_message = 轮次级动态触发）。Profile 同名 H2 实例化注入点。
 
-## Manual
-
 ### inv-domain-granularity
 - desc: 一个 Domain 只承载一类知识——不要把术语和流程混在一个 Domain 里；按知识性质拆分（概念 → term，流程 → workflow，工具 → stack）。
 
