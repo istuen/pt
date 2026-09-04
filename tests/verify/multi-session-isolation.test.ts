@@ -136,7 +136,7 @@ describe("multi-session isolation（v12.x）", () => {
     const adapterB = getAgentAdapter(piB.pi as never, "pi");
 
     // 用真实 fixtures profile+domain 走完整 transpile 路径 → setAgentContext 会写入 sourceHash
-    // 直接验证私有字段 this.ctx / this.blueprint 隔离（不再依赖 renderSystemPrompt 输出）
+    // 直接验证私有字段 this.ctx / this.blueprint 隔离（不再依赖 renderSessionPrompt 输出）
     const ctxA = {
       modules: {},
       sources: [],
