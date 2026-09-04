@@ -24,9 +24,7 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
 function makeBlueprint(overrides?: Partial<Blueprint>): Blueprint {
   return {
     name: "test-blueprint",
-    agent: "pi",
     injectionPoints: [{ name: "会话知识", target: "system_prompt", modules: ["Scene"] }],
-    compilation: { cacheDir: ".pt/cache/test/", split: "single-file" },
     ...overrides,
   };
 }

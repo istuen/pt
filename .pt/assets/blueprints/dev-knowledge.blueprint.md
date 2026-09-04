@@ -15,7 +15,3 @@ mode: hybrid
 target: context_message
 ### Modules
 - Manual
-
-## Compilation
-cache-dir: .pt/cache/agent-contexts/
-split: single-file
