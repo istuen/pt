@@ -177,7 +177,9 @@ export interface InjectionPointInstance {
 
 /**
  * v9 Domain：内容层模块。承载语义定义与上下文模块内容。
- *   - type：内容性质标签（term/workflow/stack/扩展），决定各 H2 段**内部内容格式**。
+ *   - （Phase term-P9.3）type 字段已删除——H2 段名直接决定 schema（一个 H2 段一个 schema）。
+ *     原 type: term/workflow/stack 是「知识性质标签」+「schema 选择器」一身二任，
+ *     拆 Type 后由 H2 段名 + Term.path 等字段直接表达。
  *   - modules：H2 段名 → 段内容（key = "Scene"/"Trigger"/"Manual"/...，开放扩展）。
  *
  * H2 段名是开放的——加新模块类型 = 加新 H2 段名 + Blueprint 声明该模块。

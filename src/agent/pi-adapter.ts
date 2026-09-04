@@ -16,7 +16,7 @@
 //     `this.ctx / this.blueprint / this.domains / this.segment / this.injectedApi` 五个实例字段
 //     现在是 per-pi 隔离——其他 session 的 setContext 不会覆盖本 session 的 segment
 
-import { AGENT_PI, MOD_CHECKLISTS, MOD_FLOWS, MOD_RULES } from "../constants.js";
+import { AGENT_PI, MOD_FLOWS, MOD_RULES } from "../constants.js";
 import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
 import { renderInjectionFooter } from "../injection-status.js";
 import { getSessionById } from "../session.js";
