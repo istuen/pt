@@ -1,11 +1,15 @@
-// src/render/context-message.ts — FlowTemplate + 参数 → Context Message
+// src/render/turn-message.ts — FlowTemplate + 参数 → Turn Message
 //
 // Phase 9.5：v9 后端通用化。
-//   - renderContextMessage(ctx, blueprint, domains, args) 修复死代码——实现 /manual:xxx 触发
+//   - renderTurnMessage(ctx, blueprint, domains, args) 修复死代码——实现 /manual:xxx 触发
 //   - findFlowInBlueprint(blueprint, domains, tplName) — 替代 v8 findFlowInBundle
 //
-// /manual:<domain-name> 触发：从 Blueprint 的 context_message 注入点引用的 Domain 里查 Manual 段
+// /manual:<domain-name> 触发：从 Blueprint 的 turn 注入点引用的 Domain 里查 Manual 段
 // /<flow-name> <args> 触发：展开 workflow-Domain 的 FlowTemplate（v8 逻辑保留）
+//
+// Phase term-P4.3：renderContextMessage → renderTurnMessage；文件 context-message.ts → turn-message.ts；
+//   target 语义值 context_message → turn（Agent-agnostic 语义值）。
+//   bindFlowTemplate / findFlowInBlueprint 函数名不改——它们是 FlowTemplate 操作，非注入位置概念。
 //
 // Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
 // Tech Debt T2: 用 constants 模块名常量（pt-quality #5）
@@ -24,14 +28,16 @@ interface VarSpec {
 }
 
 /**
- * 给定 Context + Blueprint + Domains + args（形如 "/manual:pt-quality" 或 "/risk-check 客户A 5000"），
+ * 给定 AgentContext + Blueprint + Domains + args（形如 "/manual:pt-quality" 或 "/risk-check 客户A 5000"），
  * 展开目标 Domain 的 Manual 段内容或 FlowTemplate。
  *
  * v9 触发：
  *   - /manual:<domain-name>：注入该 Domain 的 Manual 段内容（term→Rule checklist / workflow→FlowTemplate 列表）
  *   - /<flow-name> <args>：展开 workflow-Domain 的 FlowTemplate（v8 逻辑保留）
+ *
+ * Phase term-P4.3：AgentAdapter 内部把 Turn Message 注入到 Agent 的 turn 级（Pi: input 事件 transform）。
  */
-export function renderContextMessage(
+export function renderTurnMessage(
   _ctx: AgentContext,
   blueprint: Blueprint,
   domains: Domain[],
@@ -155,17 +161,18 @@ function replaceVars(text: string, bound: Map<string, string>): string {
   });
 }
 
-/** 在 Blueprint 注入点（target=context_message）的引用域中按名查找 FlowTemplate（跨 Domain）。
- *  v9：renderContextMessage 拿不到 Profile（Profile 在 transpile 内被消费），
- *       所以这里直接遍历传入的 domains 全集找 workflow-type Domain 的 FlowTemplate。 */
+/** 在 Blueprint 注入点（target=turn）的引用域中按名查找 FlowTemplate（跨 Domain）。
+ *  v9：renderTurnMessage 拿不到 Profile（Profile 在 transpile 内被消费），
+ *       所以这里直接遍历传入的 domains 全集找 workflow-type Domain 的 FlowTemplate。
+ *  Phase term-P4.3：target 语义值 context_message → turn。 */
 export function findFlowInBlueprint(
   blueprint: Blueprint,
   domains: Array<{ name: string; type: string; modules: Record<string, unknown> }>,
   tplName: string
 ): BoundableTemplate | undefined {
-  // 验证 Blueprint 里有 target=context_message 的注入点（间接确认 input 事件该由本实例覆盖接管）
-  const hasContextMsgIp = blueprint.injectionPoints.some((ip) => ip.target === "context_message");
-  if (!hasContextMsgIp) return undefined;
+  // 验证 Blueprint 里有 target=turn 的注入点（间接确认 input 事件该由本实例覆盖接管）
+  const hasTurnIp = blueprint.injectionPoints.some((ip) => ip.target === "turn");
+  if (!hasTurnIp) return undefined;
 
   for (const d of domains) {
     if (d.type !== "workflow") continue;

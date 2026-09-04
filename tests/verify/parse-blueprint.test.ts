@@ -26,7 +26,7 @@ describe("parseBlueprint", () => {
   it("注入点字段：target + mode + modules", async () => {
     const bp = await parseBlueprint(FIXTURE_DIR, "blueprint.md");
     const sessionIp = bp.injectionPoints.find((ip) => ip.name === "会话知识");
-    expect(sessionIp?.target).toBe("system_prompt");
+    expect(sessionIp?.target).toBe("session");
     expect(sessionIp?.mode).toBe("hybrid");
     expect(sessionIp?.modules).toEqual(["Scene", "Trigger"]);
   });

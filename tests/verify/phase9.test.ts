@@ -5,12 +5,12 @@
 // - Profile 是业务端实例（blueprint + YAML domains + 各注入点 ### Domains 追加）
 // - modName 注册表（替代 v8 domainSceneRenderers）
 // - Trigger 索引段（Domain 内 H2 段）
-// - /manual:xxx 触发（renderContextMessage 实现）
+// - /manual:xxx 触发（renderTurnMessage 实现）
 // - AgentAdapter 抽象（PiAdapter 封装 before_agent_start + input）
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { loadAndTranspile } from "../../src/transpile.js";
-import { renderContextMessage } from "../../src/render/context-message.js";
+import { renderTurnMessage } from "../../src/render/turn-message.js";
 import { findBlueprint, findProfile } from "../../src/schema.js";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -217,8 +217,8 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 9. 硬编码检查 ==========
   describe("9. 硬编码检查", () => {
-    it("renderSystemPrompt 不硬编码 Scene", async () => {
-      const src = await readFile("src/render/system-prompt.ts", "utf8");
+    it("renderSessionPrompt 不硬编码 Scene（Phase term-P4.3 函数名）", async () => {
+      const src = await readFile("src/render/session-prompt.ts", "utf8");
       expect(src).not.toMatch(/['"]Scene['"]/);
     });
     it("compile/agent-context.ts 不含 domainSceneRenderers 代码（仅历史注释提及）", async () => {
@@ -275,7 +275,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
       const ptDevBlueprint = findBlueprint(ptDevBundle.blueprints, ptDevProfile.blueprint)!;
-      const result = renderContextMessage(
+      const result = renderTurnMessage(
         r9.context,
         ptDevBlueprint,
         ptDevBundle.domains,
@@ -289,7 +289,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
       const ptDevBlueprint = findBlueprint(ptDevBundle.blueprints, ptDevProfile.blueprint)!;
-      const result = renderContextMessage(
+      const result = renderTurnMessage(
         r9.context,
         ptDevBlueprint,
         ptDevBundle.domains,
@@ -388,9 +388,9 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 18. /pt manual 手册实例化 ==========
   describe("18. /pt manual 手册实例化", () => {
     it("bindFlowTemplate 输出含步骤 + 变量绑定", async () => {
-      const { bindFlowTemplate } = await import("../../src/render/context-message.js");
+      const { bindFlowTemplate } = await import("../../src/render/turn-message.js");
       const r = await loadAndTranspile(cwd, "pt");
-      const { findFlowInBlueprint } = await import("../../src/render/context-message.js");
+      const { findFlowInBlueprint } = await import("../../src/render/turn-message.js");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       expect(tpl).toBeDefined();
       const bound = bindFlowTemplate(tpl!, "term my-concept");
@@ -401,7 +401,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("实例文档格式含 checklist + 产物区 + 更新指引", async () => {
       const { bindFlowTemplate, findFlowInBlueprint } = await import(
-        "../../src/render/context-message.js"
+        "../../src/render/turn-message.js"
       );
       const r = await loadAndTranspile(cwd, "pt");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
@@ -423,7 +423,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("实例文档跳过冗余标题/参数提示/步骤段头", async () => {
       const { bindFlowTemplate, findFlowInBlueprint } = await import(
-        "../../src/render/context-message.js"
+        "../../src/render/turn-message.js"
       );
       const r = await loadAndTranspile(cwd, "pt");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");

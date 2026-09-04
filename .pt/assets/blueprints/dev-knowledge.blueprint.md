@@ -5,13 +5,13 @@ name: dev-knowledge
 # dev-knowledge (blueprint)
 
 ## 会话知识
-target: system_prompt
+target: session
 mode: hybrid
 ### Modules
 - Scene
 - Trigger
 
 ## 参考手册
-target: context_message
+target: turn
 ### Modules
 - Manual

@@ -24,7 +24,7 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
 function makeBlueprint(overrides?: Partial<Blueprint>): Blueprint {
   return {
     name: "test-blueprint",
-    injectionPoints: [{ name: "会话知识", target: "system_prompt", modules: ["Scene"] }],
+    injectionPoints: [{ name: "会话知识", target: "session", modules: ["Scene"] }],
     ...overrides,
   };
 }
@@ -133,14 +133,14 @@ describe("computeSourceHash", () => {
     const h1 = computeSourceHash(
       makeProfile(),
       makeBlueprint({
-        injectionPoints: [{ name: "会话知识", target: "system_prompt", modules: ["Scene"] }],
+        injectionPoints: [{ name: "会话知识", target: "session", modules: ["Scene"] }],
       }),
       [makeDomain()]
     );
     const h2 = computeSourceHash(
       makeProfile(),
       makeBlueprint({
-        injectionPoints: [{ name: "参考手册", target: "context_message", modules: ["Manual"] }],
+        injectionPoints: [{ name: "参考手册", target: "turn", modules: ["Manual"] }],
       }),
       [makeDomain()]
     );
