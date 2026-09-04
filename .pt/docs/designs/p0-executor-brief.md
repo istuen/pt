@@ -175,16 +175,18 @@ Verified: typecheck clean, 124 tests pass, lint 0 error.
 
 ---
 
-## 完成判定（全部满足）
+## 完成判定（全部满足）— 已落地（commit `9019972`，2026-09-03）
 
-- [ ] `grep -rn "findFlow\b" src/` = 0
-- [ ] `grep -rn "_debugActive" src/ tests/` = 0
-- [ ] `grep -rn "renderGlobalRules" src/` = 0
-- [ ] `grep -rnE "function (errMsg|reportWarn|reportError)" src/` 只在 `diagnostics.ts`
-- [ ] `grep -rnE "function (s|sArr)\b" src/` 只在 `shared.ts`
-- [ ] `grep -rn "function isRecord" src/` 只在 `type-guards.ts`
-- [ ] `grep "au.pt-context" src/index.ts` 只在 fallback 行
-- [ ] `npm run typecheck` 零输出
-- [ ] `npm run verify` 124 passed
-- [ ] `npm run lint` 0 error
-- [ ] `.pt/docs/issues/au-prefix-tech-debt.md` status: closed
+- [x] `grep -rn "findFlow\b" src/` = 0
+- [x] `grep -rn "_debugActive" src/ tests/` = 0
+- [x] `grep -rn "renderGlobalRules" src/` = 0
+- [x] `grep -rnE "function (errMsg|reportWarn|reportError)" src/` 只在 `diagnostics.ts`
+- [x] `grep -rnE "function (s|sArr)\b" src/` 只在 `shared.ts`
+- [x] `grep -rn "function isRecord" src/` 只在 `type-guards.ts`
+- [x] `grep "au.pt-context" src/index.ts` 只在 fallback 行（双读兼容旧键）
+- [x] `npm run typecheck` 零输出（HEAD `9493f1e` 复核）
+- [x] `npm run verify` **176 passed**（HEAD `9493f1e` 复核；超 124 目标 52 例，含 P2/P3/v12.x 增量）
+- [x] `npm run lint` 0 error（biome check，HEAD `9493f1e` 复核）
+- [x] `.pt/docs/issues/au-prefix-tech-debt.md` status: closed（与 commit `9019972` 同步落地）
+
+**执行记录**：单 commit `9019972 refactor: P0 去噪去重（死代码 + 重复辅助函数 + au 前缀）`，含 7 项全部子任务。
