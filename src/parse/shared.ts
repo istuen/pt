@@ -330,10 +330,10 @@ export function extractBareListUnderH3(section: Section | undefined, h3Name: str
   return out;
 }
 
-/** frontmatter 没 entity/type/kind/blueprint/agent 时，按 H2 段名推断 asset kind。
- *  v9 推断：Blueprint 用 Compilation 段识别，Channel 已删除，Domain 走通用 term 形态。 */
+/** frontmatter 没 entity/type/kind/blueprint 时，按 H2 段名推断 asset kind。
+ *  v9.5（Phase term-P4.5）：Blueprint 载体转 YAML，不再走 readAsset——Blueprint 推断逻辑删除。
+ *  Channel 已删除，Domain 走通用 term 形态。 */
 function inferKind(body: string): AssetKind {
-  if (/^##\s+Compilation\b/m.test(body)) return "blueprint";
   if (/^##\s+Slots\b/m.test(body)) return "workflow";
   if (/^##\s+Tools\b/m.test(body)) return "stack";
   return "domain";
