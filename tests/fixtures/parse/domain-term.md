@@ -1,5 +1,4 @@
 ---
-type: term
 name: test-term-domain
 ---
 

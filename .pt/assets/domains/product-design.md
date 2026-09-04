@@ -1,5 +1,4 @@
 ---
-type: term
 name: product-design
 ---
 

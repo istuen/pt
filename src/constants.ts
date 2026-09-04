@@ -56,7 +56,8 @@ export const BUILTIN_ASSETS_DIR = join(SRC_DIR, "builtin", "assets");
 
 // ==================== Domain H2 段名常量 ====================
 
-/** Domain 的 Scene 段（term→Term[] / workflow→externals / stack→ToolRef[]） */
+/** Domain 的 Scene 段（Phase term-P9.3：统一为 Term[]，含可选 path 字段）
+ *  拆 Type 后 Scene 不再按 type 分发 schema——一个 H2 段一个 schema（Term[]）。 */
 export const MOD_SCENE = "Scene";
 
 /** Domain 的 Trigger 段（v9 索引段——H3 + desc/hint 列表） */

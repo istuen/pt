@@ -161,46 +161,30 @@ export function registerModuleRenderer(modName: string, fn: ModuleRenderer): voi
   moduleRenderers[modName] = fn;
 }
 
-// ==================== Scene module renderer（按 d.type 特化） ====================
+// ==================== Scene module renderer（Phase term-P9.3：去 type switch） ====================
 
 /** Scene 段聚合：统一为 Term[] 列表（Phase term-P9.1：term + workflow Scene 合并）。
- *  - term 类型：Term[] 渲染 `- name: desc`，附加 fields/note。
- *  - workflow 类型：Scene 已是 Term[]（含 path），渲染 `- name: path — desc` 或 `- name: desc`。
- *  - stack 类型：返空（stack 死类型，P9.3 删除 type 后该 case 也清）。
- *  hybrid mode 下 rule 也可从 Scene 抽——但 v9 规则在 Rules 段（P9.2 后），Scene 段只承载场景元数据。 */
+ *  - 无 type 区分——所有 Domain 的 Scene 段统一走 Term[] schema（path 可选）。
+ *  - 渲染：有 path → `- name: path — desc`；无 path → `- name: desc`。
+ *  - 附加 fields/note。
+ *  hybrid mode 下 rule 也可从 Scene 抽——但 v9 规则在 Rules 段，Scene 段只承载场景元数据。 */
 function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout["mode"]): string {
+  if (!isTermArray(content)) return "";
   const lines: string[] = [`### ${d.name}`];
-
-  switch (d.type) {
-    case "term":
-    case "workflow": {
-      // Phase term-P9.1：term + workflow Scene 都是 Term[]。workflow 的 externals 用带 path 的 Term。
-      //   渲染：有 path → `- name: path — desc`；无 path → `- name: desc`（与 workflow 原渲染输出一致）。
-      if (!isTermArray(content)) return "";
-      for (const t of content) {
-        let line: string;
-        if (t.path && t.desc) line = `- ${t.name}: ${t.path} — ${t.desc}`;
-        else if (t.path) line = `- ${t.name}: ${t.path}`;
-        else if (t.desc) line = `- ${t.name}: ${t.desc}`;
-        else line = `- ${t.name}`;
-        // v9.2：附加 fields/note
-        if (t.fields && t.fields.length > 0) {
-          line += `（字段：${t.fields.join("/")}）`;
-        }
-        if (t.note) {
-          line += ` — ${t.note}`;
-        }
-        lines.push(line);
-      }
-      break;
+  for (const t of content) {
+    let line: string;
+    if (t.path && t.desc) line = `- ${t.name}: ${t.path} — ${t.desc}`;
+    else if (t.path) line = `- ${t.name}: ${t.path}`;
+    else if (t.desc) line = `- ${t.name}: ${t.desc}`;
+    else line = `- ${t.name}`;
+    // v9.2：附加 fields/note
+    if (t.fields && t.fields.length > 0) {
+      line += `（字段：${t.fields.join("/")}）`;
     }
-    case "stack": {
-      // stack 的 tools 在 tools 聚合段输出，不进 Scene section
-      return "";
+    if (t.note) {
+      line += ` — ${t.note}`;
     }
-    default:
-      // 未知 type 走 generic fallback（term 形态）
-      return renderGenericModule(d, content);
+    lines.push(line);
   }
   return lines.join("\n").trimEnd();
 }

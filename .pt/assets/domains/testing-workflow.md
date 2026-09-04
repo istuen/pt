@@ -1,5 +1,4 @@
 ---
-type: workflow
 name: testing-workflow
 ---
 
