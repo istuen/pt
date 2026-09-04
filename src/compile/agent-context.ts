@@ -115,7 +115,7 @@ function resolveDomains(
  * v9 dispatchInjectionPoint：按 modName 驱动聚合。
  *   - 遍历 ipConfig.modules（Blueprint 声明的聚合标题列表）
  *   - 每个 modName 调对应 moduleRenderers[modName] 渲染
- *   - renderer 内部按 d.type 特化取内容格式
+ *   - renderer 内部按段名 spec 取内容格式（Phase term-P9.3：不再按 d.type 分发）
  *   - target 不在此判断——target 决定注入位置，由 AgentAdapter 处理（compile 不感知 Agent）
  */
 function dispatchInjectionPoint(
@@ -207,8 +207,8 @@ function renderTriggerModule(_d: Domain, content: unknown): string {
 
 // ==================== Manual module renderer（聚合参考手册，P9.2 拆三段） ====================
 
-/** Phase term-P9.2：从 renderManualModule 拆出，按段类型分别处理。
- *  每个 renderer 内部直接调对应 type guard，不再依赖 d.type switch。 */
+/** Phase term-P9.2：从 renderManualModule 拆出 Rules/Flows/Checklists 三段。
+ *  每个 renderer 内部直接调对应 type guard（不再依赖 d.type——P9.3 后 type 字段删除）。 */
 
 /** Rules 段：Rule[]（term 形态，含 slot/type/check/items） */
 function renderRulesModule(d: Domain, content: unknown): string {

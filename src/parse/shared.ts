@@ -73,16 +73,10 @@ export async function readAsset(path: string): Promise<Asset> {
   const fileName = path.split("/").pop() ?? "";
   const name = fileName.replace(/\.[^.]+$/, "");
 
-  // kind 推断优先级：frontmatter.kind → frontmatter.type → frontmatter.entity → frontmatter 特征字段 → H2 推断
-  // v9：用 frontmatter 字段区分 Profile（blueprint）/ Blueprint（agent）/ Domain（type），
-  //     不再依赖 H2 注入点名（注入点名是自定义的语义名）
-  let kind: AssetKind | undefined;
-  const kindFromFm = inferKindFromFrontmatter(fm);
-  if (kindFromFm) {
-    kind = kindFromFm;
-  } else {
-    kind = inferKind(body);
-  }
+  // Phase term-P9.3：type 字段已删——kind 推断逻辑仅保留为兼容（无 caller 实际使用）。
+  //   资产加载走目录路由（src/parse/index.ts loadAllDomains / loadAllBlueprints / loadAllProfiles），
+  //   不依赖 readAsset 的 kind 字段。
+  const kind: AssetKind = "domain"; // 默认值——保留 AssetKind 联合类型以备未来扩展
 
   const sectionsArr = splitSections(body);
   const sections: Record<string, Section> = {};
@@ -330,38 +324,9 @@ export function extractBareListUnderH3(section: Section | undefined, h3Name: str
   return out;
 }
 
-/** frontmatter 没 entity/type/kind/blueprint 时，按 H2 段名推断 asset kind。
- *  v9.5（Phase term-P4.5）：Blueprint 载体转 YAML，不再走 readAsset——Blueprint 推断逻辑删除。
- *  Channel 已删除，Domain 走通用 term 形态。 */
-function inferKind(body: string): AssetKind {
-  if (/^##\s+Slots\b/m.test(body)) return "workflow";
-  if (/^##\s+Tools\b/m.test(body)) return "stack";
-  return "domain";
-}
-
-/** 从 frontmatter 推断 asset kind（type guard：返 undefined 表示 frontmatter 不包含足够信息）。 */
-function inferKindFromFrontmatter(fm: Record<string, unknown>): AssetKind | undefined {
-  const validKinds: ReadonlyArray<AssetKind> = [
-    "domain",
-    "blueprint",
-    "profile",
-    "term",
-    "workflow",
-    "stack",
-    "glossary",
-    "scene",
-    "manual",
-    "channel",
-  ];
-  const candidates = ["kind", "type", "entity"] as const;
-  for (const key of candidates) {
-    const v = fm[key];
-    if (typeof v === "string" && (validKinds as readonly string[]).includes(v)) {
-      return v as AssetKind;
-    }
-  }
-  if (typeof fm.blueprint === "string") return "profile";
-  // Phase term-P4.1：删除 fm.agent 判断（Blueprint.agent 字段移除；推理代码也清理）。
-  // 实际资产加载按目录路由（src/parse/index.ts loadAllBlueprints），此推断函数本身已无人调用——保留仅作历史兼容。
-  return undefined;
-}
+// Phase term-P9.5：删除 inferKind / inferKindFromFrontmatter 死代码。
+//   Type 字段删除（P9.3）+ Blueprint 转 YAML（P4.5）后，asset kind 推断链路（frontmatter
+//   type/agent + H2 Slots/Tools/Compilation 识别）全部失去作用——资产加载按目录路由
+//   （src/parse/index.ts loadAllDomains/Blueprints/Profiles），不依赖 readAsset 的 kind 字段。
+//   AssetKind 联合类型保留（供未来扩展），具体推断函数清理。
+//   Channel 已删除，Domain 走通用 term 形态。 */
