@@ -1,0 +1,9 @@
+name: test-blueprint
+injectionPoints:
+  - name: 会话知识
+    target: session
+    mode: hybrid
+    modules: [Scene, Trigger]
+  - name: 参考手册
+    target: turn
+    modules: [Manual]

@@ -78,8 +78,11 @@ export const TARGET_CONTEXT_MESSAGE = "context_message";
 
 // ==================== 资产文件名后缀 ====================
 
-/** Blueprint 文件名后缀（v9 命名约定：<name>.blueprint.md） */
+/** Blueprint 文件名后缀标记（v9 命名约定：<name>.blueprint.yaml，Phase term-P4.5）
+ *  用于识别 Blueprint 资产——保留 .blueprint 部分以便从文件名提取蓝本名。 */
 export const SUFFIX_BLUEPRINT = ".blueprint";
+/** Blueprint 文件扩展名（Phase term-P4.5：载体从 .md 转 .yaml） */
+export const SUFFIX_BLUEPRINT_YAML = ".blueprint.yaml";
 
 /** Profile 文件名后缀（v9 命名约定：<name>.profile.md） */
 export const SUFFIX_PROFILE = ".profile";

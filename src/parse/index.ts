@@ -6,7 +6,7 @@
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { ASSETS_DIR, BUILTIN_ASSETS_DIR, SUFFIX_MD } from "../constants.js";
+import { ASSETS_DIR, BUILTIN_ASSETS_DIR, SUFFIX_BLUEPRINT_YAML, SUFFIX_MD } from "../constants.js";
 import type {
   Blueprint,
   Domain,
@@ -97,7 +97,8 @@ async function loadAllBlueprints(
 ): Promise<Blueprint[]> {
   const assetDir = adapterCtx?.assetDir ?? DEFAULT_ASSET_DIR;
   const dir = join(cwd, assetDir, "blueprints");
-  return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(dir, f), adapterCtx);
+  // Phase term-P4.5：Blueprint 载体 .md → .yaml，按 SUFFIX_BLUEPRINT_YAML 过滤
+  return loadDir(dir, SUFFIX_BLUEPRINT_YAML, (f) => parseBlueprint(dir, f), adapterCtx);
 }
 
 async function loadAllProfiles(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Profile[]> {
@@ -115,7 +116,8 @@ async function loadAllBuiltinDomains(): Promise<Domain[]> {
 
 async function loadAllBuiltinBlueprints(): Promise<Blueprint[]> {
   const dir = join(BUILTIN_ASSETS_DIR, "blueprints");
-  return loadDir(dir, SUFFIX_MD, (f) => parseBlueprint(dir, f), undefined);
+  // Phase term-P4.5：Blueprint 载体 .md → .yaml
+  return loadDir(dir, SUFFIX_BLUEPRINT_YAML, (f) => parseBlueprint(dir, f), undefined);
 }
 
 async function loadAllBuiltinProfiles(): Promise<Profile[]> {
