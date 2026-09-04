@@ -1,6 +1,5 @@
 ---
 name: dev-knowledge
-agent: pi
 ---
 
 # dev-knowledge (blueprint)

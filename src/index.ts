@@ -124,12 +124,13 @@ async function transpileActive(
 
     // v12.x：per-pi adapter——registry.ts 给每个 pi 一个新 PiAdapter 实例，
     // 单例字段 this.segment 不会被其他 session 覆盖。
-    s.activeAdapter = getAgentAdapter(pi, result.blueprint.agent);
+    // Phase term-P4.1：Blueprint.agent 字段移除，暂硬编码 "pi"；待 OpenCodeAdapter 后改 transpile(profile, agent)
+    s.activeAdapter = getAgentAdapter(pi, "pi");
     s.activeAdapter.setAgentContext(result.agentContext, result.blueprint, result.domains);
 
     slog(sessionId, "info", "transpileActive:done", {
       profileName,
-      agent: result.blueprint.agent,
+      agent: "pi", // P4.1：硬编码，待 §11 多 Adapter 后改成参数化
       domainCount: result.domains.length,
       segmentLen: result.segment.length,
       cacheHit: result.cacheHit,

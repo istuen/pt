@@ -1,6 +1,5 @@
 ---
 name: test-blueprint
-agent: pi
 ---
 
 # Test Blueprint
