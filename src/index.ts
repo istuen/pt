@@ -1,7 +1,7 @@
 // src/index.ts — Pi 扩展入口（v9）
 //
-// v9 用户面命令：--pt-context（flag）/ /pt-context（命令），对应"激活 Profile → 编译 Context"。
-//   "profile" 在 v9 是配置层概念（引用 Blueprint + 选 Domains），用户面命令强调产物是 Context。
+// v9 用户面命令：--pt-profile（flag）/ /pt-profile（命令），对应"激活 Profile → 编译 AgentContext"。
+//   "profile" 在 v9 是配置层概念（引用 Blueprint + 选 Domains），用户面命令强调产物是 AgentContext。
 //
 // 注入用 AgentAdapter（默认 Pi）封装 before_agent_start + input 事件。
 //
@@ -87,7 +87,7 @@ function registerInjectionIfReady(
   if (!sessionId) return false;
   const sessionState = getSessionById(sessionId);
   const adapter = sessionState.activeAdapter;
-  const context = sessionState.cachedContext;
+  const context = sessionState.cachedAgentContext;
   const blueprint = sessionState.cachedBlueprint;
   if (!adapter || !context || !blueprint) return false;
 
@@ -115,7 +115,7 @@ async function transpileActive(
     const s = getSessionById(sessionId);
     s.cachedSegment = result.segment;
     s.cachedBundles = result.bundles;
-    s.cachedContext = result.context;
+    s.cachedAgentContext = result.agentContext;
     s.cachedBlueprint = result.blueprint;
     s.cachedDomains = result.domains;
     s.cachedProfile = result.profile;
@@ -125,7 +125,7 @@ async function transpileActive(
     // v12.x：per-pi adapter——registry.ts 给每个 pi 一个新 PiAdapter 实例，
     // 单例字段 this.segment 不会被其他 session 覆盖。
     s.activeAdapter = getAgentAdapter(pi, result.blueprint.agent);
-    s.activeAdapter.setContext(result.context, result.blueprint, result.domains);
+    s.activeAdapter.setAgentContext(result.agentContext, result.blueprint, result.domains);
 
     slog(sessionId, "info", "transpileActive:done", {
       profileName,
@@ -183,8 +183,11 @@ async function switchProfile(
 
 export default function (pi: ExtensionAPI): void {
   // 启动时 flag（CLI 优先）
-  pi.registerFlag("pt-context", {
-    description: "启动时激活的 Profile 名（编译成 Context 注入 System Prompt）",
+  // Phase term-P2：pt-context → pt-profile（命令参数是 Profile 名，名该匹配操作目标）。
+  //   向后兼容：--pt-context（flag）和 pt.pt-context/au.pt-context（settings key）作为 fallback 保留——
+  //   用户升级 Pt 后旧配置仍能工作，新配置优先。
+  pi.registerFlag("pt-profile", {
+    description: "启动时激活的 Profile 名（编译成 AgentContext 注入 System Prompt）",
     type: "string",
   });
 
@@ -210,11 +213,14 @@ export default function (pi: ExtensionAPI): void {
 
     s.lastCwd = ctx.cwd;
     try {
-      const flag = pi.getFlag("pt-context");
+      // Phase term-P2：flag/settings 链主读新名（pt-profile），旧名（pt-context）作 fallback 兼容。
+      const flag = pi.getFlag("pt-profile") ?? pi.getFlag("pt-context");
       const flagVal = typeof flag === "string" && flag.trim() ? flag.trim() : undefined;
 
       const fromSettings =
-        (await readProjectSetting<string>(ctx.cwd, "pt.pt-context")) ??
+        (await readProjectSetting<string>(ctx.cwd, "pt.pt-profile")) ??
+        (await readProjectSetting<string>(ctx.cwd, "au.pt-profile")) ??
+        (await readProjectSetting<string>(ctx.cwd, "pt.pt-context")) ?? // 向后兼容：旧 settings key
         (await readProjectSetting<string>(ctx.cwd, "au.pt-context"));
       const fromSession = readProfileFromSession(ctx.sessionManager); // v10.x
       const auto = await detectSingleProfile(ctx.cwd);
@@ -244,7 +250,7 @@ export default function (pi: ExtensionAPI): void {
         s.injectionError = null;
         refreshInjectionFooter(ctx.ui, s);
         ctx.ui.notify(
-          "Pt：未找到 Profile。用 /pt-context <name> 选择，或在 .pi/settings.json 设 pt.pt-context。",
+          "Pt：未找到 Profile。用 /pt-profile <name> 选择，或在 .pi/settings.json 设 pt.pt-profile。",
           "info"
         );
         s.loadedFrom = null;
@@ -338,10 +344,11 @@ export default function (pi: ExtensionAPI): void {
     });
   });
 
-  // ========== /pt-context 命令：即时切换 ==========
-  pi.registerCommand("pt-context", {
+  // ========== /pt-profile 命令：即时切换 ==========
+  // Phase term-P2：/pt-context → /pt-profile（命令参数是 Profile 名，名该匹配操作目标）。
+  pi.registerCommand("pt-profile", {
     description:
-      "切换当前 Profile（编译成 Context 注入 System Prompt），即时重转译（无参则弹出选择器）",
+      "切换当前 Profile（编译成 AgentContext 注入 System Prompt），即时重转译（无参则弹出选择器）",
     getArgumentCompletions: async (prefix) => {
       const sessionId = getSessionIdFromCtx({
         sessionManager: undefined,
@@ -361,7 +368,7 @@ export default function (pi: ExtensionAPI): void {
           return;
         }
         if (!ctx.hasUI) {
-          ctx.ui.notify("/pt-context（无参）在非交互模式不可用，请指定名称", "warning");
+          ctx.ui.notify("/pt-profile（无参）在非交互模式不可用，请指定名称", "warning");
           return;
         }
         const picked = await ctx.ui.select("选择 Profile", names);
@@ -487,7 +494,7 @@ export default function (pi: ExtensionAPI): void {
         const full = buildFullPrompt(ctx.getSystemPrompt(), s.cachedSegment, s.lastBuiltPrompt);
         if (!s.cachedSegment) {
           ctx.ui.notify(
-            "警告：无 cachedSegment（未加载 Profile）。用 /pt-context <name> 选择",
+            "警告：无 cachedSegment（未加载 Profile）。用 /pt-profile <name> 选择",
             "warning"
           );
         }
@@ -530,7 +537,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   // ========== tool 壳：LLM 可调（与 command 共享纯函数内核，.pt/docs/designs/pt-command-tool-dual-registration.md） ==========
-  // 只读查询 + 手册实例化做 tool；pt-context（改 system prompt）不做 tool（见设计文档 §2.4）
+  // 只读查询 + 手册实例化做 tool；pt-profile（改 system prompt）不做 tool（见设计文档 §2.4）
 
   pi.registerTool({
     name: "pt_status",
