@@ -164,7 +164,7 @@ export class PiAdapter implements AgentAdapter {
     });
 
     // context_message 触发：/manual:xxx + /<flow-name>
-    // v10.x：包 try/catch，renderContextMessage 抛错不再 swallow
+    // v10.x：包 try/catch，renderTurnMessage 抛错不再 swallow
     api.on("input", async (...args: unknown[]) => {
       const t0 = Date.now();
       try {
