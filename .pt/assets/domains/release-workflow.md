@@ -36,7 +36,7 @@ name: release-workflow
 ### deployment-relationship
 - desc: 与 deployment.md 互补——deployment 是发版策略层（版本策略/发布渠道/回滚策略，手动 release manual 作 CI 不可用时的 fallback）；release-workflow 是自动化实现层（workflow 文件/字段/secrets/触发模型）。主路径走 release-workflow#release 自动化。
 
-## Manual
+## Flows
 
 ### release
 - argument-hint: <version>

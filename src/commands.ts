@@ -11,7 +11,7 @@
 //   - 不再 import module-level `session` 单例（已删除）
 
 import { join } from "node:path";
-import { MANUAL_DIR, MOD_MANUAL } from "./constants.js";
+import { MANUAL_DIR, MOD_FLOWS } from "./constants.js";
 import { bindFlowTemplate, findFlowInBlueprint } from "./render/turn-message.js";
 import type { SessionState } from "./session.js";
 import type { Profile } from "./schema.js";
@@ -35,11 +35,11 @@ export function statusText(session: SessionState): string {
   const flowCount =
     session.cachedBundles?.reduce((acc, b) => {
       let n = 0;
-      for (const d of b.domains)
-        if (d.type === "workflow") {
-          const tpls = Array.isArray(d.modules[MOD_MANUAL]) ? d.modules[MOD_MANUAL] : [];
-          n += tpls.length;
-        }
+      // Phase term-P9.2：FlowTemplate 在 ## Flows 段（不再是 ## Manual）。仍只看 workflow 类型 Domain。
+      for (const d of b.domains) {
+        const flows = d.modules[MOD_FLOWS];
+        if (Array.isArray(flows)) n += flows.length;
+      }
       return acc + n;
     }, 0) ?? 0;
   const domainCount = session.cachedBundles?.reduce((acc, b) => acc + b.domains.length, 0) ?? 0;
@@ -148,11 +148,11 @@ export function buildManualDoc(
   const bound = bindFlowTemplate(tpl, args);
   const domainName =
     session.cachedBundles[0].domains.find((d) => {
-      if (d.type !== "workflow") return false;
-      const manual = d.modules[MOD_MANUAL];
+      // Phase term-P9.2：FlowTemplate 存 ## Flows 段（不是 ## Manual）。
+      const flows = d.modules[MOD_FLOWS];
       return (
-        Array.isArray(manual) &&
-        manual.some((t: unknown) => isFlowTemplateLike(t) && t.name === procedure)
+        Array.isArray(flows) &&
+        flows.some((t: unknown) => isFlowTemplateLike(t) && t.name === procedure)
       );
     })?.name ?? "";
   const now = new Date().toISOString();

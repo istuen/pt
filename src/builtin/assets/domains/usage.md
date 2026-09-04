@@ -30,7 +30,7 @@ name: usage
 ### pt-tools-llm
 - desc: pt_status / pt_flows / pt_manual 三个 LLM tool（pi.registerTool）。与 /pt 命令族共享纯函数内核——人类打 /pt status，LLM 调 pt_status，结果一致。pt-context 不做 tool（改 system prompt 不该让 LLM 触发，见 .pt/docs/designs/pt-command-tool-dual-registration.md §2.4）。
 
-## Manual
+## Flows
 
 ### list-profiles
 - argument-hint: (无)

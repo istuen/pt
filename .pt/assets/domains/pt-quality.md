@@ -15,7 +15,7 @@ name: pt-quality
 ### quality-index
 - desc: 技术规范在 Manual 段；执行开发手册（如 feature-lifecycle）时自动带出参考手册注入点。
 
-## Manual
+## Rules
 
 ### modules-type-safety
 - slot: global

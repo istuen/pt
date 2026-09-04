@@ -33,7 +33,7 @@ name: authoring
 ### build-roadmap
 - desc: 从零构建 Pt 资产的顺序：（1）分析项目知识结构（参考 project-analysis 的 analyze-steps）→ 识别概念/流程/工具栈；（2）创建 Domain 资产（每种知识一个 .md）→ create-domain-procedure；（3）选 Blueprint（优先复用内建 dev-knowledge，注入点不同才 create-blueprint-procedure）→（4）创建 Profile 组装 Domain 列表 → create-profile-procedure；（5）/pt-profile 验证产物。执行 procedure 时用 /pt manual <procedure-name> <args> 创建实例文档跟踪。
 
-## Manual
+## Flows
 
 ### create-domain-procedure
 - argument-hint: <type> <name>

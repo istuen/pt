@@ -66,7 +66,8 @@ function makeFixture(marker: string): {
     externals: [],
   };
   const domains: Domain[] = [
-    { name: `domain-${marker}`, type: "workflow", modules: { Manual: [flow] } },
+    // Phase term-P9.2：FlowTemplate 在 ## Flows 段（不是 ## Manual）
+    { name: `domain-${marker}`, type: "workflow", modules: { Flows: [flow] } },
   ];
   return { context, blueprint, domains };
 }

@@ -16,7 +16,7 @@
 //     `this.ctx / this.blueprint / this.domains / this.segment / this.injectedApi` 五个实例字段
 //     现在是 per-pi 隔离——其他 session 的 setContext 不会覆盖本 session 的 segment
 
-import { AGENT_PI, MOD_MANUAL } from "../constants.js";
+import { AGENT_PI, MOD_CHECKLISTS, MOD_FLOWS, MOD_RULES } from "../constants.js";
 import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
 import { renderInjectionFooter } from "../injection-status.js";
 import { getSessionById } from "../session.js";
@@ -212,25 +212,26 @@ export class PiAdapter implements AgentAdapter {
     for (const ip of blueprint.injectionPoints) {
       // Phase term-P4.3：target 语义值 context_message → turn
       if (ip.target !== "turn") continue;
-      // ip.modules 是 modName 列表（"Manual"）；domains 是 Profile 注入点引用的 Domain 集
+      // ip.modules 是 modName 列表（"Flows"/"Rules"/"Checklists" P9.2 后）；domains 是 Profile 注入点引用的 Domain 集
       // 这里用全集 domains 简化——renderTurnMessage 也走全集
       for (const d of domains) {
-        const manual = d.modules[MOD_MANUAL];
-        if (manual === undefined) continue;
-        if (d.type === "workflow") {
-          if (!isFlowTemplateArray(manual)) continue;
-          for (const t of manual) {
+        // Phase term-P9.2：FlowTemplate 在 ## Flows 段；Rule[] 在 ## Rules 段；Checklist[] 在 ## Checklists 段。
+        const flowsContent = d.modules[MOD_FLOWS];
+        if (isFlowTemplateArray(flowsContent)) {
+          for (const t of flowsContent) {
             flows.push({ name: t.name, hint: t.argumentHint, domain: d.name });
           }
-        } else if (d.type === "term") {
-          if (!isRuleArray(manual)) continue;
+        }
+        const rulesContent = d.modules[MOD_RULES];
+        if (isRuleArray(rulesContent) && rulesContent.length > 0) {
           // term-Domain 的 Rule[] 作为 /manual:<domain> 暴露
           flows.push({
             name: `/manual:${d.name}`,
-            hint: `${manual.length} 条规范`,
+            hint: `${rulesContent.length} 条规范`,
             domain: d.name,
           });
         }
+        // Checklist[] 暂不单独暴露——/manual:<domain> 命令会统一处理（renderDomainManual）
       }
     }
 

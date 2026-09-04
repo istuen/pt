@@ -6,7 +6,7 @@
 // 与 schema.ts 的区别：schema.ts 定义契约（Term/Rule/FlowTemplate 等结构），
 // type-guards.ts 定义运行时收窄（"这个 unknown 是不是 Term[]?"）。
 
-import type { ExternalRef, FlowTemplate, Rule, Term, ToolRef } from "../schema.js";
+import type { Checklist, ExternalRef, FlowTemplate, Rule, Term, ToolRef } from "../schema.js";
 
 // ==================== 通用守卫 ====================
 
@@ -87,6 +87,24 @@ export function isTriggerItemArray(
   x: unknown
 ): x is Array<{ name: string; desc?: string; hint?: string }> {
   return Array.isArray(x) && x.every(isTriggerItemLike);
+}
+
+// ==================== Checklist[] 守卫（Phase term-P9.2） ====================
+
+/** Phase term-P9.2：校验 Checklist 最小形状（{ name: string, items: string[] }）。 */
+function isChecklistLike(x: unknown): x is Checklist {
+  if (!x || typeof x !== "object") return false;
+  const c = x as { name?: unknown; items?: unknown };
+  return (
+    typeof c.name === "string" &&
+    Array.isArray(c.items) &&
+    c.items.every((i) => typeof i === "string")
+  );
+}
+
+/** unknown 是否为 Checklist[]。 */
+export function isChecklistArray(x: unknown): x is Checklist[] {
+  return Array.isArray(x) && x.every(isChecklistLike);
 }
 
 // ==================== ExternalRef[] 守卫 ====================

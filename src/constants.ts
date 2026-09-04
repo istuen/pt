@@ -62,19 +62,15 @@ export const MOD_SCENE = "Scene";
 /** Domain 的 Trigger 段（v9 索引段——H3 + desc/hint 列表） */
 export const MOD_TRIGGER = "Trigger";
 
-/** Domain 的 Manual 段（term→Rule[] / workflow→FlowTemplate[]） */
-export const MOD_MANUAL = "Manual";
+/** Domain 的 Rules 段（Phase term-P9.2：从 Manual 拆出）—— Rule[]（pt-quality 等） */
+export const MOD_RULES = "Rules";
+/** Domain 的 Flows 段（Phase term-P9.2：从 Manual 拆出）—— FlowTemplate[]（dev-workflow 等） */
+export const MOD_FLOWS = "Flows";
+/** Domain 的 Checklists 段（Phase term-P9.2：新增）—— Checklist[]（pt-collab 等） */
+export const MOD_CHECKLISTS = "Checklists";
 
 /** Domain 的 Term 段（fallback term 形态，未指定 type 默认走 Term[]） */
 export const MOD_TERM = "Term";
-
-// ==================== 注入点 target 常量 ====================
-
-/** Pi Agent 系统提示注入位置（before_agent_start 事件） */
-export const TARGET_SYSTEM_PROMPT = "system_prompt";
-
-/** Pi Agent 上下文消息注入位置（input 事件 transform） */
-export const TARGET_CONTEXT_MESSAGE = "context_message";
 
 // ==================== 资产文件名后缀 ====================
 

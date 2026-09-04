@@ -6,4 +6,5 @@ injectionPoints:
     modules: [Scene, Trigger]
   - name: 参考手册
     target: turn
-    modules: [Manual]
+    # Phase term-P9.2：Manual 拆三段——Rules / Flows / Checklists
+    modules: [Rules, Flows, Checklists]

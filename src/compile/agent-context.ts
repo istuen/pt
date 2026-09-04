@@ -22,7 +22,7 @@
 //
 // Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
 
-import { MOD_MANUAL, MOD_SCENE, MOD_TRIGGER } from "../constants.js";
+import { MOD_CHECKLISTS, MOD_FLOWS, MOD_RULES, MOD_SCENE, MOD_TRIGGER } from "../constants.js";
 import type {
   AgentContext,
   Blueprint,
@@ -32,8 +32,15 @@ import type {
   Profile,
   StructureLayout,
 } from "../schema.js";
-import { isNamedItemArray, isRecord, isTermArray, isTriggerItemArray } from "./type-guards.js";
-import { formatManualBody } from "./format-manual-body.js";
+import {
+  isChecklistArray,
+  isFlowTemplateArray,
+  isNamedItemArray,
+  isRecord,
+  isRuleArray,
+  isTermArray,
+  isTriggerItemArray,
+} from "./type-guards.js";
 
 // ==================== AgentContext 编译入口 ====================
 
@@ -144,7 +151,9 @@ type ModuleRenderer = (d: Domain, content: unknown, mode?: StructureLayout["mode
 const moduleRenderers: Record<string, ModuleRenderer> = {
   [MOD_SCENE]: renderSceneModule,
   [MOD_TRIGGER]: renderTriggerModule,
-  [MOD_MANUAL]: renderManualModule,
+  [MOD_RULES]: renderRulesModule,
+  [MOD_FLOWS]: renderFlowsModule,
+  [MOD_CHECKLISTS]: renderChecklistsModule,
 };
 
 /** 扩展接口：加新 modName 只加一行 + 一个 renderer 函数。 */
@@ -212,19 +221,50 @@ function renderTriggerModule(_d: Domain, content: unknown): string {
   return lines.join("\n");
 }
 
-// ==================== Manual module renderer（聚合参考手册） ====================
+// ==================== Manual module renderer（聚合参考手册，P9.2 拆三段） ====================
 
-/** Manual 段聚合：workflow→FlowTemplate 列表 / term→Rule 列表。
- *  v9：context_message 注入点（参考手册）主要消费 Manual 段。
- *  P3.6：列表渲染逻辑抽到 formatManualBody（与 renderDomainManual 共享）。 */
-function renderManualModule(d: Domain, content: unknown): string {
-  if (d.type === "stack") return ""; // stack 无 Manual 段
-  if (d.type !== "term" && d.type !== "workflow") {
-    return renderGenericModule(d, content);
+/** Phase term-P9.2：从 renderManualModule 拆出，按段类型分别处理。
+ *  每个 renderer 内部直接调对应 type guard，不再依赖 d.type switch。 */
+
+/** Rules 段：Rule[]（term 形态，含 slot/type/check/items） */
+function renderRulesModule(d: Domain, content: unknown): string {
+  if (!isRuleArray(content)) return "";
+  const lines: string[] = [];
+  for (const r of content) {
+    if (r.type === "invariant") {
+      if (r.check) lines.push(`- ${r.name}: ${r.check}`);
+      else lines.push(`- ${r.name}`);
+    } else if (r.type === "ban" && r.items && r.items.length > 0) {
+      if (r.check) lines.push(`- ${r.name}: ${r.check} (${r.items.join(" / ")})`);
+      else lines.push(`- ${r.name}: ${r.items.join(" / ")}`);
+    }
   }
-  const body = formatManualBody(d, content);
-  if (!body) return "";
-  return `### ${d.name}\n\n${body}`.trimEnd();
+  if (lines.length === 0) return "";
+  return `### ${d.name}\n\n${lines.join("\n")}`.trimEnd();
+}
+
+/** Flows 段：FlowTemplate[]（workflow 形态，含 argumentHint/intent/steps） */
+function renderFlowsModule(d: Domain, content: unknown): string {
+  if (!isFlowTemplateArray(content)) return "";
+  const lines: string[] = [];
+  for (const t of content) {
+    const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
+    lines.push(`- ${t.name}${hint}: ${t.intent}`);
+  }
+  if (lines.length === 0) return "";
+  return `### ${d.name}\n\n${lines.join("\n")}`.trimEnd();
+}
+
+/** Checklists 段：Checklist[]（name + items[]） */
+function renderChecklistsModule(d: Domain, content: unknown): string {
+  if (!isChecklistArray(content)) return "";
+  const sections: string[] = [];
+  for (const cl of content) {
+    const items = cl.items.map((i) => `- ${i}`).join("\n");
+    sections.push(`### ${cl.name}\n${items}`);
+  }
+  if (sections.length === 0) return "";
+  return `### ${d.name}\n\n${sections.join("\n\n")}`.trimEnd();
 }
 
 // ==================== Generic fallback（扩展 modName 时自动适用） ====================
