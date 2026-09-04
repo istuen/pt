@@ -1,6 +1,6 @@
 # Pt 分层模型与转译架构
 
-> **阅读指引**：本文档 §0 是语义锚定（**v9 模型**，2026-09-01 定稿），所有后续章节以 §0 为准。§1-§11 是历史演进章节（v1-v8），保留作背景，存在语义演进痕迹——遇到与 §0 冲突处，以 §0 为准。
+> **阅读指引**：本文档 §0 是语义锚定（**v9 模型**，2026-09-01 定稿，术语对齐系列 P1+P2+P4+P9+P8 落地后），所有后续章节以 §0 为准。§1-§11 是历史演进章节（v1-v8），保留作背景，存在语义演进痕迹——遇到与 §0 冲突处，以 §0 为准。
 >
 > 关联文档：`docs/pt-prompt-optimization.md`（转译产物优化）、`docs/pt-dev-phases.md`（开发执行计划）、`docs/pt-dev-phases-v8.md`（v8 实现执行描述，已执行完毕）。
 >
@@ -9,19 +9,29 @@
 > 2. Pt 与来源（OXN 等）的依赖关系如何反转？（§6 Schema/adapter）
 > 3. 转译通道如何分段？（§11 前端/中端/后端）
 >
-> 结论：**Domain → Blueprint → Profile → Context 四层模型 + 聚合点数据驱动 + Profile Domains 自动分发 + Trigger 索引驱动参考手册**。
+> 结论：**Domain → Blueprint → Profile → AgentContext 四层模型 + H2 段名 schema 驱动（无 Type）+ 聚合点数据驱动 + Profile Domains 自动分发 + Trigger 索引 + Participant 分离 + target session/turn Agent-agnostic**。
 >
-> **v9 相对 v8 的变化**（详见 §0.10）：
+> **v9 相对 v8 的变化**（详见 §0.10 共 18 项）：
 > - **职责重分配**：v8 Channel（结构层）→ v9 Blueprint（Agent 端结构）；v8 Blueprint（配置层）→ v9 Profile（业务端实例）
 > - **Channel 保留为未来** Domain 连接外部知识源的 Connector（当前不实现）
 > - **Trigger 段移到 Domain**（H2 段，不在 Profile/Blueprint）
 > - **Boundaries 丢弃**（Trigger 索引 + Scene axioms 替代流程 DAG）
-> - **聚合点数据驱动**：`### Modules` 是聚合标题列表，compile 按 modName 注册表分发 + generic fallback，加新聚合标题不改代码
-> - **Profile Domains 自动分发**：YAML 全局 domains + 注入点 ### Domains 追加
-> - **注入点名人类自定义**：Blueprint H2 是任意语义名，target 字段映射到 Agent 技术注入点（不写死 system_prompt/context_message）
-> - **AgentAdapter 抽象**：Blueprint 声明用哪个 Agent，Pt 调对应 Adapter 注入；MVP 只实现 PiAdapter，接口预留扩展 Codex/OpenCode
-> - **"对话记忆" → "参考手册"** 改名（语义更准确）
-> - **新增 me Domain** 概念（会话知识补"我"视角）
+> - **聚合点数据驱动**：`modules` 是聚合标题列表，compile 按 modName 注册表分发 + generic fallback，加新聚合标题不改代码
+> - **Profile Domains 自动分发**：YAML 全局 domains + 注入点追加
+> - **注入点名人类自定义**：Blueprint H2 是任意语义名，target 字段映射到 Agent 注入位置（`session`/`turn`，Agent-agnostic）
+> - **AgentAdapter 抽象**：Blueprint 暂硬编码 `"pi"`（P4.1 删 agent 字段），AgentAdapter 内部把 `target` 映射到 Agent API（Pi: `system_prompt`/`context_message`）
+> - **"对话记忆" → "参考手册"** 改名
+> - **新增 me Domain** 概念 → Phase term-P8 拆为 `## Participant` 段
+> - **Phase term-P1**：Context IR 改名 AgentContext（避免与 Pi `context_message` 撞名）
+> - **Phase term-P2**：`/pt-context` → `/pt-profile` 改名（命令参数是 Profile 名）
+> - **Phase term-P4.1**：Blueprint `agent` 字段移除，agent 运行时选择（暂硬编码 `"pi"`）
+> - **Phase term-P4.2**：Blueprint `## Compilation` 段移除（cacheDir 用 CACHE_DIR 常量，split 硬编码 single-file）
+> - **Phase term-P4.3**：target 值 `system_prompt`/`context_message` → `session`/`turn`；函数名 renderSystemPrompt/renderContextMessage → renderSessionPrompt/renderTurnMessage
+> - **Phase term-P4.5**：Blueprint 载体 `.blueprint.md` → `.blueprint.yaml`（首次引入运行时依赖 `yaml`）
+> - **Phase term-P9.1**：Scene 段统一 Term[]（workflow externals 合并进 path 字段）
+> - **Phase term-P9.2**：`## Manual` 拆为 `## Rules` / `## Flows` / `## Checklists`（一 H2 段一 schema）
+> - **Phase term-P9.3**：Domain `type` 字段删除，H2 段名是唯一 schema 选择器；`stack` 死类型删除
+> - **Phase term-P8**：me Domain 拆 `## Participant` 段（复用 Scene renderer 一行注册）
 
 ---
 
@@ -29,191 +39,119 @@
 
 本节是 Pt 的语义基准，定义 Pt 处理什么、产出什么、各概念如何分流。后续架构章节均以此为准。
 
-> **v9 模型**（2026-09-01 定稿）。v8 的四层保留为三层实现 + 一层预留：**Domain（内容层）→ Blueprint（结构层）→ Profile（配置层）→ Context（产物层）**，Channel 保留为未来 Domain 连接外部知识源的通道。职责重新分配：v8 Channel（结构层）→ v9 Blueprint（Agent 端结构）；v8 Blueprint（配置层）→ v9 Profile（业务端实例）。详见 §0.10 变更说明。
+> **v9 模型**（2026-09-01 定稿，术语对齐系列 P1+P2+P4+P9+P8 落地后）。四层：**Domain（内容层）→ Blueprint（结构层）→ Profile（配置层）→ AgentContext（产物层）**。Channel 保留为未来 Domain 连接外部知识源的 Connector。
 
-**Pt 的本质是「异构上下文编译器」**——核心产物是 Context（编译后目标上下文）。Domain 是异构领域知识（人类业务端，H2 段开放：Scene/Trigger/Manual/...），Blueprint 是 Agent 端注入点结构（定义有哪些上下文场景 + 每个场景聚合什么模块 + 编译方式），Profile 是业务端实例（引用 Blueprint + 选哪些 Domain），Context 是编译后目标上下文。Pt 把异构的领域知识按 Blueprint 定义的注入点编译成统一的目标上下文，供 Pi Agent 各注入位置消费。
+**Pt 的本质是「异构上下文编译器」**——核心产物是 **AgentContext**（编译后目标上下文）。Domain 是异构领域知识（人类业务端，H2 段开放：Scene/Trigger/Rules/Flows/Checklists/Participant），Blueprint 是 Agent 端注入点结构（定义有哪些上下文场景 + 每个场景聚合什么模块 + 注入到 Agent 哪里），Profile 是业务端实例（引用 Blueprint + 选哪些 Domain），AgentContext 是编译后产物。Pt 把异构的领域知识按 Blueprint 定义的注入点编译成统一的 Agent 上下文，供 Agent 各注入位置消费。
 
-Pt 的语义分四层（三层实现 + 一层预留）+ 两套适配器，各自管理其内容文件：
+### 为什么需要 Pt（问题域）
 
-| 层/机制 | 名 | v9 语义 | 载体 | 归属 | 复用性 |
-|---|---|---|---|---|---|
-| **内容层** | **Domain** | **异构领域知识**——H2 段开放（Scene/Trigger/Manual/...），Type 标签区分内容性质 | `domains/*.md` | 人类业务端 | 跨项目 |
-| **结构层** | **Blueprint** | **Agent 端注入点结构**——H2=注入点（人类自定义名），target 映射 Agent 技术注入点，agent 声明用哪个 Agent | `blueprints/*.md` | Agent 端 | 跨项目复用 |
-| **配置层** | **Profile** | **业务端实例**——引用 Blueprint + 选 Domains（YAML 全局 + 注入点追加） | `profiles/*.md` | 业务端 | 项目级 |
-| **产物层** | **Context** | **编译后目标上下文**——按注入点聚合多 Domain 内容，物理文件 + hash 缓存 | `.pt/contexts/cache/*.context.md` | — | 缓存复用 |
-| （预留） | **Channel** | Domain 连接外部知识源的 Connector（未来实现） | — | 连接层 | — |
-| 适配器 | **AgentAdapter** | 适配不同 Agent 的注入机制（PiAdapter / 未来 CodexAdapter / ...），Pt 核心不感知 Agent API | `src/agent/*.ts` | Pt 核心扩展 | — |
-| 适配器 | **SourceAdapter** | 适配不同知识源格式（oxnAdapter / 未来 yamlAdapter / ...），Pt 核心不感知来源格式 | `src/parse/*.ts` | Pt 核心扩展 | — |
+**LLM 是失忆且被动的图书馆智能体**——知识在权重里但不主动浮现，每个 session 从零开始。因此每次输入必须自包含：
 
-**核心关系**（Domain + Blueprint 在 Profile 处合并，编译出 Context）：
+| LLM 约束 | 含义 | 输入必须带什么 |
+|---|---|---|
+| **失忆** | 无跨会话记忆，session_start 从零 | 固定背景（场景 + 参与者 + 边界） |
+| **被动** | 知识在权重里但不主动浮现 | 可调阅索引（提示有什么可召唤、何时召唤） |
+| （会话累积） | 对话推进产生新内容 | 当前对话记忆 |
+
+Pt 的工作：把领域知识组织成这种自包含输入。**Profile 定义场景**（背景 + 参与者 + 边界），**编译成 AgentContext**（静态面=每轮重注的背景，动态面=按需召唤的手册），注入 LLM。
+
+这个动机解释了每个机制为什么存在：
+
+| 机制 | 解决 LLM 的哪个约束 |
+|---|---|
+| Profile（场景定义，持久化可复用） | 失忆——场景定义不能每次手写，需持久化 |
+| AgentContext 静态面（每轮注入 Session Prompt） | 失忆——每轮必须重注背景 |
+| AgentContext 动态面（按需触发 Turn Message） | 被动 + 省 token——手册不每轮注，按需才召唤 |
+| Trigger 索引（提示有什么手册可查） | 被动——LLM 不会主动想起，需提示可调阅 |
+| `/manual:xxx` 触发 | 被动——主动召唤具体知识进输入 |
+
+### Pt 是什么
+
+**Pt 是异构上下文编译器**——把领域知识按配置编译成 Agent 上下文并注入。
+
+使用者最关心的是**编译产物 AgentContext**：一份配一次就让 Agent 获取更有效、更专注的上下文。AgentContext 由两面组成，对应 Agent 的两种上下文需求：
+
+| 面 | 注入位置（target） | 时效 | 心智 | 通俗类比 |
+|---|---|---|---|---|
+| **会话知识** | `session` → Session Prompt（`before_agent_start`） | 静态、贯穿整个会话 | Agent 的人格/背景 | "Agent 是谁、要做什么" |
+| **参考手册** | `turn` → Turn Message（`input` 事件触发） | 动态、按需触发 | Agent 的工具书 | "需要时查哪本手册" |
+
+**领域知识是上下文的原料**。用户配一份 **Profile**（选哪些知识 + 套哪种结构），Pt 就把领域知识按 Profile 编译成 AgentContext，注入 Agent。不同 Profile 编译出不同场景的 AgentContext。
+
+> **target 是结构层术语（`session` / `turn`）**。AgentAdapter 内部映射到 Agent 的技术 API 名（Pi: `system_prompt` / `context_message`）。详见 §0.11。
+
+### 派生链（自顶向下倒推）
 
 ```
-外部内容源 → Domain ─┐
-                      ├──→ Profile ──[compile]──→ Context
-           Blueprint ─┘    （引用 Blueprint +
-                            选 Domains）           （.pt/contexts/
-                                                     cache/）
+AgentContext            ← 用户关心的产物：会话知识 + 参考手册
+  ↑ Profile 编译产出
+Profile                 ← 配置：选 Blueprint + 选 Domains，组合出不同场景的 AgentContext
+  ↑ 引用
+Blueprint               ← 结构：声明有哪些注入点 + 各注入点聚合什么 + 注入到 Agent 哪里（target）
+  +                     +
+Domains                 ← 原料：异构领域知识，按 H2 段（Scene/Trigger/Rules/Flows/Checklists/Participant）切模块
 ```
 
-Domain 和 Blueprint 都是可独立复用的模块；Profile 引用一个 Blueprint 和选定的 Domain 组合成真正可执行的实例，编译出 Context。**Blueprint 是 Agent 端的设计（可跨项目复用），Profile 是业务端的实例化（项目级，选哪些知识填进去）**。
+**一句话**：Domains 是原料，Blueprint 是结构模板，Profile 是"选哪些原料套哪种结构"的配置，AgentContext 是编译出来的 Agent 上下文。**改 Profile（换知识组合）即可换场景，不必改 Blueprint 或 Domains。**
 
-### 0.1 内容层：Domain（异构领域知识）
+### 两种适配器（扩展边界）
 
-**Domain 承载异构领域知识**。一个 Domain = 一个 md 文件，内部用 **H2 二级标题**划分内容模块。H2 段名是开放的——`## Scene`、`## Trigger`、`## Manual`、`## Term`、`## Glossary`、未来扩展均可。
+Pt 的扩展性集中在两套适配器，依赖反转——Pt 核心定义接口、具体实现可插拔：
 
-Domain 的 H2 段是**聚合点的供给侧**——Blueprint 的 `### Modules` 决定哪些 H2 段进哪个注入点，Domain 只管提供内容。一个 Domain 可以同时贡献多个注入点（如 `## Scene` + `## Trigger` 进会话知识注入点、`## Manual` 进参考手册注入点），也可以只贡献一个。
+| 适配器 | 适配什么 | MVP 实现 | 扩展方式 |
+|---|---|---|---|
+| **SourceAdapter** | 知识源格式（MD/YAML/DB/...） | mdAdapter | 加 adapter 类 |
+| **AgentAdapter** | Agent 注入机制（Pi/Codex/...） | PiAdapter | 加 adapter 类 |
 
-**关键**：Domain 不感知注入点。同一个 Domain 被不同 Profile 引用时，可能贡献不同的 H2 段——Profile 的 Domains 列表 + Blueprint 的 Modules 列表共同决定引用该 Domain 的哪些 H2 段。详见 §0.6 Domains 分发机制。
+左边吃异构知识源，右边接异构 Agent。Pt 核心不感知来源格式，也不感知 Agent API。
 
-#### v9 新增 H2 段：Trigger（索引）
+---
 
-v8 的 Trigger 是 Blueprint 注入点下的实例级文本（"这个注入点何时激活"）。v9 把 Trigger 移到 Domain 内，作为 **H2 段**——是**索引**，告诉 LLM "什么时候该参考本 Domain 的手册内容"。
+### 0.1 产物层：AgentContext（Pt 核心价值）
+
+**AgentContext 是 Profile 编译后的产物**——Pt 的核心价值所在。AgentContext 是**物理文件**（`.pt/cache/agent-contexts/<name>.agent-context.md`），按注入点组织，缓存复用，避免每次重新编译。
+
+AgentContext 的结构按注入点划分（与 Blueprint 的 H2 一一对应）：
 
 ```markdown
-# pt-quality Domain
-## Scene
-### quality-index
-- desc: 技术规范在 Manual 段...
+# pt-dev.agent-context.md  （Profile「pt-dev」编译后的 AgentContext）
 
-## Trigger
-### pt-quality-trigger
-- desc: 改 Pt 代码时参考；含 9 条技术规范（modules-type-safety 等）
-- hint: /manual:pt-quality 查看完整规范
+## 会话知识               ← target: session，每轮注入 Session Prompt
+  （Domain 的 Scene + Trigger + Participant 段聚合，按 Blueprint.mode 编排）
+  ### 模块「pt-architecture」
+  **术语**
+  - **三段式编译架构**：...
+  ### 参考手册索引           ← Trigger 段聚合：告诉 LLM 有什么手册可查 + 何时查
+  - **pt-quality**：改 Pt 代码时参考；含 9 条技术规范
+    /manual:pt-quality 查看完整规范
 
-## Manual
-### modules-type-safety
-- slot: global
-- type: invariant
-- check: Domain.modules 读取必须用 type guard
+## 参考手册               ← target: turn，触发时注入 Turn Message
+  （Domain 的 Rules/Flows/Checklists 段聚合，待命）
+  ### 模块「pt-quality」
+  - [ ] modules-type-safety
+  - [ ] path-constant
 ```
 
-**Trigger 段的聚合**：会话知识注入点的 `### Modules` 含 `Trigger` 时，compile 从该注入点引用的 Domain 提取 `## Trigger` 段，聚合成索引段——LLM 每轮看到索引，知道"有什么手册可查 + 何时查"。Trigger 段下的内容格式不固定（when/what/how 非强制），只要其下的 H3 + 列表项都会被聚合。
+**两面各自的生命周期**：
 
-#### v9 新增 Domain：me（用户会话知识）
+- **会话知识**每轮注入 Session Prompt（含 Scene 背景 + Trigger 索引 + Participant 会话信息）。LLM 每轮看到索引，知道"有什么手册可查、何时查"。
+- **参考手册**不每轮注入——用户 `/manual:xxx` 或 LLM 判断需要时才触发，内容作为 Turn Message 注入（省 token，compact 时进消息流会被压缩）。
 
-v8 的会话知识只有系统知识（Pt 是什么），缺少"我"（用户视角）——LLM 作为共同设计者需要理解用户的背景、目标、偏好才能更好推理。v9 新增 `me` Domain 类型概念（type: term），Scene 段放用户背景 + 目标 + 协作偏好。
+**缓存与失效**：AgentContext 文件头记录 `source-hash = hash(Profile + Blueprint + Domains)`。三者任一变化即失效重编译。Pt 读取时比对 hash：一致用缓存，不一致重编译覆盖。**缓存目录硬编码** `.pt/cache/agent-contexts/`（`src/constants.ts CACHE_DIR` 常量，Blueprint 无配置项）。
 
-```markdown
-# me Domain
----
-type: term
-name: me
----
-## Scene
-### user-profile
-- desc: 软件开发者，偏好类型安全、模块化架构、数据驱动设计
-### pt-goal
-- desc: Pt 要成为异构上下文编译器，把领域知识编译成 Pi 的 System Prompt + Context Message
-### collab-mode
-- desc: 共同设计者——用户提需求/决策，LLM 推理设计内容并产出代码/文档
-```
+**AgentContext 不自描述 target**：modules 按注入点名（语义名）聚键，但哪个是 `session`、哪个是 `turn` 需回头查 `Blueprint.injectionPoints[].target`。
 
-Profile 的会话知识注入点引用 `me`，跟系统知识 Domain 并列——LLM 每轮同时看到"系统是什么"和"用户要什么"。
+> 内容由 Domain 定义，因此 AgentContext 内容可以是普通文本，也可以是执行描述。Pt 产出结构化上下文文档，LLM 做推理。
 
-#### Domain Type 标签
-
-Domain 通过 frontmatter `type` 区分承载内容性质（term/workflow/stack/扩展）。Type 决定**各 H2 段内部的内容格式**（term 的 `## Scene` 是公理列表，workflow 的 `## Scene` 是手册清单 + 数据源），不决定 H2 段有哪些。各 H2 段的 renderer 内部按 type 特化取内容格式（见 §0.5 聚合点数据驱动）。
-
-#### H2 段 × Type 正交
-
-两个正交维度：
-- **H2 段名** = 内容模块类型（Scene/Trigger/Manual/扩展）——决定内容**去哪个聚合点**
-- **Domain Type** = 内容性质标签（term/workflow/stack/扩展）——决定各 H2 段内部**内容格式**
-
-```
-Domain「pt-quality」（type: term）
-  ├─ ## Scene    → 公理列表（What：是什么）      → 供会话知识注入点聚合
-  ├─ ## Trigger  → 索引（When：何时查手册）      → 供会话知识注入点聚合（索引段）
-  └─ ## Manual   → 规范列表（How：怎么做）       → 供参考手册注入点聚合（触发时注入）
-```
-
-**type 决定 H2 段内部格式，H2 段名决定内容去向**——两者独立扩展。加新 type = 各 modName renderer 内部加 type 分支；加新 H2 段 = Domain 加 H2 + Blueprint Modules 加项（不改代码，generic fallback 自动聚合，见 §0.5）。
-
-### 0.2 结构层：Blueprint（Agent 端注入点结构）
-
-**Blueprint 是 Agent 端的注入点结构设计**——定义用哪个 Agent（agent 字段）、有哪些上下文场景（注入点）、每个注入点聚合哪些 H2 段（聚合模块）、注入到 Agent 的哪个上下文位置（target）、用什么聚合方式（mode）、怎么编译（Compilation）。Blueprint 可跨项目复用——比如「开发知识」这个结构在多个项目里都适用，只是具体 Domain 不同。
-
-**Blueprint 的核心设计：H2 = 注入点（人类自定义名）**。Blueprint 的每个 H2 二级标题是一个注入点，H2 名由人类自定义（会话知识/参考手册/背景知识/操作手册/...），不由代码写死。`target` 字段把该语义名映射到 **Agent 技术注入点**（Pi 的 `system_prompt`/`context_message`，Codex/OpenCode 的其他名）——AgentAdapter 解释 target，Pt 核心不感知 target 的具体含义。
-
-**Blueprint 只管结构，不含具体 Domain、不含 Trigger/Boundaries**。选 Domain 是 Profile（配置层）的职责；Trigger 在 Domain 内（H2 段）；Boundaries v9 丢弃（见 §0.10）。
-
-Blueprint 的结构与配置用 MD 标题层级表达，YAML 放文档级元信息（name + agent）。
-
-```markdown
----
-name: dev-knowledge
-agent: pi
 ---
 
-# dev-knowledge (blueprint)
+### 0.2 配置层：Profile（怎么配出 AgentContext）
 
-## 会话知识
-target: system_prompt
-mode: hybrid
-### Modules
-- Scene
-- Trigger
+**Profile 是配置——把 Blueprint 和 Domains 衔接起来，组合出不同场景的 AgentContext**。Profile 是项目级的：每个项目/场景一份 Profile，填入自己的 Domain 组合。配一次，全员生效。
 
-## 参考手册
-target: context_message
-### Modules
-- Manual
+**核心设计：Domains 自动分发**。Profile 的 YAML frontmatter 有全局 `domains` 列表，自动分发到所有注入点；注入点 H2 下的 `### Domains` 是追加列表，只给该注入点贡献。两者合并后，compile 按 Blueprint 的 `### Modules` 自动判断每个 Domain 贡献哪些 H2 段（有则贡献，无则跳过）。详见 §0.6。
 
-## Compilation
-cache-dir: .pt/contexts/cache/
-split: single-file
-```
-
-**字段职责**：
-- YAML `agent`：声明用哪个 AgentAdapter（`pi` / 未来 `codex`/`opencode`/...，默认 `pi`）
-- `## 会话知识` / `## 参考手册`：H2 = 注入点（**人类自定义语义名**，可任意命名，不由代码写死）
-- `target`：Agent 技术注入点名（Pi 的 `system_prompt`/`context_message`，由 AgentAdapter 解释）
-- `mode`：聚合方式（byDomain / byType / hybrid，仅对 system_prompt 类 target 有意义）
-- `### Modules`：H3 = 聚合模块列表，列出参与本注入点的 Domain H2 段名（聚合标题）
-- 无符号序号项 = Domain 的 H2 段名（如 `- Scene` 指向 Domain 的 `## Scene` 段，`- Trigger` 指向 `## Trigger` 段）
-- `## Compilation`：编译方式（缓存目录 + 拆分策略，详见 §0.8）
-
-#### 注入点名人类自定义（不写死）
-
-v8 的代码硬编码注入点名 `会话知识|对话记忆`（parse/shared.ts 用它判断文件类型，compile 用 target 硬编码分发）。v9 彻底数据驱动：
-
-- **注入点名是 Blueprint 的 H2**（人类自定义），不是代码常量
-- **target 是 AgentAdapter 的注入点技术名**（Pi 的 system_prompt/context_message，由 AgentAdapter 定义）
-- compile/render 按 target 分发，但 **target 的具体值由 AgentAdapter 解释**——Pt 核心不硬编码 `"system_prompt"` 字符串判断
-- parse 判断文件类型用 frontmatter 字段（`type`/`agent`/`blueprint`）而非注入点名
-
-用户想用"背景知识""操作手册"等自定义注入点名完全可以——只要 target 字段映射到 AgentAdapter 支持的注入点。
-
-#### 为什么 H2 = 注入点（不是 Modules 列表）
-
-v7 用 `## Modules` 列表声明含哪些模块，但"模块去哪个注入点"是隐式约定（render 代码硬编码 `ctx.modules["Scene"]`）。v8 把注入点提升为 H2——显式声明，render 通用化。v9 继承此设计（从 v8 Channel 移到 Blueprint）：
-
-```
-v7: Channel.modules = ["Scene", "Manual"]
-    render 硬编码: Scene → system_prompt, Manual → context_message
-    问题: 加新注入点要改 render 代码
-
-v9: Blueprint.injectionPoints = [
-      { name: "会话知识", target: system_prompt, modules: [Scene, Trigger], mode: hybrid },
-      { name: "参考手册", target: context_message, modules: [Manual] }
-    ]
-    render 通用: 按 target 分发（target 由 AgentAdapter 解释），不硬编码模块名
-    加新注入点 = Blueprint 加 H2，不改 render
-```
-
-#### Blueprint 复用性
-
-一个 Blueprint 可被多个 Profile 引用。因为 Blueprint 不含 Domain 选择、不含 Trigger（都在 Profile/Domain），同一个 Blueprint 可以服务不同项目——例如 `dev-knowledge` Blueprint 被 `pt` 和 `pt-writing` 两个 Profile 共用，各自填不同的 Domain。
-
-### 0.3 配置层：Profile（业务端实例）
-
-**Profile 引用一个 Blueprint + 选哪些 Domain，构建一个真正的实例**。Profile 是项目级的——每个项目/场景一份 Profile，填入自己的 Domain 组合。
-
-**v9 核心设计：Domains 自动分发**。Profile 的 YAML frontmatter 有全局 `domains` 列表，自动分发到所有注入点；注入点 H2 下的 `### Domains` 是追加列表，只给该注入点贡献。两者合并后，compile 按 Blueprint 的 `### Modules` 自动判断每个 Domain 贡献哪些 H2 段（有则贡献，无则跳过）。详见 §0.6。
-
-**Profile 不含 Trigger/Boundaries**。Trigger 在 Domain 内（H2 段）；Boundaries v9 丢弃。
-
-Profile 的配置用 MD 标题层级 + YAML frontmatter 表达。
+Profile 配置用 MD 标题层级 + YAML frontmatter 表达：
 
 ```markdown
 ---
@@ -242,65 +180,226 @@ domains: [pt-concepts, pt-architecture, me, pt-transpile]
 - `## 会话知识` / `## 参考手册`：H2 = 注入点（与 Blueprint 的 H2 同名，实例化该注入点）
   - `### Domains`：追加到本注入点的 Domain 列表（只贡献该注入点）
 
-#### 全局 domains vs 注入点追加
+**全局 vs 注入点追加**：全局 `domains` 是"基集"——写一次自动分发；注入点 `### Domains` 是"追加"——精确控制只给某注入点贡献。Domain 列一次（全局），不必每个注入点重复写；需要精确控制时用追加。
 
-全局 `domains` 是"基集"——这些 Domain 自动分发到所有注入点，compile 按 Blueprint Modules 判断它贡献哪些 H2 段（无该段则跳过）。注入点 `### Domains` 是"追加"——只给该注入点贡献。
+**Profile 不跨项目复用**。跨项目复用的是 Blueprint（结构）和 Domain（知识）——Profile 是把两者组装成具体场景的胶水。
 
-这样 Domain 列一次（全局），不必在每个注入点重复写；需要精确控制时用注入点追加。例如 `pt-concepts` 只需写一次在全局，它自动贡献会话知识的 Scene 段（因为它有 `## Scene`），不会贡献参考手册的 Manual 段（因为它没有 `## Manual` 或不需要）。
+---
 
-#### Profile 不跨项目复用
+### 0.3 结构层 + 内容层：Blueprint 与 Domains（Profile 引用什么）
 
-Profile 是项目级的——`pt` Profile 只在 pt 项目用，`pt-writing` Profile 只在 pt-writing 项目用。跨项目复用的是 Blueprint（结构）和 Domain（知识）。
+Profile 引用两样东西：**Blueprint（结构模板）** 和 **Domains（知识原料）**。两者都可独立复用，Profile 负责组装。
 
-### 0.4 产物层：Context（编译后目标上下文）
+#### Blueprint：注入点结构模板
 
-**Context 是 Profile 编译后的输出**——按注入点聚合多 Domain 内容，是 Pt 的核心产物。Context 是**物理文件**（`.pt/contexts/cache/`），缓存复用，避免每次重新编译。
+**Blueprint 是 Agent 端的注入点结构设计**——定义有哪些上下文场景（注入点）、每个注入点聚合哪些 H2 段（聚合模块）、注入到 Agent 的哪个位置（`target`）、用什么聚合方式（`mode`）。Blueprint 可跨项目复用——「开发知识」这个结构在多个项目都适用，只是具体 Domain 不同。
 
-v9 的 Context 结构按注入点组织（与 Blueprint 的 H2 对应）：
+**核心设计：H2 = 注入点（人类自定义名）**。Blueprint 的每个 H2 是一个注入点，H2 名由人类自定义（会话知识/参考手册/背景知识/操作手册/...），不由代码写死。`target` 字段把语义名映射到 **Agent 注入位置**（`session` / `turn`，Agent-agnostic 术语）。AgentAdapter 内部把 `target` 映射到 Agent 的技术 API（Pi: `system_prompt` / `context_message`），Pt 核心不感知其具体含义。
 
-```markdown
-# pt-dev.context.md  （Profile「pt-dev」编译后的 Context）
+**Phase term-P4**：Blueprint **去 agent 字段**（Blueprint 应 Agent-agnostic；agent 是运行时选择不是结构定义，当前只有一个 PiAdapter 故硬编码 `"pi"`，等第二个 Adapter 后改 `transpile(profile, agent)` 编译维度参数）和 **去 ## Compilation 段**（cacheDir 用 `constants.CACHE_DIR` 常量，split 硬编码 single-file）。**Phase term-P4.5**：载体从 `.blueprint.md` 转为 `.blueprint.yaml`（纯结构化数据，避开 MD 叙事格式）。
 
-## 会话知识
-  （全局+追加 Domain 的 Scene + Trigger 段聚合，按 Blueprint.mode 编排）
-  ### 模块「pt-architecture」
-  **术语**
-  - **三段式编译架构**：...
-  ### 参考手册索引
-  - **pt-quality**：改 Pt 代码时参考；含 9 条技术规范
-    /manual:pt-quality 查看完整规范
-  - **pt-collab**：协作检查清单，验收时参考
-
-## 参考手册
-  （Domain 的 Manual 段聚合，触发时注入）
-  ### 模块「pt-quality」
-  - [ ] modules-type-safety
-  - [ ] path-constant
-  ...
+```yaml
+name: dev-knowledge
+injectionPoints:
+  - name: 会话知识
+    target: session        # Agent-agnostic：session/turn 语义值
+    mode: hybrid
+    modules: [Scene, Trigger, Participant]
+  - name: 参考手册
+    target: turn           # Agent-agnostic：session/turn 语义值
+    modules: [Rules, Flows, Checklists]
 ```
 
-**Context 的注入点对应 Pi Agent 不同位置的 Prompt**，由 Blueprint 的 `target` 字段映射：
-- `## 会话知识`（target: system_prompt）→ 注入 System Prompt（`before_agent_start`，每轮）
-- `## 参考手册`（target: context_message）→ 触发时注入 Context Message（`input` 事件 transform）
-- 未来扩展注入点 → Blueprint 加新 H2 + 新 target
+**字段职责**：
+- `name`：Blueprint 名
+- `injectionPoints[]`：注入点列表
+  - `name`：注入点名（人类自定义语义名，可任意命名）
+  - `target`：Agent 注入位置（`session` / `turn`，由 AgentAdapter 映射到 Agent API）
+  - `mode`：聚合方式（byDomain / byType / hybrid，仅 session 类 target 有意义）
+  - `modules`：聚合模块列表，列出参与本注入点的 Domain H2 段名
 
-**会话知识每轮注入 systemPrompt**（含 Scene axioms + Trigger 索引），LLM 看到索引知道"有什么手册可查"。**参考手册不每轮注入**——用户 `/manual:xxx` 或 LLM 判断需要时触发，内容作为 Context Message 注入（省 token，compact 时进消息流会被压缩）。
+**Blueprint 只管结构**：不含具体 Domain、不含 Trigger（Trigger 在 Domain 内作 H2 段）。
 
-**内容由 Domain 定义**，因此 Context 的内容可以是普通文本，也可以是执行描述。Pt 产出的是结构化上下文文档，LLM 做推理。
+> **可选跟进**：`target` 未来可下沉到 AgentContext IR 自带 target 标注（自包含 target 信息，AgentAdapter 不必再查 Blueprint）——见末尾"可选跟进"。
+
+#### Domains：异构领域知识原料
+
+**Domain 承载异构领域知识**。一个 Domain = 一个 md 文件，内部用 **H2 二级标题**划分内容模块。H2 段名开放——`## Scene`、`## Trigger`、`## Rules`、`## Flows`、`## Checklists`、`## Participant`、未来扩展均可。
+
+**Phase term-P9**：Domain **去 type 字段**——H2 段名是唯一 schema 选择器（一个 H2 段一个 schema）。删 type 一身二任（知识性质标签 + schema 选择器）的耦合，stack 死类型随之删除。加新 H2 段名 = 加 parser 一行注册（未注册走 fallback）；加新 schema 类型 = 改对应 H2 段 parser 即可，不动其他 H2 段。
+
+Domain 的 H2 段是**聚合点的供给侧**——Blueprint 的 `modules` 决定哪些 H2 段进哪个注入点，Domain 只管提供内容。一个 Domain 可同时贡献多个注入点（如 `## Scene` + `## Trigger` 进会话知识、`## Flows` 进参考手册），也可只贡献一个。
+
+**关键**：Domain 不感知注入点。同一个 Domain 被不同 Profile 引用时，可能贡献不同 H2 段——由 Profile 的 Domains 列表 + Blueprint 的 modules 列表共同决定。
+
+**Domain frontmatter**（极简——只剩 name）：
+
+```markdown
+---
+name: pt-quality
+---
+```
+
+**五种 H2 段（Domain 内的原料形态）**：
+
+| H2 段 | 内容 | 聚合到哪个注入点 | 作用 |
+|---|---|---|---|
+| `## Scene` | 公理/概念/背景（What）——Term[]（含可选 path 字段指向外部数据源） | 会话知识（target=session） | Agent 每轮看到的背景知识 |
+| `## Trigger` | 索引（When）——H3+desc/hint 列表 | 会话知识（target=session） | 告诉 LLM 何时查哪本手册 |
+| `## Participant` | 会话参与者信息（who/goal/how）——Term[]，复用 Scene renderer | 会话知识（target=session） | Agent 的会话参与者背景（me Domain 专用） |
+| `## Rules` | 规则/约束（How-约束）——Rule[] | 参考手册（target=turn） | 触发时注入的规则列表 |
+| `## Flows` | 流程模板（How-流程）——FlowTemplate[] | 参考手册（target=turn） | 触发时注入的流程步骤 |
+| `## Checklists` | 清单（How-验收）——Checklist[]（name + items[]） | 参考手册（target=turn） | 触发时注入的检查清单 |
+
+**Phase term-P9.2**：原 `## Manual` 段装 4 种不同 schema（Rule/FlowTemplate/Checklist/Term）违背"一个 H2 段一个 schema"原则，拆为 `## Rules` / `## Flows` / `## Checklists` 三个段。`## Participant` 是 `## Scene` 的语义化别名（复用 Scene renderer）——me Domain 专用。
+
+**Phase term-P9.1**：workflow Domain 的 `## Scene` 段原本装 `{ externals: ExternalRef[] }`，合并进 `Term[]` + 可选 `path?` 字段——渲染时带 path 输出 `- name: path — desc`，无 path 输出 `- name: desc`，与原输出一致。统一了 term/workflow Scene 渲染逻辑。
+
+> **可选跟进**：`target` 自描述 + 产物命名（`pt-dev.session-prompt.md` / `pt-dev.turn-message.md` 分文件缓存）——见末尾"可选跟进"。
+
+---
+
+### 0.4 派生链总图（Context→Domain 倒推 + 数据流）
+
+```
+┌─ 配置期：人写资产（进 git）───────────────────────────────────┐
+│                                                              │
+│  Blueprint（注入点结构）─┐                                    │
+│         可跨项目复用       ├──→ Profile ──┐                   │
+│  Domain[]（知识原料）─────┘    项目级       │                   │
+│         可跨项目复用         （选结构+选原料）│                   │
+└────────────────────────────────────────────│──────────────────┘
+                                             ↓
+┌─ 编译期：Pt 编译（session_start 或切换 Profile）─────────────┐
+│                                                              │
+│                                    Profile ──[compile]──→ AgentContext
+│                                                              │物理文件
+│                                                              │.pt/cache/
+│                                                              │agent-contexts/
+│                                                    hash 缓存 ↓
+└──────────────────────────────────────────────────────────────┘
+                                             ↓ Pt 读取 AgentContext
+┌─ 注入期：AgentAdapter 注入 Agent ────────────────────────────┐
+│                                                              │
+│  AgentContext.会话知识 ──→ target=session                     │
+│    （Scene + Trigger + Participant）  → 每轮注入 Session Prompt │
+│                                                              │
+│  AgentContext.参考手册 ──→ target=turn                        │
+│    （Rules/Flows/Checklists）  → 待命，/manual:xxx 触发时注入  │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+                                             ↓ 用户 /manual:xxx
+┌─ 实例化期（轮次级）─────────────────────────────────────────┐
+│                                                              │
+│  AgentContext.参考手册 + 参数 ──→ Turn Message ──→ input 事件│
+│  （renderTurnMessage 展开模板 / Rule 聚合，产出手册实例）     │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**方向说明**：
+- **理解 Pt（对外叙事）**：自顶向下倒推——AgentContext（要什么）→ Profile（怎么配）→ Blueprint/Domain（原料和结构）。本节就是这个方向。
+- **数据流（代码运行）**：自底向上正向——Domain/Blueprint → Profile → compile → AgentContext → 注入。§0.7 完整数据流按此方向描述。
+- 两方向不矛盾：理解时倒推（产物优先），运行时正向（原料先行）。
+
+### 0.4a 四层 Schema 全景（每层怎么承载结构）
+
+派生链里每层都有自己的"Schema 承载"——定义该层怎么解析/聚合/分发内容。理解这四个 Schema 的分工，就理解了 Pt 编译架构的核心。
+
+#### 四个 Schema 的职责
+
+| Schema | 谁定义 | 定义什么 | 承载形式 | 代码位置 |
+|---|---|---|---|---|
+| **Domain Schema** | Pt 代码（parse 注册表） | H2 段文本怎么解析成 IR | `getDomainSectionParser(h2Name)` 注册表（Phase term-P9.3 删 type 维度），未注册走 fallback（Term[]） | `src/parse/domain.ts` + `domain-renderers.ts` |
+| **Blueprint Schema** | 资产（Blueprint YAML，使用者写） | 注入点结构 + Modules 聚合点 + target | `injectionPoints[].modules` + `injectionPoints[].target`（Phase term-P4.5 载体转 YAML） | `.pt/assets/blueprints/*.blueprint.yaml` |
+| **Profile Schema** | 资产（Profile MD + frontmatter） | 业务端实例（选 Blueprint + 选 Domains） | YAML frontmatter + H2 注入点追加 | `.pt/assets/profiles/*.profile.md` |
+| **AgentContext Schema** | Pt 代码（compile 注册表） | Domain IR 怎么聚合成 AgentContext | `moduleRenderers[modName]` 注册表（Phase term-P9.2 拆 Manual→Rules/Flows/Checklists），未注册走 generic fallback（name+desc） | `src/compile/agent-context.ts` |
+
+**关键**：Blueprint Schema 和 Profile Schema 是资产层定义的（使用者写），Domain Schema 和 AgentContext Schema 是代码层定义的（Pt 核心）。使用者能定义注入点结构 + Modules 列表，但 Domain/AgentContext Schema 是 Pt 预定义的——generic fallback 是开放口（加新 H2 段名不注册也能走 name+desc 通用形态）。
+
+#### 三段式编译流程（每层做什么）
+
+```
+Profile（选哪些 Domain）+ Blueprint（注入点结构 + Modules 聚合点 + target）
+    ↓
+┌─ parse 层（前端）：MD 资产 → IR ──────────────────────────────┐
+│  按 Domain Schema（parse 注册表）把 Domain MD 解析成 Domain IR  │
+│  每个 H2 段调 getDomainSectionParser(h2Name)：                 │
+│    注册的：Scene/Trigger/Participant/Rules/Flows/Checklists      │
+│    未注册：fallbackTerms（Term[] 通用形态）                     │
+│  产出：Domain IR { name, modules: Record<H2段名, IR> }          │
+│  Phase term-P9.3：Domain 不再有 type 字段（删了）               │
+└────────────────────────────────────────────────────────────────┘
+    ↓ Domain IR + Blueprint IR + Profile IR
+┌─ compile 层（中端）：IR → AgentContext IR ────────────────────┐
+│  按 Blueprint Schema（注入点 × Modules）+ AgentContext Schema   │
+│  （moduleRenderers 注册表）聚合 Domain IR：                     │
+│                                                                │
+│  compileAgentContext(profile, blueprint, domains):              │
+│    1. 建 domainByName 索引                                     │
+│    2. 遍历 blueprint.injectionPoints：                         │
+│       a. 找 profile 同名 InjectionPointInstance                │
+│       b. resolveDomains：全局 domains + 注入点追加 → 合并去重   │
+│          → 按 ipConfig.modules 过滤（Domain 有该 H2 段才贡献）  │
+│       c. dispatchInjectionPoint：遍历 ipConfig.modules，        │
+│          renderer = moduleRenderers[modName] ?? generic fallback│
+│          遍历 refDomains：content = d.modules[modName]          │
+│          renderer(d, content) → markdown 字符串                │
+│          拼接所有 Domain 的该段渲染结果                          │
+│          modules[注入点名] = 拼接结果                           │
+│    3. sourceHash = hash(profile + blueprint + domains)         │
+│  产出：AgentContext IR { name, blueprint, sourceHash, modules } │
+└────────────────────────────────────────────────────────────────┘
+    ↓ AgentContext IR
+┌─ render 层（后端）：IR → 物理文件 ─────────────────────────────┐
+│  按 Blueprint Schema 的 target 映射：                          │
+│    saveAgentContext(cwd, ctx) → .pt/cache/agent-contexts/      │
+│    <name>.agent-context.md（含 YAML 头：source-hash/profile/   │
+│    blueprint）                                                  │
+│                                                                │
+│  按 H2 段切分（## 会话知识 / ## 参考手册）→ 注入时用              │
+│  Phase term-P1：文件后缀 .context.md → .agent-context.md         │
+│  Phase term-P4.2：cacheDir 改用 CACHE_DIR 常量（无 compilation）│
+└────────────────────────────────────────────────────────────────┘
+    ↓ Pt 读取 .agent-context.md
+┌─ 注入层（AgentAdapter）：物理文件 → Agent ─────────────────────┐
+│  target=session → renderSessionPrompt → before_agent_start     │
+│  target=turn → renderTurnMessage → input 事件 transform          │
+│  Phase term-P4.3：函数名 renderSystemPrompt→renderSessionPrompt│
+│                          renderContextMessage→renderTurnMessage│
+│  PiAdapter 内部把 session→system_prompt / turn→context_message │
+│  （AgentAdapter 映射边界）                                    │
+└────────────────────────────────────────────────────────────────┘
+```
+
+#### 模块级 Domain 引用（核心扩展点）
+
+Profile 按注入点分别列 Domain（`### Domains`），一个 Domain 的不同 H2 段可贡献不同注入点。v9 改 Phase term-P9 后 H2 段是 schema 选择器——同一 Domain 在不同 Blueprint 下可贡献不同 H2 段（被 `modules` 列表过滤）。
+
+**term-Domain 的 Manual Rule[] 不再是死代码**——拆段后 term-Domain 用 `## Rules` 段承载 Rule[] schema，贡献到参考手册注入点（target=turn），通过 `/manual:<domain>` 触发时按 Rule checklist 渲染输出。
+
+#### 三段式架构的依赖反转
+
+Pt 核心的 Schema/Adapter 边界：
+- **Pt 核心** 定义 `Domain` / `Blueprint` / `Profile` / `AgentContext` / `AgentAdapter` / `SourceAdapter` 接口
+- **SourceAdapter**（mdAdapter）实现 `load(cwd, name) → SchemaBundle`，从 MD 资产 → Domain IR
+- **AgentAdapter**（PiAdapter）实现 `setAgentContext / registerInject`，把 AgentContext 注入到 Pi
+- 加新知识源（YAML/DB）= 加 SourceAdapter；加新 Agent（Codex/OpenCode）= 加 AgentAdapter
+- 核心不感知来源格式，不感知 Agent API
 
 ### 0.5 聚合点数据驱动（modName 注册表 + generic fallback）
 
 > 本节描述 compile 内部的聚合模块分发机制。Agent 注入适配机制见 §0.11。
 
-v9 的核心扩展机制：**`### Modules` 是聚合标题列表，compile 按 modName 驱动分发，未注册 modName 用 generic fallback 自动聚合**。
+**核心扩展机制**：`modules` 是聚合标题列表，compile 按 modName 驱动分发，未注册 modName 用 generic fallback 自动聚合。
 
 #### 机制
 
 ```
-Blueprint.会话知识.Modules = [Scene, Trigger]
-Blueprint.参考手册.Modules = [Manual]
+Blueprint.会话知识.modules = [Scene, Trigger, Participant]
+Blueprint.参考手册.modules = [Rules, Flows, Checklists]
 
-compile 遍历注入点的 Modules 列表:
+compile 遍历注入点的 modules 列表:
   for modName in ipConfig.modules:
     for d in refDomains:
       content = d.modules[modName]      // Domain 的 H2 段内容
@@ -310,33 +409,37 @@ compile 遍历注入点的 Modules 列表:
 ```
 
 - `moduleRenderers`：注册表，`Record<modName, ModuleRenderer>`
-- 已注册 modName（Scene/Trigger/Manual）：用特化 renderer（按 type 取内容格式）
+- 已注册 modName（Scene/Trigger/Participant/Rules/Flows/Checklists）：用特化 renderer
 - 未注册 modName（如未来加 `Glossary`）：用 generic fallback（原样输出 `### H3标题` + 列表项）
 
 #### 为什么数据驱动
 
-v8 的 renderer 按 **type 分发**（`domainSceneRenderers[type]`），内部 `if (modName === "Scene")` 硬编码——加新 modName 要改 renderer 代码。v9 改为按 **modName 分发**，renderer 内部按 type 特化：
+v8 的 renderer 按 **type 分发**（`domainSceneRenderers[type]`），内部 `if (modName === "Scene")` 硬编码——加新 modName 要改 renderer 代码。v9 改为按 **modName 分发**，renderer 内部按 H2 段 schema 直接取内容：
 
 ```
 v8: domainSceneRenderers[type] → renderer 内 if(modName===Scene) if(modName===Manual)
     加 Trigger: 要改所有 renderer 加 if(modName===Trigger)  ← 违背"不改代码"
 
-v9: moduleRenderers[modName] → renderer 内按 type 特化
+v9: moduleRenderers[modName] → renderer 内按 H2 段 schema 取内容（不再依赖 type switch）
+    Phase term-P9.3：type 字段已删——H2 段名是唯一 schema 选择器
     加 Trigger: 注册 moduleRenderers["Trigger"] = renderTriggerModule  ← 一行注册
     加未注册 modName: 不用注册, generic fallback 自动聚合  ← 零改动
 ```
 
-**加新聚合标题（H2 段类型）**：Domain 加 `## NewSection` 段 + Blueprint Modules 加 `- NewSection` 项 → generic fallback 自动聚合，不改代码。要特化才 `registerModuleRenderer("NewSection", fn)`。
+**加新聚合标题（H2 段类型）**：Domain 加 `## NewSection` 段 + Blueprint modules 加 `- NewSection` 项 → generic fallback 自动聚合，不改代码。要特化才 `registerModuleRenderer("NewSection", fn)`。
 
-#### renderer 签名
+#### renderer 注册表（Phase term-P9 后状态）
 
 ```typescript
 type ModuleRenderer = (d: Domain, content: unknown, mode?: string) => string;
 
 const moduleRenderers: Record<string, ModuleRenderer> = {
-  Scene: renderSceneModule,       // 按 type 取 axioms（term→Term[], workflow→externals, stack→...）
-  Trigger: renderTriggerModule,   // 渲染索引（### name + desc/hint 列表项）
-  Manual: renderManualModule,     // 按 type 取内容（workflow→FlowTemplate[], term→Rule[]）
+  Scene: renderSceneModule,         // Term[] 渲染（path/fields/note 统一处理）
+  Trigger: renderTriggerModule,     // 索引聚合（H3 + desc/hint 列表）
+  Participant: renderSceneModule,   // 复用 Scene renderer（Term[] 同构，Phase term-P8）
+  Rules: renderRulesModule,         // Rule[] checklist（Phase term-P9.2 从 Manual 拆出）
+  Flows: renderFlowsModule,         // FlowTemplate[] 列表（Phase term-P9.2 从 Manual 拆出）
+  Checklists: renderChecklistsModule, // Checklist[] name+items 列表（Phase term-P9.2 新增）
 };
 
 function renderGenericModule(d: Domain, content: unknown): string {
@@ -359,28 +462,28 @@ Profile pt:
   ## 参考手册 ### Domains: [pt-quality, pt-collab]                 ← 参考手册追加
 
 Blueprint dev-knowledge:
-  ## 会话知识 Modules: [Scene, Trigger]
-  ## 参考手册 Modules: [Manual]
+  ## 会话知识 modules: [Scene, Trigger, Participant]
+  ## 参考手册 modules: [Rules, Flows, Checklists]
 
 分发结果:
-  会话知识的 Domain 集:
+  会话知识（target=session）的 Domain 集:
     pt-concepts    (全局, 有 ## Scene → 贡献 Scene)
     pt-architecture(全局, 有 ## Scene → 贡献 Scene)
-    me             (全局, 有 ## Scene → 贡献 Scene)
-    pt-transpile   (全局, 有 ## Scene → 贡献 Scene; 无 ## Trigger → 跳过 Trigger)
+    me             (全局, 有 ## Participant → 贡献 Participant)
+    pt-transpile   (全局, 有 ## Scene → 贡献 Scene; 无 ## Trigger → 跳过)
     pt-quality     (追加, 有 ## Trigger → 贡献 Trigger; 无 ## Scene → 跳过 Scene)
     pt-collab      (追加, 有 ## Trigger → 贡献 Trigger)
 
-  参考手册的 Domain 集:
-    pt-concepts    (全局, 无 ## Manual → 跳过)
-    pt-architecture(全局, 有 ## Manual → 贡献 Manual)
-    me             (全局, 无 ## Manual → 跳过)
-    pt-transpile   (全局, 有 ## Manual → 贡献 Manual)
-    pt-quality     (追加, 有 ## Manual → 贡献 Manual)
-    pt-collab      (追加, 有 ## Manual → 贡献 Manual)
+  参考手册（target=turn）的 Domain 集:
+    pt-concepts    (全局, 无 ## Rules/Flows/Checklists → 跳过)
+    pt-architecture(全局, 有 ## Rules → 贡献 Rules)
+    me             (全局, 无 ## Rules/Flows/Checklists → 跳过)
+    pt-transpile   (全局, 有 ## Flows → 贡献 Flows)
+    pt-quality     (追加, 有 ## Rules → 贡献 Rules)
+    pt-collab      (追加, 有 ## Checklists → 贡献 Checklists)
 ```
 
-**规则**：Domain 有该注入点 Modules 列出的 H2 段 → 贡献；没有 → 跳过。全局 domains 自动判断，注入点追加也自动判断。**Domains 写一次（全局），需要精确控制时用追加**。
+**规则**：Domain 有该注入点 modules 列出的 H2 段 → 贡献；没有 → 跳过。全局 domains 自动判断，注入点追加也自动判断。**Domains 写一次（全局），需要精确控制时用追加**。
 
 #### 为什么不全用注入点分别列（v8 方式）
 
@@ -388,97 +491,103 @@ v8 按注入点分别列 Domain，显式但重复——同一个 Domain 在多�
 
 #### 为什么不全用 YAML 全局（不允注入点追加）
 
-纯 YAML 全局虽然写一次最简，但不够灵活——无法说"pt-quality 只贡献会话知识的 Trigger + 参考手册的 Manual，不自动分发到其他注入点"。注入点追加允许精确控制，换取灵活性。
+纯 YAML 全局虽然写一次最简，但不够灵活——无法说"pt-quality 只贡献会话知识的 Trigger + 参考手册的 Rules，不自动分发到其他注入点"。注入点追加允许精确控制，换取灵活性。
 
 ### 0.7 完整数据流
 
 ```
-┌─ 编译期（session_start 或 /pt-context 切换时）────────────────┐
+┌─ 编译期（session_start 或 /pt-profile 切换时）────────────────┐
 │                                                                │
 │  Blueprint（注入点结构）─┐                                      │
-│                          ├──→ Profile ──[compile]──→ Context   │
+│                          ├──→ Profile ──[compile]──→ AgentContext│
 │  Domain[] ──────────────┘    （引用 Blueprint +                 │
-│                               选 Domains）     （.pt/contexts/   │
-│                                                  cache/）       │
+│                               选 Domains）     （.pt/cache/      │
+│                                                  agent-contexts/│
+│                                                       <name>.    │
+│                                                  agent-context.md)
 │                                                          ↓      │
-│                                                     hash 缓存    │
+│                                                     sourceHash  │
 └────────────────────────────────────────────────────────────────┘
-                           ↓ Pt 读取 Context 文件
+                           ↓ Pt 读取 AgentContext 文件
 ┌─ 注入期 ──────────────────────────────────────────────────────┐
 │                                                                │
-│  Context.## 会话知识  ──→ render 按 target=system_prompt        │
-│     （含 Scene axioms + Trigger 索引）                          │
-│                          → 注入 System Prompt（每轮 before_agent）│
-│  Context.## 参考手册  ──→ render 按 target=context_message       │
+│  AgentContext.## 会话知识 ──→ target=session                    │
+│     （含 Scene + Trigger + Participant）                       │
+│                          → renderSessionPrompt → 注入 Session   │
+│                            Prompt（每轮 before_agent_start）    │
+│  AgentContext.## 参考手册 ──→ target=turn                       │
+│     （含 Rules + Flows + Checklists）                           │
 │                          → 待命（用户 /manual:xxx 触发）         │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
                            ↓ 用户 `/manual:xxx` 或 LLM 判断需要
 ┌─ 实例化期（轮次级）───────────────────────────────────────────┐
 │                                                                │
-│  Context.## 参考手册 + 参数 ──→ Context Message ──→ input 事件   │
-│  （binder 展开模板 / Rule[] 聚合，产出手册实例）                  │
+│  AgentContext.## 参考手册 + 参数 ──→ Turn Message ──→ input 事件│
+│  （renderTurnMessage 展开模板 / Rule 聚合，产出手册实例）       │
 │                                                                │
-└────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### 0.8 缓存与失效
 
-Context 是物理文件，缓存复用。**失效策略：hash(Domains + Blueprint + Profile) 组合哈希**——三者任一变化即失效重编译。
+AgentContext 是物理文件，缓存复用。**失效策略：hash(Domains + Blueprint + Profile) 组合哈希**——三者任一变化即失效重编译。
 
 ```
-Context 文件头记录源 hash：
+AgentContext 文件头记录源 hash：
   source-hash: <Domains 内容哈希 + Blueprint 内容哈希 + Profile 内容哈希>
 
-Pt 读取 Context 时：
+Pt 读取 AgentContext 时：
   1. 重算当前源的 hash
   2. 与文件头 hash 比对
   3. 一致 → 直接用缓存
   4. 不一致 → 重新编译，覆盖文件
 ```
 
-#### 缓存拆分策略（Blueprint.Compilation 配置）
+#### 缓存策略（Phase term-P4.2 后硬编码）
 
-| 策略 | 文件结构 | 失效粒度 | 何时用 |
-|---|---|---|---|
-| `single-file` | `pt-dev.context.md`（含所有注入点） | 整体（改任一注入点全失效） | 默认，Context 小 |
-| `by-injection-point` | `pt-dev.会话知识.md` + `pt-dev.参考手册.md` | 注入点级 | Context 大或多注入点 |
+| 项 | 值 | 位置 |
+|---|---|---|
+| 缓存目录 | `.pt/cache/agent-contexts/`（硬编码） | `src/constants.ts CACHE_DIR` |
+| 文件后缀 | `.agent-context.md` | `src/render/cache.ts` |
+| 拆分策略 | single-file（by-injection-point 已 YAGNI 移除） | 硬编码 |
 
-默认 `single-file`，Blueprint 可选配 `by-injection-point`。
+**Phase term-P4.2**：Blueprint `## Compilation` 段移除——cacheDir 用 `CACHE_DIR` 常量（无 frontmatter 配置），split 硬编码 single-file（唯一选项）。**删了"按注入点拆分"分支**——`by-injection-point` 是 v9 预留，v10+ 未实现，YAGNI 移除。
 
-### 0.9 术语速查
+### 0.9 术语速查（倒推顺序）
 
-| 术语 | v9 定义 |
+| 术语 | v9 定义（最终状态） |
 |---|---|
-| **Domain** | 异构领域知识，内容层模块，H2 段开放（Scene/Trigger/Manual/...），Type 标签区分内容性质 |
-| **Domain Type** | Domain 上的标签（term/workflow/stack/扩展），区分各 H2 段内部内容格式 |
-| **H2 段** | Domain 内的内容模块（`## Scene`/`## Trigger`/`## Manual`/扩展），是聚合点的供给侧 |
-| **Blueprint** | Agent 端注入点结构，结构层模块，H2=注入点（人类自定义名），target 映射 Agent 技术注入点，agent 声明用哪个 AgentAdapter，Modules 聚合点 + Compilation |
-| **Profile** | 业务端实例，配置层模块，引用 Blueprint + 选 Domains（全局 + 注入点追加） |
-| **注入点** | Blueprint 的 H2（人类自定义语义名），由 target 字段映射到 AgentAdapter 的技术注入点 |
-| **聚合模块** | Blueprint 注入点下的 `### Modules` 列表项，指向参与本注入点的 Domain H2 段名（聚合标题） |
-| **target** | Blueprint 注入点的字段，映射语义注入点名到 AgentAdapter 技术注入点（Pi: system_prompt/context_message） |
-| **agent** | Blueprint YAML 字段，声明用哪个 AgentAdapter（默认 `pi`） |
-| **Trigger** | Domain 的 H2 段（`## Trigger`），索引——告诉 LLM 何时参考本 Domain 的手册；聚合到会话知识注入点 |
-| **Manual** | Domain 的 H2 段（`## Manual`），详细内容；聚合到参考手册注入点，触发时注入 |
-| **me Domain** | 用户会话知识 Domain（v9 新增），Scene 段放用户背景/目标/偏好，补"我"视角 |
-| **参考手册** | v9 注入点名（v8 "对话记忆"改名，target=context_message），按需触发的手册内容 |
-| **Context** | 编译后目标上下文，产物层文件，按注入点聚合多 Domain 内容，缓存复用 |
-| **Context Message** | Context 的参考手册注入点（target=context_message）注入 input 事件的产物 |
-| **System Prompt** | Context 的会话知识注入点（target=system_prompt）注入 before_agent_start 的产物 |
-| **binder** | 把参考手册注入点里 workflow-Domain 的 FlowTemplate 用参数填充，产出 Context Message 实例 |
-| **source-hash** | Context 缓存失效依据，hash(Domains + Blueprint + Profile) 组合 |
-| **拆分策略** | Context 缓存文件的拆分方式（single-file / by-injection-point） |
-| **全局 domains** | Profile YAML frontmatter 的 domains 列表，自动分发到所有注入点 |
-| **注入点追加** | Profile 注入点 H2 下的 `### Domains` 列表，只给该注入点贡献 |
-| **聚合点数据驱动** | `### Modules` 是聚合标题列表，compile 按 modName 注册表分发 + generic fallback |
-| **AgentAdapter** | 适配不同 Agent 的注入机制（PiAdapter / 未来 CodexAdapter），Pt 核心调 Adapter 接口不感知 Agent API |
-| **SourceAdapter** | 适配不同知识源格式（oxnAdapter / 未来 yamlAdapter），Pt 核心不感知来源格式 |
+| **AgentContext** | 编译后 Agent 上下文，产物层文件。按注入点聚合多 Domain 内容，两面：会话知识（target=session，静态）+ 参考手册（target=turn，动态）。缓存复用 |
+| **会话知识** | AgentContext 的一面，target=session，每轮注入 Session Prompt。含 Scene + Trigger + Participant 段聚合 |
+| **参考手册** | AgentContext 的一面，target=turn，按需触发注入 Turn Message。含 Rules + Flows + Checklists 段聚合 |
+| **Session Prompt** | AgentContext 会话知识面注入 before_agent_start 的产物（Pi 的 system_prompt 事件） |
+| **Turn Message** | AgentContext 参考手册面注入 input 事件的产物（Pi 的 input 事件 transform） |
+| **Profile** | 配置层，业务端实例。引用 Blueprint + 选 Domains（全局 + 注入点追加），编译出 AgentContext。项目级 |
+| **Blueprint** | 结构层，Agent 端注入点结构。H2=注入点（人类自定义名），target 映射 Agent 注入位置，Modules 聚合点。载体 YAML（`.blueprint.yaml`）。跨项目复用 |
+| **注入点** | Blueprint 的 H2（人类自定义语义名），由 target 字段映射到 AgentAdapter 技术注入点 |
+| **target** | Blueprint 注入点字段，映射语义名到 Agent 注入位置。值：`session`（会话级）/ `turn`（轮次级）。AgentAdapter 内部映射到 Agent API（Pi: `system_prompt`/`context_message`） |
+| **Domain** | 内容层，异构领域知识。H2 段开放（Scene/Trigger/Rules/Flows/Checklists/Participant/扩展）。**Phase term-P9.3 删 type 字段**——H2 段名是唯一 schema 选择器。跨项目复用 |
+| **H2 段** | Domain 内的内容模块，聚合点的供给侧。H2 段名 = 唯一 schema 选择器（一个 H2 段一个 schema） |
+| **Scene** | Domain H2 段，公理/概念/背景（What）——Term[]（含可选 path 字段），target=session 聚合 |
+| **Trigger** | Domain H2 段，索引（When）——H3+desc/hint 列表，target=session 聚合 |
+| **Participant** | Domain H2 段，会话参与者信息（who/goal/how）——Term[]，target=session 聚合（me Domain 专用，复用 Scene renderer） |
+| **Rules** | Domain H2 段，规则/约束（How-约束）——Rule[]，target=turn 聚合 |
+| **Flows** | Domain H2 段，流程模板（How-流程）——FlowTemplate[]，target=turn 聚合 |
+| **Checklists** | Domain H2 段，清单（How-验收）——Checklist[]（name + items[]），target=turn 聚合 |
+| **聚合模块** | Blueprint 注入点下 `modules` 列表项，指向参与本注入点的 Domain H2 段名 |
+| **全局 domains** | Profile YAML 的 domains 列表，自动分发到所有注入点 |
+| **注入点追加** | Profile 注入点 H2 下 `### Domains` 列表，只给该注入点贡献 |
+| **sourceHash** | AgentContext 缓存失效依据，hash(Profile + Blueprint + Domains) |
+| **AgentAdapter** | 适配不同 Agent 的注入机制（PiAdapter / 未来 OpenCodeAdapter），Pt 核心调接口不感知 Agent API。Blueprint `target` 字段通过 Adapter 映射到 Agent API（Pi: `system_prompt`/`context_message`） |
+| **SourceAdapter** | 适配不同知识源格式（mdAdapter / 未来 yamlAdapter），Pt 核心不感知来源格式 |
 | **Channel** | （预留）Domain 连接外部知识源的 Connector，未来实现 |
+
+**已删术语**：`Context`（旧 IR interface 名，改 AgentContext）/ `stack`（死类型，P9.3 删）/ `## Manual`（拆为 Rules/Flows/Checklists）/ `type`（P9.3 删）/ `agent`（Blueprint 字段，P4.1 移除）/ `## Compilation`（P4.2 移除）。
 
 ### 0.10 v8 → v9 变更说明
 
-v9 保留 v8 的核心（异构上下文编译器定位、H2=注入点、Context 缓存），重新分配层职责 + 新增 Trigger 索引机制 + AgentAdapter 抽象。以下是具体变化：
+v9 保留 v8 的核心（异构上下文编译器定位、H2=注入点、AgentContext 缓存），重新分配层职责 + 新增 Trigger 索引机制 + AgentAdapter 抽象 + 拆 Manual 段 + 删 Type 字段。以下是具体变化：
 
 #### 变化 1：职责重分配（Channel → Blueprint，Blueprint → Profile）
 
@@ -515,7 +624,7 @@ v9 保留 v8 的核心（异构上下文编译器定位、H2=注入点、Context
 |---|---|---|
 | renderer 分发 | 按 type 分发（`domainSceneRenderers[type]`） | 按 modName 分发（`moduleRenderers[modName]`） |
 | 加新聚合标题 | 改 renderer 代码（加 `if(modName===...)` 分支） | 不改代码（generic fallback 自动聚合）/ 一行注册 |
-| 内部特化 | renderer 内 modName 硬编码 | renderer 内 type 特化 |
+| 内部特化 | renderer 内 modName 硬编码 | renderer 内 H2 段 schema 直接取内容（不再依赖 type switch） |
 
 **根因**：v8 renderer 按 type 分发，内部 modName 硬编码——加 Trigger 聚合标题要改所有 renderer。v9 改为 modName 驱动 + generic fallback，加新聚合标题零改动。
 
@@ -565,31 +674,122 @@ v9 保留 v8 的核心（异构上下文编译器定位、H2=注入点、Context
 
 **根因**：v8 直接调 Pi API，跟 Pi 强耦合。v9 抽出 AgentAdapter 接口——Pt 核心调 `adapter.inject(ctx, blueprint)`，具体怎么注入由 Adapter 实现。加 Codex/OpenCode 支持只加 Adapter，不改核心。依赖反转，同 SourceAdapter（知识源）同构。
 
-#### Channel 命名调整
+#### 变化 10：Blueprint 载体转 YAML（Phase term-P4.5）
 
-| 维度 | v8 | v9 |
+| 维度 | v8/v9 early | v9 final |
 |---|---|---|
-| 定位 | 编译上下文通道（已实现的结构层） | 预留——Domain 连接外部知识源的 **Connector**（未来实现） |
+| 载体 | `.blueprint.md`（MD + H2 段叙事格式） | `.blueprint.yaml`（纯结构化数据，避开 MD 叙事格式） |
+| 解析 | `readAsset` 走 frontmatter + H2 切段 | `yaml.load() + 校验` 直接读 YAML |
 
-v8 Channel 已被 Blueprint（结构层）吸收。v9 的 Channel 是全新的预留概念——未来 Domain 通过 Channel（Connector）连接外部知识源（GitHub/Notion/文件系统/...），Channel 内部用 Connector 机制拉取外部数据填充 Domain 的 H2 段。
+**根因**：Blueprint 是纯结构化无叙事（target + mode + modules），MD 的 H2/H3 是用叙事格式装非叙事数据。转 YAML 后 parser 简化为 `yaml.load() + 校验`，与 frontmatter 同构。**首次引入运行时依赖**（`yaml` 包）。
+
+#### 变化 11：Blueprint 移除 agent + Compilation 字段（Phase term-P4.1+P4.2）
+
+| 维度 | v8/v9 early | v9 final |
+|---|---|---|
+| `agent` 字段 | Blueprint YAML `agent: pi` | **删除**——Blueprint Agent-agnostic；当前硬编码 `"pi"`，等第二个 Adapter 后改 `transpile(profile, agent)` |
+| `## Compilation` 段 | `cache-dir` + `split` | **删除**——`cacheDir` 用 `CACHE_DIR` 常量（`.pt/cache/agent-contexts/`）；`split` 硬编码 single-file |
+
+**根因**：agent 是运行时选择不是结构定义（§11 实现节奏：当前只 PiAdapter，多选配置是死代码）；Compilation 是 dead config（YAGNI）。
+
+#### 变化 12：target 值 system_prompt/context_message → session/turn（Phase term-P4.3）
+
+| 维度 | v8/v9 early | v9 final |
+|---|---|---|
+| target 值 | `system_prompt` / `context_message`（Pi API 字符串） | `session` / `turn`（结构层语义值，Agent-agnostic） |
+| 概念名 | System Prompt / Context Message | Session Prompt / Turn Message |
+| 函数名 | `renderSystemPrompt` / `renderContextMessage` | `renderSessionPrompt` / `renderTurnMessage` |
+| 文件名 | `system-prompt.ts` / `context-message.ts` | `session-prompt.ts` / `turn-message.ts` |
+| AgentAdapter 边界 | `supportedTargets` 用 Pi API 名 | `supportedTargets = ["system_prompt", "context_message"]` **保留**——这是 Adapter 映射边界，声明 Pi 支持哪些技术注入点 |
+
+**根因**：target 是结构层术语，Agent-agnostic；AgentAdapter 内部映射到 Agent API。Blueprint 用语义值 `session`/`turn`，Adapter 解释后映射到 Pi 的 `system_prompt`/`context_message`。
+
+#### 变化 13：Domain Type 字段删除（H2 段名是唯一 schema 选择器，Phase term-P9.3）
+
+| 维度 | v8/v9 early | v9 final |
+|---|---|---|
+| Domain `type` frontmatter | `type: term/workflow/stack/扩展` | **删除**——Type 一身二任（知识性质标签 + schema 选择器）导致耦合 |
+| `stack` 类型 | 死类型——renderer 全返空，没意义 | **删除**（Type 删后 stack 一起删） |
+| Schema 选择 | H2 段名 × Type 两个维度 | H2 段名是唯一 schema 选择器（一个 H2 段一个 schema） |
+| renderer 逻辑 | `switch(d.type)` 内按 H2 段名分支 | `moduleRenderers[modName]` 按 modName 分发，renderer 内按 H2 段 schema 直接取内容 |
+
+**根因**：Type 字段是历史遗留——v6 时期不同内容性质需不同 schema。v9 把 schema 选择权下放给 H2 段名，Type 失去作用。一身二任拆解后：加新 H2 段名 = 加 schema（H2 段名 = schema 选择器）；Type 退化为无用标签删除。
+
+#### 变化 14：Manual 拆段为 Rules/Flows/Checklists（Phase term-P9.2）
+
+| 维度 | v8/v9 early | v9 final |
+|---|---|---|
+| Domain H2 段 | `## Manual`（一个 H2 段装 4 种不同 schema：Rule/FlowTemplate/Checklist/Term） | 拆为 `## Rules` + `## Flows` + `## Checklists`（各一个 schema） |
+| 渲染 | `renderManualModule` 按 type 分流（workflow→FlowTemplate，term→Rule） | 三个独立 renderer（renderRulesModule / renderFlowsModule / renderChecklistsModule）各调对应 type guard |
+| pt-collab 的 checklist | 被误解析为 Rule ban 类型（`name: check` 空输出） | 正确解析为 `### name` + `- item` 列表 |
+
+**根因**："一个 H2 段一个 schema"是核心原则——`## Manual` 装 4 种 schema 违背它。拆为 3 段后每段 schema 单一清晰。
+
+#### 变化 15：Scene 段统一为 Term[]（Phase term-P9.1）
+
+| 维度 | v8/v9 early | v9 final |
+|---|---|---|
+| term Scene | Term[]（`{name, desc}`） | Term[] 不变 |
+| workflow Scene | `{ externals: ExternalRef[] }` | 合并进 `Term[]` + 可选 `path?` 字段 |
+| 渲染 | 按 `d.type` 分发：term→Term list，workflow→externals list | 统一：term/workflow 合并 case，按 path/desc 字段输出 |
+| 守卫 | `isTermArray` + `isWorkflowScene` | 只 `isTermArray`（`isWorkflowScene` 删除） |
+
+**根因**：workflow Scene 的 externals（`{name, path, desc}`）和 Term（`{name, desc, fields?, note?, path?}`）高度相似，强行分 type 没有独立 renderer 可走。统一 Term[] + path 字段后渲染逻辑一致。
+
+#### 变化 16：Context IR 改名 AgentContext（Phase term-P1）
+
+| 维度 | v8/v9 early | v9 final |
+|---|---|---|
+| Interface 名 | `Context` | **`AgentContext`** |
+| 文件后缀 | `.context.md` | **`.agent-context.md`** |
+| 目录 | `.pt/cache/contexts/` | **`.pt/cache/agent-contexts/`** |
+| 函数名 | `compileContext` / `loadContext` / `saveContext` | `compileAgentContext` / `loadAgentContext` / `saveAgentContext` |
+| 文件名 | `compile/context.ts` | `compile/agent-context.ts` |
+
+**根因**：`Context` 与 Pi 的 `context_message` 撞名（target 值 `context_message` → Context Message）——Pt 产物层需独立名字。`AgentContext` 加入 Agent 概念族，语义清晰。
+
+#### 变化 17：/pt-context → /pt-profile 命令改名（Phase term-P2）
+
+| 维度 | v8/v9 early | v9 final |
+|---|---|---|
+| 启动 flag | `--pt-context` | `--pt-profile`（命令参数是 Profile 名，名该匹配操作目标） |
+| 用户命令 | `/pt-context <name>` | `/pt-profile <name>` |
+| 向后兼容 | — | 旧 flag/settings key 作 fallback 保留 |
+
+**根因**：命令参数是 Profile 名（不是 Context 名）——名该匹配操作目标。
+
+#### 变化 18：me Domain 拆 ## Participant 段（Phase term-P8）
+
+| 维度 | v8/v9 early | v9 final |
+|---|---|---|
+| me Domain H2 段 | `## Scene`（user-profile/pt-goal/collab-mode 三个 H3） | `## Participant`（同上三个 H3，H2 段名改） |
+| Blueprint 会话知识 modules | `[Scene, Trigger]` | `[Scene, Trigger, Participant]` |
+| Renderer | 走 Scene renderer | 复用 Scene renderer（`[MOD_PARTICIPANT]: renderSceneModule` 一行注册，Term[] 同构） |
+
+**根因**：me 的 H3 是会话参与者信息（who/goal/how），不是领域场景元数据——`## Participant` 语义更准确。复用 Scene renderer 是因为 Term[] schema 同构，零代码改动一行注册。
 
 #### 不变的部分
 
-- Pt 定位（异构上下文编译器，核心产物是 Context）
+- Pt 定位（异构上下文编译器，核心产物是 AgentContext）
 - H2=注入点显式化（v8 引入，v9 继承）
-- Domain 的 H2 段开放性 + Type 正交
 - Schema/adapter 依赖反转（§6）
 - 三段式编译架构（parse/compile/render）
-- Context 缓存 hash 失效策略
-- render 按 target 分发（不硬编码模块名）
+- AgentContext 缓存 hash 失效策略
+- render 按 modName 分发（不硬编码模块名）
 
 ### 0.11 Agent 适配器（AgentAdapter）
 
-**AgentAdapter 适配不同 Agent 的注入机制**。Blueprint 声明用哪个 Agent（`agent: pi`），Pt 编译后调用对应 AgentAdapter 把 Context 注入到该 Agent。Pt 核心调 Adapter 接口，不直接调 Agent API——加新 Agent 只加 Adapter，不改 compile/render 核心。
+**AgentAdapter 适配不同 Agent 的注入机制**。Blueprint 用 `target` 声明语义名（`session`/`turn`），AgentAdapter 解释 `target` 并映射到该 Agent 的技术 API。Pt 核心调 Adapter 接口，不直接调 Agent API——加新 Agent 只加 Adapter，不改 compile/render 核心。
 
 #### 为什么需要 AgentAdapter
 
 v8 直接调 Pi API（`pi.on("before_agent_start")` + `pi.on("input")`），跟 Pi 强耦合。如果未来要支持 Codex、OpenCode 等 Agent，要重写整个 index.ts 的注入逻辑。v9 抽出 AgentAdapter 接口——依赖反转，同 SourceAdapter（知识源格式）同构。
+
+**`target` 映射边界**：
+- Blueprint 用 Agent-agnostic 语义值（`session` / `turn`）
+- AgentAdapter `supportedTargets` 声明 Agent 支持的技术注入点名（**Pi: `system_prompt` / `context_message`**——保留 Pi API 名，因为这是 Adapter 映射边界，声明"Pi 支持哪些技术注入点"）
+- 编译时 `agent-context.ts` 按 modName 分发渲染（Pt 核心不感知 target 具体值）
+- 注入时 PiAdapter 内部把 `target=session` 映射到 `pi.on("before_agent_start")`、`target=turn` 映射到 `pi.on("input")` 事件 transform
 
 #### AgentAdapter 接口
 
@@ -597,18 +797,23 @@ v8 直接调 Pi API（`pi.on("before_agent_start")` + `pi.on("input")`），跟 
 export interface AgentAdapter {
   /** Agent 名（pi / codex / opencode / ...） */
   name: string;
-  /** 该 Agent 支持的技术注入点 target 名（Pi: system_prompt, context_message） */
+  /** 该 Agent 支持的技术注入点 target 名（Pi: system_prompt, context_message）。
+   *  Phase term-P4.3：保留 Pi API 名——这是 AgentAdapter 映射边界。Blueprint 用 session/turn，Adapter 内部映射。 */
   supportedTargets: string[];
-  /** 启动时注册：把 Context 注入到 Agent（session_start 调用） */
-  registerInject(api: AgentAPI, ctx: Context, blueprint: Blueprint): void;
-  /** 轮次级触发：参考手册注入（input 事件调用） */
-  triggerManual?(ctx: Context, blueprint: Blueprint, name: string, args: string): string | null;
+  /** 设置编译产物（transpile 后调） */
+  setAgentContext(ctx: AgentContext, blueprint: Blueprint, domains: Domain[]): void;
+  /** 启动时注册：把 AgentContext 注入到 Agent（session_start 调用） */
+  registerInject(api: AgentAPI, ctx: AgentContext, blueprint: Blueprint, domains?: Domain[]): void;
+  /** 轮次级触发：参考手册注入（input 事件调用，Phase term-P4.3 函数名改） */
+  triggerManual?(ctx: AgentContext, blueprint: Blueprint, name: string, args: string): string | null;
   /** 查询可用手册（/pt flows 用） */
-  listManuals?(ctx: Context, blueprint: Blueprint): Array<{ name: string; hint?: string; domain: string }>;
+  listManuals?(ctx: AgentContext, blueprint: Blueprint, domains: Domain[]): Array<{ name: string; hint?: string; domain: string }>;
 }
 ```
 
-**关键设计**：AgentAdapter 解释 target 字段——PiAdapter 把 `target: system_prompt` 映射到 `pi.on("before_agent_start")`，CodexAdapter 把同名 target（或 Codex 自己的 target 名）映射到 Codex 的注入机制。Pt 核心不硬编码 `"system_prompt"` 字符串判断。
+**Phase term-P1 改名**：`setContext` → `setAgentContext`（Context → AgentContext 同步）；`registerInject` 签名第二个参数 `Context` → `AgentContext`。
+
+**Phase term-P4.1**：Blueprint `agent` 字段移除后，`getAgentAdapter(pi, name)` 调用方传字面量 `"pi"`（当前只有 PiAdapter；等 OpenCodeAdapter 后改 `transpile(profile, agent)` 编译维度参数，见 §11）。
 
 #### MVP 策略
 
@@ -621,7 +826,7 @@ const agentAdapters: Record<string, AgentAdapter> = {
 };
 ```
 
-加 Codex 支持 = 加 `CodexAdapter` 类 + 在注册表加一行，**不改 compile/render/transpile 核心**。Blueprint 改 `agent: codex` 即可用。
+加 Codex 支持 = 加 `CodexAdapter` 类 + 在注册表加一行，**不改 compile/render/transpile 核心**。Blueprint 改 `target` 映射（session→Codex 的 `system_prompt` 等价物）即可用。
 
 #### AgentAPI 抽象
 
@@ -631,23 +836,25 @@ AgentAdapter 不直接依赖 Pi 的 `ExtensionAPI`——通过 **AgentAPI** 接�
 
 | 适配器 | 适配什么 | 接口 | MVP 实现 | 扩展方式 |
 |---|---|---|---|---|
-| **SourceAdapter** | 知识源格式（MD/YAML/DB） | `load(cwd, name) → SchemaBundle` | oxnAdapter（MD） | 加 adapter 类 |
-| **AgentAdapter** | Agent 注入机制（Pi/Codex） | `registerInject/triggerManual` | PiAdapter | 加 adapter 类 |
+| **SourceAdapter** | 知识源格式（MD/YAML/DB） | `load(cwd, name) → SchemaBundle` | mdAdapter | 加 adapter 类 |
+| **AgentAdapter** | Agent 注入机制（Pi/Codex） | `setAgentContext / registerInject / triggerManual` | PiAdapter | 加 adapter 类 |
 
 两者都是依赖反转——Pt 核心定义接口，具体实现可插拔。Pt 的扩展性集中在两套适配器：左边吃异构知识源，右边接异构 Agent。
 
 #### 数据流（含 AgentAdapter）
 
 ```
-知识源(OXN/YAML/DB) ──SourceAdapter──→ Domain IR ─┐
+知识源(MD/YAML/DB) ──SourceAdapter──→ Domain IR ─┐
                                                     │
-                                    Blueprint ──→ Profile ──[compile]──→ Context
-                                    (agent: pi)                          │
+                                    Blueprint ──→ Profile ──[compile]──→ AgentContext
+                                        │                               │
                                         ↓                               ↓
-                                   AgentAdapter(pi) ←───────────────────┘
+                                   AgentAdapter(PiAdapter) ←──────────────┘
                                         ↓
                                    Pi Agent (before_agent_start / input)
 ```
+
+---
 
 ---
 
