@@ -23,7 +23,7 @@ import { errMsg, reportError, reportWarn } from "./diagnostics.js";
 import { mdAdapter } from "./parse/index.js";
 import { compileAgentContext } from "./compile/agent-context.js";
 import { saveAgentContext, loadAgentContext } from "./render/cache.js";
-import { renderSystemPrompt } from "./render/system-prompt.js";
+import { renderSessionPrompt } from "./render/session-prompt.js";
 import { findBlueprint, findProfile } from "./schema.js";
 import type {
   AgentContext,
@@ -132,7 +132,8 @@ export async function loadAndTranspile(
   }
 
   // 4. render：剥 asset 分隔注释
-  const segment = renderSystemPrompt(used, blueprint)
+  //   Phase term-P4.3：renderSystemPrompt → renderSessionPrompt（target 语义值改 session/turn）。
+  const segment = renderSessionPrompt(used, blueprint)
     .replace(/<!-- =====[^\n]*-->\n?/g, "")
     .trim();
 

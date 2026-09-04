@@ -140,19 +140,21 @@ export interface BoundaryNode {
 
 // ==================== v9 注入点（Blueprint 拥有，注入点是 Agent 端技术位置映射） ====================
 
-/** Pi 注入位置（代码层技术名，由 InjectionPointConfig.target 映射）。
- *  v9：注入点名是 Blueprint H2 的人类自定义语义名（不写死"会话知识/参考手册"）。 */
-export type InjectionTarget = "system_prompt" | "context_message" | string;
+/** Agent 注入位置（结构层术语，由 AgentAdapter 映射到 Agent 技术 API 名）。
+ *  v9（Phase term-P4.3）：语义值 "session"/"turn" 取代旧 "system_prompt"/"context_message"——session
+ *  对应 LLM 失忆后重注入（system_prompt 级），turn 对应按需触发（context_message 级）。
+ *  Agent-agnostic：AgentAdapter 内部映射到 Pi 的 system_prompt/context_message 等技术名。 */
+export type InjectionTarget = "session" | "turn" | string;
 
 /** Blueprint 的注入点定义（对应 Blueprint md 的 H2，注入点名=人类自定义语义名）。 */
 export interface InjectionPointConfig {
   /** 注入点名（语义名，Blueprint H2 标题，如 "会话知识"/"参考手册"）。 */
   name: string;
-  /** Agent 注入位置（system_prompt / context_message / 扩展）。 */
+  /** Agent 注入位置（session / turn / 扩展）。 */
   target: InjectionTarget;
   /** 聚合点：参与的 Domain H2 段名列表（来自 ### Modules 无符号项，data-driven）。 */
   modules: string[];
-  /** 聚合方式（仅 system_prompt 类注入点有意义）。 */
+  /** 聚合方式（仅 session 类注入点有意义）。 */
   mode?: StructureLayout["mode"];
 }
 
@@ -328,7 +330,8 @@ export interface AgentAPI {
 export interface AgentAdapter {
   /** Agent 名（pi / codex / opencode / ...） */
   name: string;
-  /** 该 Agent 支持的技术注入点 target 名（Pi: system_prompt, context_message） */
+  /** 该 Agent 支持的技术注入点 target 名（Pi: system_prompt, context_message）——
+   *  注意：这是 AgentAdapter 映射边界。Blueprint 用 session/turn 语义值，Adapter 内部映射到此字段声明的 Pi API 名。 */
   supportedTargets: string[];
   /** 设置编译产物（compile 后调） */
   setAgentContext(ctx: AgentContext, blueprint: Blueprint, domains: Domain[]): void;
@@ -340,7 +343,7 @@ export interface AgentAdapter {
    *
    * 参数语义：
    *  - `ctx`：当前激活的 AgentContext IR（含缓存 sourceHash / 各注入点 modules 内容）
-   *  - `blueprint`：当前 Profile 引用的 Blueprint（遍历 injectionPoints 找 context_message 注入点）
+   *  - `blueprint`：当前 Profile 引用的 Blueprint（遍历 injectionPoints 找 target=turn 注入点）
    *  - `domains`：**Profile 注入点 scope 过滤后的 Domain 集**——非全集
    *    - 由调用方（如 commands.ts flowsText）通过 filterDomainsByProfile 预过滤
    *    - Adapter 内部无需再过滤（信任传入的就是 scope 内）

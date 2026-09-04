@@ -61,9 +61,10 @@ export async function parseBlueprint(absDir: string, fileName: string): Promise<
   };
 }
 
-/** 把一个 H2 段解析为 InjectionPointConfig（v9 Blueprint 直接拥有，逻辑同 v8 Channel）。 */
+/** 把一个 H2 段解析为 InjectionPointConfig（v9 Blueprint 直接拥有，逻辑同 v8 Channel）。
+ *  Phase term-P4.3：target 默认值 system_prompt → session（Agent-agnostic 语义值）。 */
 function parseInjectionPointFromSection(h2Name: string, section: Section): InjectionPointConfig {
-  const targetRaw = extractFieldValue(section, "target") || "system_prompt";
+  const targetRaw = extractFieldValue(section, "target") || "session";
   const modeRaw = extractFieldValue(section, "mode");
   const modules = extractModulesList(section);
 

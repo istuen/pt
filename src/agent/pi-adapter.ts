@@ -21,8 +21,8 @@ import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
 import { renderInjectionFooter } from "../injection-status.js";
 import { getSessionById } from "../session.js";
 import type { AgentAdapter, AgentAPI, AgentContext, Blueprint, Domain } from "../schema.js";
-import { renderContextMessage } from "../render/context-message.js";
-import { renderSystemPrompt } from "../render/system-prompt.js";
+import { renderTurnMessage } from "../render/turn-message.js";
+import { renderSessionPrompt } from "../render/session-prompt.js";
 
 /** v12.x：从 handler 的 args[1] ctx 提取 sessionId。
  *  pi 的 `pi.on(event, handler)` 触发时传 `(event, ctx)` 两个参数；通过 AgentAPI 包装后
@@ -35,6 +35,9 @@ function sessionIdFromArgs(args: unknown[]): string | undefined {
 /** PiAdapter：封装 Pi Agent 的注入机制。 */
 export class PiAdapter implements AgentAdapter {
   name = AGENT_PI;
+  /** Phase term-P4.3：保留 Pi API 名 system_prompt/context_message——
+   *  这是 AgentAdapter 映射边界声明（Pi 支持哪些技术注入点）。
+   *  Blueprint 用 session/turn 语义值，Adapter 内部映射到此字段声明的 Pi API 名。 */
   supportedTargets = ["system_prompt", "context_message"];
 
   private ctx: AgentContext | null = null;
@@ -52,7 +55,7 @@ export class PiAdapter implements AgentAdapter {
     this.ctx = ctx;
     this.blueprint = blueprint;
     this.domains = domains;
-    this.segment = renderSystemPrompt(ctx, blueprint);
+    this.segment = renderSessionPrompt(ctx, blueprint);
   }
 
   /** 清除当前 session 的 context；保留当前 runtime 的 handler 绑定。
@@ -76,7 +79,7 @@ export class PiAdapter implements AgentAdapter {
     this.ctx = ctx;
     this.blueprint = blueprint;
     this.domains = domains;
-    this.segment = renderSystemPrompt(ctx, blueprint);
+    this.segment = renderSessionPrompt(ctx, blueprint);
 
     if (this.injectedApi === api) {
       api.log?.debug("agent:registerInject skipped (already injected)");
@@ -168,7 +171,8 @@ export class PiAdapter implements AgentAdapter {
         if (!this.ctx || !this.blueprint) return { action: "continue" };
         const event = args[0];
         if (!isInputEvent(event)) return { action: "continue" };
-        const result = renderContextMessage(this.ctx, this.blueprint, this.domains, event.text);
+        // Phase term-P4.3：renderContextMessage → renderTurnMessage
+        const result = renderTurnMessage(this.ctx, this.blueprint, this.domains, event.text);
         const durationMs = Date.now() - t0;
         if (result === null) {
           api.log?.debug("agent:input passthrough", {
@@ -206,9 +210,10 @@ export class PiAdapter implements AgentAdapter {
     const flows: Array<{ name: string; hint?: string; domain: string }> = [];
 
     for (const ip of blueprint.injectionPoints) {
-      if (ip.target !== "context_message") continue;
+      // Phase term-P4.3：target 语义值 context_message → turn
+      if (ip.target !== "turn") continue;
       // ip.modules 是 modName 列表（"Manual"）；domains 是 Profile 注入点引用的 Domain 集
-      // 这里用全集 domains 简化——renderContextMessage 也走全集
+      // 这里用全集 domains 简化——renderTurnMessage 也走全集
       for (const d of domains) {
         const manual = d.modules[MOD_MANUAL];
         if (manual === undefined) continue;
