@@ -255,7 +255,7 @@ export function sArr(v: unknown): string[] {
 export function extractFieldValue(section: Section | undefined, key: string): string {
   if (!section) return "";
 
-  // 1. 顶层 list 行：`- target: system_prompt`
+  // 1. 顶层 list 行：`- target: session`
   for (const item of section.items) {
     const v = item.fields[key];
     if (v !== undefined) {
