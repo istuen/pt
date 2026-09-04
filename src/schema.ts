@@ -165,22 +165,6 @@ export interface InjectionPointInstance {
   domains: string[];
 }
 
-// ==================== v9 Compilation（Context 缓存配置） ====================
-
-/** AgentContext 缓存拆分策略。
- *  v11.x：仅 single-file——by-injection-point 拆分是 v9 预留，v10+ 未实现
- *  （原 CacheSplitStrategy = "single-file" | "by-injection-point"，但 by-injection-point
- *  静默 fallback single-file，等于噪音。YAGNI 原则移除该字面量）。 */
-export type CacheSplitStrategy = "single-file";
-
-/** Blueprint 的编译方式配置（## Compilation 段）。 */
-export interface CompilationConfig {
-  /** 缓存目录（默认 .pt/cache/agent-contexts/，Phase term-P1 改名同步）。 */
-  cacheDir: string;
-  /** 拆分策略（默认 single-file）。 */
-  split: CacheSplitStrategy;
-}
-
 // ==================== 内容层：Domain ====================
 
 /**
@@ -215,8 +199,6 @@ export interface Blueprint {
   name: string;
   /** 注入点列表（H2=注入点人类自定义名），定义 target + Modules + mode。 */
   injectionPoints: InjectionPointConfig[];
-  /** 编译方式（缓存目录 + 拆分策略）。Phase term-P4.2 移除——cacheDir 改用 CACHE_DIR 常量。 */
-  compilation: CompilationConfig;
 }
 
 // ==================== 配置层：Profile（v8 Blueprint 业务实例化角色） ====================

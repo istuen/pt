@@ -117,7 +117,8 @@ export async function loadAndTranspile(
   });
 
   // 3. cache：load 命中 → 用缓存（跳过写入），未命中 → save
-  const cached = await loadAgentContext(cwd, ctx.name, ctx.sourceHash, blueprint.compilation);
+  //   Phase term-P4.2：cacheDir 改用 constants.CACHE_DIR 常量，签名删 compilation 参数。
+  const cached = await loadAgentContext(cwd, ctx.name, ctx.sourceHash);
   let used: AgentContext;
   let cacheHit = false;
   if (cached) {
@@ -126,7 +127,7 @@ export async function loadAndTranspile(
     used = cached;
   } else {
     adapterCtx?.log?.info("transpile:cache miss → save", { agentContextName: ctx.name });
-    await saveAgentContext(cwd, ctx, blueprint.compilation);
+    await saveAgentContext(cwd, ctx);
     used = ctx;
   }
 

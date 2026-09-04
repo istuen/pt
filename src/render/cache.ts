@@ -1,9 +1,5 @@
 // src/render/cache.ts — AgentContext 文件读写 + hash 校验
 //
-// Phase 8.5：v8 缓存配置从 Blueprint.Compilation 取（替代 v7 硬编码 .pt/cache/contexts）。
-//   - cacheDir：从 Blueprint.compilation.cacheDir 读
-//   - split：仅支持 "single-file"（v11.x：by-injection-point 预留移除，YAGNI）
-//
 // v9 失效策略：sourceHash = hash(Profile + Blueprint + Domains) 组合。
 // 三者任一变化即失效重编译。
 //
@@ -11,19 +7,20 @@
 //   - 文件后缀 .context.md → .agent-context.md
 //   - saveContext → saveAgentContext / loadContext → loadAgentContext
 //   - serializeContext → serializeAgentContext / deserializeContext → deserializeAgentContext
+//
+// Phase term-P4.2：cacheDir 改用 constants.CACHE_DIR 常量（替代 Blueprint.compilation.cacheDir）。
+//   split 硬编码 single-file（唯一选项，by-injection-point 已 YAGNI 移除）。
+//   签名删 compilation 参数。
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentContext, CompilationConfig } from "../schema.js";
+import { CACHE_DIR } from "../constants.js";
+import type { AgentContext } from "../schema.js";
 
-/** 把 AgentContext IR 序列化并写入 <cacheDir>/<name>.agent-context.md。
+/** 把 AgentContext IR 序列化并写入 <CACHE_DIR>/<name>.agent-context.md。
  *  文件头：source-hash: <hash>（缓存失效依据）。 */
-export async function saveAgentContext(
-  cwd: string,
-  ctx: AgentContext,
-  compilation: CompilationConfig
-): Promise<string> {
-  const dir = join(cwd, compilation.cacheDir);
+export async function saveAgentContext(cwd: string, ctx: AgentContext): Promise<string> {
+  const dir = join(cwd, CACHE_DIR);
   await mkdir(dir, { recursive: true });
 
   // single-file：默认路径（<name>.agent-context.md）
@@ -33,18 +30,16 @@ export async function saveAgentContext(
   return file;
 }
 
-/** 读 <cacheDir>/<name>.agent-context.md 并校验 sourceHash。
+/** 读 <CACHE_DIR>/<name>.agent-context.md 并校验 sourceHash。
  *  - 文件不存在 → 返 null（首次加载）
  *  - 文件存在但 hash 不一致 → 返 null（需重编译覆盖）
  *  - 命中 → 返 AgentContext IR */
 export async function loadAgentContext(
   cwd: string,
   name: string,
-  expectedHash: string,
-  compilation: CompilationConfig
+  expectedHash: string
 ): Promise<AgentContext | null> {
-  // v11.x：单文件路径 <name>.agent-context.md（by-injection-point 拆分移除）
-  const file = join(cwd, compilation.cacheDir, `${name}.agent-context.md`);
+  const file = join(cwd, CACHE_DIR, `${name}.agent-context.md`);
   let raw: string;
   try {
     raw = await readFile(file, "utf8");

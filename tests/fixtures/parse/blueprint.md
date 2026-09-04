@@ -21,8 +21,3 @@ target: context_message
 ### Modules
 
 - Manual
-
-## Compilation
-
-cache-dir: .pt/cache/test/
-split: single-file

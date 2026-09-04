@@ -52,7 +52,6 @@ function makeFixture(marker: string): {
       { name: "system", target: "system_prompt", modules: [] },
       { name: "manual", target: "context_message", modules: [] },
     ],
-    compilation: { cacheDir: ".pt/cache/agent-contexts", split: "single-file" },
   };
   const context: Context = {
     name: marker,

@@ -32,33 +32,25 @@
 // Tech Debt T6: 用 constants + type guard（pt-quality #1/#4/#5）
 
 import { join } from "node:path";
-import { CACHE_DIR, SUFFIX_BLUEPRINT } from "../constants.js";
-import type {
-  Blueprint,
-  CompilationConfig,
-  InjectionPointConfig,
-  StructureLayout,
-} from "../schema.js";
+import { SUFFIX_BLUEPRINT } from "../constants.js";
+import type { Blueprint, InjectionPointConfig, StructureLayout } from "../schema.js";
 import { extractFieldValue, extractModulesList, readAsset, type Section } from "./shared.js";
 
 const VALID_MODES: ReadonlyArray<StructureLayout["mode"]> = ["byDomain", "byType", "hybrid"];
 
-/** 读 blueprints/<fileName>.md → Blueprint { name, injectionPoints, compilation }
+/** 读 blueprints/<fileName>.md → Blueprint { name, injectionPoints }
  *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。
  *  Phase term-P4.1：移除 agent 字段解析（Blueprint Agent-agnostic）。
- *  Phase term-P4.2：移除 compilation 字段解析（用 CACHE_DIR 常量 + 硬编码 single-file）。 */
+ *  Phase term-P4.2：移除 compilation 字段解析——cacheDir 改用 constants.CACHE_DIR 常量；split 硬编码 single-file。 */
 export async function parseBlueprint(absDir: string, fileName: string): Promise<Blueprint> {
   const asset = await readAsset(join(absDir, fileName));
 
-  // injectionPoints：每个非特殊 H2 = 一个注入点定义
+  // injectionPoints：每个 H2 = 一个注入点定义
+  // Phase term-P4.2：不再跳过 ## Compilation 段（该段已不存在于 Blueprint 资产）
   const injectionPoints: InjectionPointConfig[] = [];
   for (const [h2Name, section] of Object.entries(asset.sections)) {
-    if (h2Name === "Compilation") continue;
     injectionPoints.push(parseInjectionPointFromSection(h2Name, section));
   }
-
-  // compilation：## Compilation 段（P4.2 删除）
-  const compilation = parseCompilationFromSection(asset.sections.Compilation);
 
   return {
     name:
@@ -66,7 +58,6 @@ export async function parseBlueprint(absDir: string, fileName: string): Promise<
         ? asset.frontmatter.name
         : stripBlueprintSuffix(asset.name),
     injectionPoints,
-    compilation,
   };
 }
 
@@ -91,18 +82,6 @@ function parseInjectionPointFromSection(h2Name: string, section: Section): Injec
 
 function isValidMode(x: string): x is StructureLayout["mode"] {
   return (VALID_MODES as readonly string[]).includes(x);
-}
-
-/** 解析 ## Compilation 段 → CompilationConfig。 */
-function parseCompilationFromSection(section: Section | undefined): CompilationConfig {
-  if (!section) {
-    return { cacheDir: CACHE_DIR, split: "single-file" };
-  }
-  const cacheDir = extractFieldValue(section, "cache-dir") || CACHE_DIR;
-  // v11.x：split 仅支持 "single-file"——by-injection-point 预留移除（schema.ts CacheSplitStrategy 收紧）
-  // Blueprint YAML 写 split: single-file 仍接受；写其他值 fallback 到 single-file（无静默 warn）
-  const split = "single-file" as const;
-  return { cacheDir, split };
 }
 
 function stripBlueprintSuffix(fileBase: string): string {

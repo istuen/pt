@@ -37,9 +37,7 @@ describe("P2: 引用完整性校验", () => {
     };
     const blueprint: Blueprint = {
       name: "bp1",
-      agent: "pi",
       injectionPoints: [],
-      compilation: { cacheDir: ".pt/cache", split: "single-file" },
     };
     const result = checkProfileRefs(profile, [blueprint], []);
     expect(result.ok).toBe(false);
@@ -55,9 +53,7 @@ describe("P2: 引用完整性校验", () => {
     };
     const blueprint: Blueprint = {
       name: "bp1",
-      agent: "pi",
       injectionPoints: [{ name: "会话知识", target: "system_prompt", modules: ["Scene"] }],
-      compilation: { cacheDir: ".pt/cache", split: "single-file" },
     };
     const result = checkProfileRefs(profile, [blueprint], []);
     expect(result.ok).toBe(false);
@@ -73,9 +69,7 @@ describe("P2: 引用完整性校验", () => {
     };
     const blueprint: Blueprint = {
       name: "bp1",
-      agent: "pi",
       injectionPoints: [{ name: "会话知识", target: "system_prompt", modules: ["Scene"] }],
-      compilation: { cacheDir: ".pt/cache", split: "single-file" },
     };
     const result = checkProfileRefs(profile, [blueprint], []);
     expect(result.ok).toBe(true); // 无错误
@@ -93,12 +87,10 @@ describe("P2: 引用完整性校验", () => {
     };
     const blueprint: Blueprint = {
       name: "bp1",
-      agent: "pi",
       injectionPoints: [
         { name: "会话知识", target: "system_prompt", modules: ["Scene"] },
         { name: "参考手册", target: "context_message", modules: ["Manual"] },
       ],
-      compilation: { cacheDir: ".pt/cache", split: "single-file" },
     };
     const d1 = { name: "d1", type: "term" as const, modules: {} };
     const d2 = { name: "d2", type: "term" as const, modules: {} };

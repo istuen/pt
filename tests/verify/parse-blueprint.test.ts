@@ -1,6 +1,7 @@
 // tests/verify/parse-blueprint.test.ts — parseBlueprint 单元测试（P2.4）
 //
-// v9 Blueprint：H2=注入点（target + mode + Modules），## Compilation 段独立解析。
+// v9 Blueprint：H2=注入点（target + mode + Modules）。
+//   Phase term-P4.2：## Compilation 段已移除（cacheDir 改用 CACHE_DIR 常量）。
 
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ describe("parseBlueprint", () => {
     expect((bp as { agent?: unknown }).agent).toBeUndefined();
   });
 
-  it("H2 段 → injectionPoints（## Compilation 不算注入点）", async () => {
+  it("H2 段 → injectionPoints", async () => {
     const bp = await parseBlueprint(FIXTURE_DIR, "blueprint.md");
     const ipNames = bp.injectionPoints.map((ip) => ip.name).sort();
     expect(ipNames).toEqual(["会话知识", "参考手册"]);
@@ -30,9 +31,8 @@ describe("parseBlueprint", () => {
     expect(sessionIp?.modules).toEqual(["Scene", "Trigger"]);
   });
 
-  it("## Compilation 段 → compilation（cacheDir + split）", async () => {
+  it("Phase term-P4.2：Blueprint 不含 compilation 字段", async () => {
     const bp = await parseBlueprint(FIXTURE_DIR, "blueprint.md");
-    expect(bp.compilation.cacheDir).toBe(".pt/cache/test/");
-    expect(bp.compilation.split).toBe("single-file");
+    expect((bp as { compilation?: unknown }).compilation).toBeUndefined();
   });
 });
