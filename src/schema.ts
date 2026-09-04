@@ -167,7 +167,7 @@ export interface InjectionPointInstance {
 
 // ==================== v9 Compilation（Context 缓存配置） ====================
 
-/** Context 缓存拆分策略。
+/** AgentContext 缓存拆分策略。
  *  v11.x：仅 single-file——by-injection-point 拆分是 v9 预留，v10+ 未实现
  *  （原 CacheSplitStrategy = "single-file" | "by-injection-point"，但 by-injection-point
  *  静默 fallback single-file，等于噪音。YAGNI 原则移除该字面量）。 */
@@ -175,7 +175,7 @@ export type CacheSplitStrategy = "single-file";
 
 /** Blueprint 的编译方式配置（## Compilation 段）。 */
 export interface CompilationConfig {
-  /** 缓存目录（默认 .pt/cache/contexts/）。 */
+  /** 缓存目录（默认 .pt/cache/agent-contexts/，Phase term-P1 改名同步）。 */
   cacheDir: string;
   /** 拆分策略（默认 single-file）。 */
   split: CacheSplitStrategy;
@@ -242,19 +242,19 @@ export interface Profile {
 // ==================== 产物层：Context ====================
 
 /**
- * v9 Context：产物层，Profile 编译输出。
+ * v9 AgentContext（Phase term-P1 前名 Context）：产物层，Profile 编译输出。
  *   - sourceHash：hash(Profile + Blueprint + Domains) 组合——任一变化即失效。
  *   - modules   ：注入点名（语义名）→ 聚合后的 markdown 字符串。
  *
- * Context 是物理文件（.pt/cache/contexts/*.context.md），缓存复用。
- * Pt 读取 Context 时比 sourceHash：一致用缓存，不一致重编译覆盖。
+ * AgentContext 是物理文件（.pt/cache/agent-contexts/*.agent-context.md），缓存复用。
+ * Pt 读取 AgentContext 时比 sourceHash：一致用缓存，不一致重编译覆盖。
  *
  * v9 相对 v8 变化：sourceHash 输入从 (Blueprint + Channel + Domains) 改为 (Profile + Blueprint + Domains)。
  */
-export interface Context {
-  /** Profile 名（Context 跟 Profile 一对一）。 */
+export interface AgentContext {
+  /** Profile 名（AgentContext 跟 Profile 一对一）。 */
   name: string;
-  /** Blueprint 名（Context 来源 Blueprint，缓存标识 + YAML 头）。 */
+  /** Blueprint 名（AgentContext 来源 Blueprint，缓存标识 + YAML 头）。 */
   blueprint: string;
   /** hash(profile + blueprint + domains)，缓存失效依据。 */
   sourceHash: string;
@@ -349,15 +349,15 @@ export interface AgentAdapter {
   /** 该 Agent 支持的技术注入点 target 名（Pi: system_prompt, context_message） */
   supportedTargets: string[];
   /** 设置编译产物（compile 后调） */
-  setContext(ctx: Context, blueprint: Blueprint, domains: Domain[]): void;
-  /** 启动时注册：把 Context 注入到 Agent（session_start 调用） */
-  registerInject(api: AgentAPI, ctx: Context, blueprint: Blueprint, domains?: Domain[]): void;
+  setAgentContext(ctx: AgentContext, blueprint: Blueprint, domains: Domain[]): void;
+  /** 启动时注册：把 AgentContext 注入到 Agent（session_start 调用） */
+  registerInject(api: AgentAPI, ctx: AgentContext, blueprint: Blueprint, domains?: Domain[]): void;
   /** 清理 session 上下文；handler 仍可由当前 Pi runtime 复用。 */
   resetInjection?(): void;
   /** 查询可用手册（/pt flows 命令 + /manual:xxx 触发 共同消费）。
    *
    * 参数语义：
-   *  - `ctx`：当前激活的 Context IR（含缓存 sourceHash / 各注入点 modules 内容）
+   *  - `ctx`：当前激活的 AgentContext IR（含缓存 sourceHash / 各注入点 modules 内容）
    *  - `blueprint`：当前 Profile 引用的 Blueprint（遍历 injectionPoints 找 context_message 注入点）
    *  - `domains`：**Profile 注入点 scope 过滤后的 Domain 集**——非全集
    *    - 由调用方（如 commands.ts flowsText）通过 filterDomainsByProfile 预过滤
@@ -370,7 +370,7 @@ export interface AgentAdapter {
    *
    * 可选方法——Adapter 不实现时 /pt flows 返空。 */
   listManuals?(
-    ctx: Context,
+    ctx: AgentContext,
     blueprint: Blueprint,
     domains: Domain[]
   ): Array<{ name: string; hint?: string; domain: string }>;

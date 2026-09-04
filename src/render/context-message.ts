@@ -13,7 +13,7 @@
 import { MOD_MANUAL } from "../constants.js";
 import { isFlowTemplateArray } from "../compile/type-guards.js";
 import { formatManualBody } from "../compile/format-manual-body.js";
-import type { Blueprint, Context, Domain, FlowStep, FlowTemplate } from "../schema.js";
+import type { AgentContext, Blueprint, Domain, FlowStep, FlowTemplate } from "../schema.js";
 
 /** FlowTemplate + 元数据（adapter 附加的 _vars）。_vars 优先于 argument-hint fallback。 */
 export type BoundableTemplate = FlowTemplate & { _vars?: string[] };
@@ -32,7 +32,7 @@ interface VarSpec {
  *   - /<flow-name> <args>：展开 workflow-Domain 的 FlowTemplate（v8 逻辑保留）
  */
 export function renderContextMessage(
-  _ctx: Context,
+  _ctx: AgentContext,
   blueprint: Blueprint,
   domains: Domain[],
   args: string

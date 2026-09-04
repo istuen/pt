@@ -5,7 +5,7 @@
 //
 // 验证目标：
 //   - 两个 mock ExtensionAPI 各持一份 per-session state，互不污染
-//   - tab B 调 setContext / registerInject 不会覆盖 tab A 的 segment
+//   - tab B 调 setAgentContext / registerInject 不会覆盖 tab A 的 segment
 //   - session_shutdown 精确清本 session，不影响其他 session
 //   - api.log / onInjected 走 per-session state
 
@@ -126,7 +126,7 @@ describe("multi-session isolation（v12.x）", () => {
     expect(adapterB).toBeInstanceOf(PiAdapter);
   });
 
-  it("setContext 覆盖 per-pi 字段不跨 session 串", () => {
+  it("setAgentContext 覆盖 per-pi 字段不跨 session 串", () => {
     const piA = makePi("session-A");
     const piB = makePi("session-B");
     installExtension(piA.pi as never);
@@ -135,7 +135,7 @@ describe("multi-session isolation（v12.x）", () => {
     const adapterA = getAgentAdapter(piA.pi as never, "pi");
     const adapterB = getAgentAdapter(piB.pi as never, "pi");
 
-    // 用真实 fixtures profile+domain 走完整 transpile 路径 → setContext 会写入 sourceHash
+    // 用真实 fixtures profile+domain 走完整 transpile 路径 → setAgentContext 会写入 sourceHash
     // 直接验证私有字段 this.ctx / this.blueprint 隔离（不再依赖 renderSystemPrompt 输出）
     const ctxA = {
       modules: {},
@@ -153,10 +153,10 @@ describe("multi-session isolation（v12.x）", () => {
     } as never;
     const blueprintB = { name: "blueprint-b", injectionPoints: [] } as never;
 
-    // tab A setContext
-    adapterA.setContext(ctxA, blueprintA, []);
-    // tab B setContext（会覆盖自己 adapterB 的字段，但不动 adapterA）
-    adapterB.setContext(ctxB, blueprintB, []);
+    // tab A setAgentContext
+    adapterA.setAgentContext(ctxA, blueprintA, []);
+    // tab B setAgentContext（会覆盖自己 adapterB 的字段，但不动 adapterA）
+    adapterB.setAgentContext(ctxB, blueprintB, []);
 
     // 验证 per-pi 字段隔离（私有字段）
     const aInternal = adapterA as unknown as {
@@ -176,7 +176,7 @@ describe("multi-session isolation（v12.x）", () => {
     expect(bInternal.ctx.sourceHash).toBe("hash-B");
     expect(bInternal.blueprint.name).toBe("blueprint-b");
 
-    // 关键断言：tab B setContext 不影响 adapterA 字段（核心污染问题）
+    // 关键断言：tab B setAgentContext 不影响 adapterA 字段（核心污染问题）
     expect(aInternal.ctx).not.toBe(bInternal.ctx);
     expect(aInternal.blueprint).not.toBe(bInternal.blueprint);
   });
@@ -211,7 +211,7 @@ describe("multi-session isolation（v12.x）", () => {
   it("pt_manual tool 写 activeManual 不跨 session 串（widget / footer / cachedManualProgress 隔离）", async () => {
     // issue module-state-pi-web-multisession 回归断言：
     // tab A 调 pt_manual → tab B 不应显示 tab A 的 widget / footer 后缀 / cachedManualProgress。
-    // 走真实 pt_manual tool 路径（先 /pt-context 加载 profile 让 buildManualDoc 能找到 FlowTemplate）。
+    // 走真实 pt_manual tool 路径（先 /pt-profile 加载 profile 让 buildManualDoc 能找到 FlowTemplate）。
     const tempDirA = await mkdtemp(join(tmpdir(), "pt-multi-manual-a-"));
     tempDirs.push(tempDirA);
     await mkdir(join(tempDirA, ".pt", "manuals"), { recursive: true });
@@ -224,8 +224,8 @@ describe("multi-session isolation（v12.x）", () => {
     // 两个 session 都加载 pt-dev profile（写各自 session state，互不串）
     await piA.events.get("session_start")?.[0]!({ type: "session_start" }, piA.ctx);
     await piB.events.get("session_start")?.[0]!({ type: "session_start" }, piB.ctx);
-    await piA.commands.get("pt-context")!.handler("pt-dev", piA.ctx);
-    await piB.commands.get("pt-context")!.handler("pt-dev", piB.ctx);
+    await piA.commands.get("pt-profile")!.handler("pt-dev", piA.ctx);
+    await piB.commands.get("pt-profile")!.handler("pt-dev", piB.ctx);
 
     // tab A 切到独立 cwd 调 pt_manual（避免写真实仓库）
     piA.ctx.cwd = tempDirA;

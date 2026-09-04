@@ -21,8 +21,8 @@ name: dev-workflow
 - desc: 资产目录，含三个子目录：domains/（Domain md，按 frontmatter.type 分发）+ blueprints/（Blueprint md，结构层——H2=注入点人类自定义名 + agent + injectionPoints + Compilation，跨项目复用）+ profiles/（Profile md，配置层——引用 Blueprint + YAML 全局 domains + 各注入点 ### Domains 追加，项目级）。
 
 ### cache-tree
-- path: .pt/cache/contexts/
-- desc: Context 物理缓存目录（*.context.md，含 source-hash 头；cacheDir 从 Blueprint.compilation.cacheDir 读，默认 .pt/cache/contexts/）
+- path: .pt/cache/agent-contexts/
+- desc: AgentContext 物理缓存目录（*.agent-context.md，含 source-hash 头；cacheDir 从 Blueprint.compilation.cacheDir 读，默认 .pt/cache/agent-contexts/）
 
 ### builtin-assets
 - path: src/builtin/assets/

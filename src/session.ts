@@ -13,7 +13,7 @@
 //   - sessionId：crypto 生成的 8-hex 短 id（多并发 `pi` 进程的日志隔离键）
 //   - logger   ：per-session 单例 PtLogger（替代 per-transpile 实例化）
 //
-// v10.x（issue pt-context-persist-lost 修复）：loadedFrom 记录当前 activeProfile 的来源，
+// v10.x（issue pt-context-persist-lost 修复，现 /pt-profile）：loadedFrom 记录当前 activeProfile 的来源，
 //   用于 /pt status 可观测性 + 排查"为什么没选到我预期的 profile"。
 //
 // v12.x（issue pt-session-singleton-pi-web-pollution 修复）：
@@ -24,7 +24,14 @@
 //     保证 Adapter 实例 per-pi，避免"单例 PiAdapter.this.segment 被其他 session 覆盖"。
 //   - `cachedManualProgress` 从 module-level let 搬到 SessionState 字段。
 
-import type { AgentAdapter, Blueprint, Context, Domain, Profile, SchemaBundle } from "./schema.js";
+import type {
+  AgentAdapter,
+  AgentContext,
+  Blueprint,
+  Domain,
+  Profile,
+  SchemaBundle,
+} from "./schema.js";
 import type { PtLogger } from "./log.js";
 import type { ManualProgress } from "./manual-track.js";
 
@@ -53,7 +60,7 @@ export interface SessionState {
   activeProfile: string | null;
   cachedSegment: string | null;
   cachedBundles: SchemaBundle[] | null;
-  cachedContext: Context | null;
+  cachedAgentContext: AgentContext | null;
   cachedBlueprint: Blueprint | null;
   cachedDomains: Domain[];
   cachedProfile: Profile | null;
@@ -83,7 +90,7 @@ export function createSessionState(): SessionState {
     activeProfile: null,
     cachedSegment: null,
     cachedBundles: null,
-    cachedContext: null,
+    cachedAgentContext: null,
     cachedBlueprint: null,
     cachedDomains: [],
     cachedProfile: null,
