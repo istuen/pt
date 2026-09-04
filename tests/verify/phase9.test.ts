@@ -81,7 +81,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("pt-dev Profile 含开发流程", () => {
       const r = loadedProfiles["pt-dev"].segment;
-      expect(r.includes("deliver-feature") || r.includes("pt-dev-flow")).toBe(true);
+      expect(r.includes("feature-lifecycle") || r.includes("pt-dev-flow")).toBe(true);
     });
 
     it("pt-dev Profile 不含业务", () => {
@@ -440,7 +440,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 19. command + tool 双注册（纯函数内核） ==========
   describe("19. command + tool 双注册（纯函数内核）", () => {
-    // 预热 session——buildManualDoc/flowsText 读 session.cachedBundles（pt-dev 有 deliver-feature 手册）
+    // 预热 session——buildManualDoc/flowsText 读 session.cachedBundles（pt-dev 有 feature-lifecycle 手册）
     beforeAll(async () => {
       const { getSessionById } = await import("../../src/session.js");
       const { resetTestSession, TEST_SESSION_ID } = await import("./session-fixtures.js");
@@ -481,7 +481,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const { s } = await import("./session-fixtures.js");
       const text = flowsText(s());
       expect(text).toContain("可用手册");
-      expect(text).toContain("deliver-feature");
+      expect(text).toContain("feature-lifecycle");
     });
 
     it("buildManualDoc 未找到手册返回 error", async () => {
@@ -494,12 +494,12 @@ describe("Phase 9.9 v9 完整回归", () => {
     it("buildManualDoc 构建实例文档内容", async () => {
       const { buildManualDoc } = await import("../../src/commands.js");
       const { s } = await import("./session-fixtures.js");
-      const doc = buildManualDoc(process.cwd(), s(), "deliver-feature", "req-001");
+      const doc = buildManualDoc(process.cwd(), s(), "feature-lifecycle", "req-001");
       expect(doc.error).toBeUndefined();
-      expect(doc.content).toContain("deliver-feature");
+      expect(doc.content).toContain("feature-lifecycle");
       expect(doc.content).toContain("- [ ]");
       expect(doc.content).toContain("## 产物");
-      expect(doc.filePath).toContain("deliver-feature-");
+      expect(doc.filePath).toContain("feature-lifecycle-");
     });
 
     it("index.ts 注册了 3 个 tool", async () => {

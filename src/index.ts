@@ -573,14 +573,15 @@ export default function (pi: ExtensionAPI): void {
     name: "pt_manual",
     label: "Pt Manual",
     description:
-      "Create a manual instance document (.pt/manuals/<procedure>-<ts>.md) with checklist + artifact log. Use when starting a multi-step procedure like deliver-feature. Returns the file path.",
+      "Create a manual instance document (.pt/manuals/<procedure>-<ts>.md) with checklist + artifact log. Use when starting a multi-step procedure like feature-lifecycle. Returns the file path.",
     promptSnippet: "Instantiate a Pt manual document with checklist for tracking",
     promptGuidelines: [
-      "Use pt_manual when starting a multi-step procedure (e.g., deliver-feature, resolve-issue, regression-verify) to get a persistent checklist + artifact log.",
+      "Use pt_manual when starting a multi-step procedure (e.g., feature-lifecycle, issue-lifecycle, regression-verify) to get a persistent checklist + artifact log.",
     ],
     parameters: Type.Object({
       procedure: Type.String({
-        description: "FlowTemplate name, e.g. deliver-feature, resolve-issue, regression-verify",
+        description:
+          "FlowTemplate name, e.g. feature-lifecycle, issue-lifecycle, regression-verify",
       }),
       args: Type.Optional(
         Type.String({

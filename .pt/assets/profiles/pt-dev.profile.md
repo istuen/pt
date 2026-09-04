@@ -1,7 +1,7 @@
 ---
 name: pt-dev
 blueprint: dev-knowledge
-domains: [me, product-design, requirements, development, asset-workflow, testing, deployment, ci-cd, pt-quality, pt-collab, issues]
+domains: [me, product-design, dev-workflow, issue-workflow, testing-workflow, release-workflow, asset-workflow, deployment, pt-quality, pt-collab]
 ---
 
 # pt-dev (profile)

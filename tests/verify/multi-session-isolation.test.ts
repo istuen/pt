@@ -232,7 +232,7 @@ describe("multi-session isolation（v12.x）", () => {
     const ptManualTool = piA.tools.get("pt_manual")!;
     await ptManualTool.execute(
       "call-a",
-      { procedure: "deliver-feature", args: "tab-a" },
+      { procedure: "feature-lifecycle", args: "tab-a" },
       undefined,
       undefined,
       piA.ctx
@@ -241,7 +241,7 @@ describe("multi-session isolation（v12.x）", () => {
     // tab A：activeManual 已设 + widget 已 set
     const sA = getSessionById("session-A");
     expect(sA.activeManual).not.toBeNull();
-    expect(sA.activeManual?.procedure).toBe("deliver-feature");
+    expect(sA.activeManual?.procedure).toBe("feature-lifecycle");
     expect(sA.activeManual?.args).toBe("tab-a");
     expect(piA.widgetCalls.some(([k]) => k === "pt-manual")).toBe(true);
 
