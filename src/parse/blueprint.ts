@@ -43,12 +43,12 @@ import { extractFieldValue, extractModulesList, readAsset, type Section } from "
 
 const VALID_MODES: ReadonlyArray<StructureLayout["mode"]> = ["byDomain", "byType", "hybrid"];
 
-/** 读 blueprints/<fileName>.md → Blueprint { name, agent, injectionPoints, compilation }
- *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。 */
+/** 读 blueprints/<fileName>.md → Blueprint { name, injectionPoints, compilation }
+ *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。
+ *  Phase term-P4.1：移除 agent 字段解析（Blueprint Agent-agnostic）。
+ *  Phase term-P4.2：移除 compilation 字段解析（用 CACHE_DIR 常量 + 硬编码 single-file）。 */
 export async function parseBlueprint(absDir: string, fileName: string): Promise<Blueprint> {
   const asset = await readAsset(join(absDir, fileName));
-
-  const agent = typeof asset.frontmatter.agent === "string" ? asset.frontmatter.agent : "pi";
 
   // injectionPoints：每个非特殊 H2 = 一个注入点定义
   const injectionPoints: InjectionPointConfig[] = [];
@@ -57,7 +57,7 @@ export async function parseBlueprint(absDir: string, fileName: string): Promise<
     injectionPoints.push(parseInjectionPointFromSection(h2Name, section));
   }
 
-  // compilation：## Compilation 段
+  // compilation：## Compilation 段（P4.2 删除）
   const compilation = parseCompilationFromSection(asset.sections.Compilation);
 
   return {
@@ -65,7 +65,6 @@ export async function parseBlueprint(absDir: string, fileName: string): Promise<
       typeof asset.frontmatter.name === "string"
         ? asset.frontmatter.name
         : stripBlueprintSuffix(asset.name),
-    agent,
     injectionPoints,
     compilation,
   };

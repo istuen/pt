@@ -203,19 +203,19 @@ export interface Domain {
 
 /**
  * v9 Blueprint：Agent 端注入点结构，结构层模块。
- *   - agent：声明用哪个 AgentAdapter（默认 "pi"）。
+ *   - （Phase term-P4.1）移除 agent 字段：Blueprint 应 Agent-agnostic，agent 是运行时选择不是结构定义。
+ *     消费方 fallback 硬编码 "pi"（见 src/index.ts transpileActive）；等第二个 Adapter（OpenCodeAdapter）
+ *     落实后改 transpile(profile, agent) 编译维度参数（§11 实现节奏）。
+ *   - compilation：编译方式（缓存目录 + 拆分策略）。P4.2 将移除。
  *   - injectionPoints：注入点列表（H2=注入点人类自定义名），定义 target + Modules 聚合点 + mode。
- *   - compilation：编译方式（缓存目录 + 拆分策略）。
  *
  * 跨项目复用。加新 Agent 只加 AgentAdapter；加新注入点 = Blueprint 加 H2 + ### Modules。
  */
 export interface Blueprint {
   name: string;
-  /** 声明用哪个 AgentAdapter（默认 "pi"）。 */
-  agent: string;
   /** 注入点列表（H2=注入点人类自定义名），定义 target + Modules + mode。 */
   injectionPoints: InjectionPointConfig[];
-  /** 编译方式（缓存目录 + 拆分策略）。 */
+  /** 编译方式（缓存目录 + 拆分策略）。Phase term-P4.2 移除——cacheDir 改用 CACHE_DIR 常量。 */
   compilation: CompilationConfig;
 }
 

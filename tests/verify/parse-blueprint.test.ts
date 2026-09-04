@@ -9,10 +9,11 @@ import { parseBlueprint } from "../../src/parse/blueprint.js";
 const FIXTURE_DIR = join(process.cwd(), "tests/fixtures/parse");
 
 describe("parseBlueprint", () => {
-  it("frontmatter: name=test-blueprint, agent=pi", async () => {
+  it("frontmatter: name=test-blueprint（Phase term-P4.1：agent 字段移除）", async () => {
     const bp = await parseBlueprint(FIXTURE_DIR, "blueprint.md");
     expect(bp.name).toBe("test-blueprint");
-    expect(bp.agent).toBe("pi");
+    // Phase term-P4.1：Blueprint.agent 字段移除，BP 应无 agent 字段
+    expect((bp as { agent?: unknown }).agent).toBeUndefined();
   });
 
   it("H2 段 → injectionPoints（## Compilation 不算注入点）", async () => {

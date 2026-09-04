@@ -361,6 +361,7 @@ function inferKindFromFrontmatter(fm: Record<string, unknown>): AssetKind | unde
     }
   }
   if (typeof fm.blueprint === "string") return "profile";
-  if (typeof fm.agent === "string") return "blueprint";
+  // Phase term-P4.1：删除 fm.agent 判断（Blueprint.agent 字段移除；推理代码也清理）。
+  // 实际资产加载按目录路由（src/parse/index.ts loadAllBlueprints），此推断函数本身已无人调用——保留仅作历史兼容。
   return undefined;
 }

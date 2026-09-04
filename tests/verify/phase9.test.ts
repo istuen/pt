@@ -236,9 +236,11 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 10. IR 结构 ==========
   describe("10. IR 结构", () => {
-    it("Blueprint 含 agent 字段", async () => {
+    it("Blueprint 不含 agent 字段（Phase term-P4.1：Blueprint Agent-agnostic）", async () => {
       const src = await readFile("src/schema.ts", "utf8");
-      expect(src).toMatch(/interface Blueprint[\s\S]*?agent:\s*string/);
+      // Phase term-P4.1：Blueprint.agent 字段移除，消费方硬编码 "pi"。
+      const codeWithoutComments = src.replace(/\/\/.*$/gm, "");
+      expect(codeWithoutComments).not.toMatch(/interface Blueprint[\s\S]*?agent:\s*string/);
     });
     it("Profile 含 blueprint + domains 字段", async () => {
       const src = await readFile("src/schema.ts", "utf8");
@@ -479,7 +481,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       sessionState.cachedProfile = r.profile;
       sessionState.cachedSegment = r.segment;
       sessionState.activeProfile = "pt-dev";
-      const adapter = getAgentAdapter({} as never, r.blueprint.agent);
+      const adapter = getAgentAdapter({} as never, "pi");
       sessionState.activeAdapter = adapter;
       adapter.setAgentContext(r.agentContext, r.blueprint, r.domains);
     });
