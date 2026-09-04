@@ -124,6 +124,14 @@ export interface ToolRef {
   operations?: string[];
 }
 
+/** Phase term-P9.2：验收清单（Domain.## Checklists 段内容）。
+ *  与 Rule[] 不同：Checklist 只列条目，不带 slot/type/check——是“待验证项列表”。
+ *  Renderer：``### name\\n- item1\\n- item2``。 */
+export interface Checklist {
+  name: string;
+  items: string[];
+}
+
 // ==================== 结构层原子 ====================
 
 /** 编排策略。InjectionPointConfig.mode 决定段落拼接顺序。 */

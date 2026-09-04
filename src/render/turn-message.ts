@@ -14,9 +14,8 @@
 // Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
 // Tech Debt T2: 用 constants 模块名常量（pt-quality #5）
 
-import { MOD_MANUAL } from "../constants.js";
-import { isFlowTemplateArray } from "../compile/type-guards.js";
-import { formatManualBody } from "../compile/format-manual-body.js";
+import { MOD_CHECKLISTS, MOD_FLOWS, MOD_RULES } from "../constants.js";
+import { isChecklistArray, isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
 import type { AgentContext, Blueprint, Domain, FlowStep, FlowTemplate } from "../schema.js";
 
 /** FlowTemplate + 元数据（adapter 附加的 _vars）。_vars 优先于 argument-hint fallback。 */
@@ -48,13 +47,13 @@ export function renderTurnMessage(
   const [, name, rest] = m;
 
   // /manual:<domain-name> 触发（v9 新增）—— name 可能是 "manual:pt-quality"
+  // Phase term-P9.2：Domain 不再有单一 Manual 段，而是 Rules/Flows/Checklists 三选一。
+  //   顺序遍历找第一个非空段，返回对应渲染。
   if (name.startsWith("manual:")) {
     const domainName = name.slice("manual:".length).trim();
     const d = domains.find((x) => x.name === domainName);
     if (!d) return null;
-    const manual = d.modules[MOD_MANUAL];
-    if (manual === undefined) return null;
-    return renderDomainManual(d, manual);
+    return renderDomainManual(d);
   }
 
   // /manual <domain-name> 触发——空格分隔形式
@@ -62,9 +61,7 @@ export function renderTurnMessage(
     const domainName = rest.trim();
     const d = domains.find((x) => x.name === domainName);
     if (!d) return null;
-    const manual = d.modules[MOD_MANUAL];
-    if (manual === undefined) return null;
-    return renderDomainManual(d, manual);
+    return renderDomainManual(d);
   }
 
   // /<flow-name> <args> 触发（v8 逻辑保留）
@@ -74,17 +71,54 @@ export function renderTurnMessage(
 }
 
 /**
- * 渲染 Domain 的 Manual 段内容（term→Rule checklist / workflow→FlowTemplate 列表）。
- *  P3.6：列表渲染逻辑抽到 formatManualBody（与 renderManualModule 共享）。 */
-function renderDomainManual(d: Domain, content: unknown): string | null {
-  if (d.type !== "term" && d.type !== "workflow") return null;
-  if (Array.isArray(content) && content.length === 0) return null;
+ * 渲染 Domain 的"手册"段内容（Phase term-P9.2：从 Manual 拆三段）。
+ *  - Rules → Rule checklist（"## 规范清单"）
+ *  - Flows → FlowTemplate 列表（"## 可用手册"）
+ *  - Checklists → Checklist 列表（"## 验收清单"）
+ *  优先级：Flows > Rules > Checklists（workhorse 最常被查）。
+ *  返回 null 表示该 Domain 没有任何手册段。 */
+function renderDomainManual(d: Domain): string | null {
+  const flows = d.modules[MOD_FLOWS];
+  if (isFlowTemplateArray(flows)) {
+    const lines: string[] = [];
+    for (const t of flows) {
+      const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
+      lines.push(`- ${t.name}${hint}: ${t.intent}`);
+    }
+    if (lines.length > 0) {
+      return `# /manual:${d.name}\n\n## 可用手册\n\n${lines.join("\n")}`.trimEnd();
+    }
+  }
 
-  const body = formatManualBody(d, content);
-  if (!body) return null;
+  const rules = d.modules[MOD_RULES];
+  if (isRuleArray(rules)) {
+    const lines: string[] = [];
+    for (const r of rules) {
+      if (r.type === "invariant") {
+        if (r.check) lines.push(`- ${r.name}: ${r.check}`);
+        else lines.push(`- ${r.name}`);
+      } else if (r.type === "ban" && r.items && r.items.length > 0) {
+        if (r.check) lines.push(`- ${r.name}: ${r.check} (${r.items.join(" / ")})`);
+        else lines.push(`- ${r.name}: ${r.items.join(" / ")}`);
+      }
+    }
+    if (lines.length > 0) {
+      return `# /manual:${d.name}\n\n## 规范清单\n\n${lines.join("\n")}`.trimEnd();
+    }
+  }
 
-  const sectionTitle = d.type === "workflow" ? "## 可用手册" : "## 规范清单";
-  return `# /manual:${d.name}\n\n${sectionTitle}\n\n${body}`.trimEnd();
+  const checklists = d.modules[MOD_CHECKLISTS];
+  if (isChecklistArray(checklists)) {
+    const sections: string[] = [];
+    for (const cl of checklists) {
+      sections.push(`### ${cl.name}\n${cl.items.map((i) => `- ${i}`).join("\n")}`);
+    }
+    if (sections.length > 0) {
+      return `# /manual:${d.name}\n\n## 验收清单\n\n${sections.join("\n\n")}`.trimEnd();
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -175,10 +209,10 @@ export function findFlowInBlueprint(
   if (!hasTurnIp) return undefined;
 
   for (const d of domains) {
-    if (d.type !== "workflow") continue;
-    const manual = d.modules[MOD_MANUAL];
-    if (!isFlowTemplateArray(manual)) continue;
-    const hit = manual.find((t) => t.name === tplName);
+    // Phase term-P9.2：FlowTemplate 在 ## Flows 段（不分 type）。
+    const flows = d.modules[MOD_FLOWS];
+    if (!isFlowTemplateArray(flows)) continue;
+    const hit = flows.find((t) => t.name === tplName);
     if (hit) {
       const bt: BoundableTemplate = { ...hit };
       // P2.1：v9 BoundableTemplate = FlowTemplate & { _vars? }，vars 字段 spread 不会产生

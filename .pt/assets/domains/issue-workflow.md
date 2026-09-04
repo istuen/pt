@@ -21,7 +21,7 @@ name: issue-workflow
 ### issue-lifecycle
 - desc: issue 生命周期：open（记录）→ in-progress（有人认领排查）→ resolved（已修复 + 验证）→ closed。resolved 时 body 补"修复 commit + 验证方式"段，不删文件（保留历史可追溯）。wontfix 时 body 补"不修理由"。
 
-## Manual
+## Flows
 
 ### issue-lifecycle
 - argument-hint: <issue-name>

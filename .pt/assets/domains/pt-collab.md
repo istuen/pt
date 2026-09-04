@@ -29,7 +29,7 @@ name: pt-collab
 ### baseline-reversibility
 - desc: 每个 Phase 前 git baseline 可回退；搞砸了 git revert，不修不凑
 
-## Manual
+## Checklists
 
 ### dispatch-task-checklist
 - items: [必读段已指明文档位置, 设计原则含"必须守住"的约束, 步骤含验收标准, 边界纪律含"不自行发挥", baseline 可回退]

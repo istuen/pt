@@ -53,7 +53,56 @@ const domainSectionRenderers: Record<string, Record<string, DomainSectionParser>
         return ref;
       }),
   },
-  // H2="Manual"
+  // Phase term-P9.2：从 Manual 拆出三个 H2 段（Rules / Flows / Checklists）。
+  //   本步保留 type 键（P9.3 才删）；新加 Rules/Flows/Checklists 的 type 分支与 Manual 同语义。
+  // H2="Rules"（term 类型 Rule[]，原 Manual.term 逻辑）
+  Rules: {
+    term: (items) =>
+      items.map((it) => {
+        const itemsArr = sArr(it.fields.items);
+        const check =
+          s(it.fields.check) ||
+          s(it.fields.desc) ||
+          s(it.fields.value) ||
+          s(it.fields.description) ||
+          "";
+        if (itemsArr.length > 0) {
+          return { name: it.name, slot: "global", type: "ban", check, items: itemsArr };
+        }
+        return { name: it.name, slot: "global", type: "invariant", check };
+      }),
+    workflow: () => [],
+    stack: () => [],
+  },
+  // H2="Flows"（workflow 类型 FlowTemplate[]，原 Manual.workflow 逻辑）
+  Flows: {
+    term: () => [],
+    workflow: (items, sectionRaw) =>
+      items.map((item) => {
+        const tpl: Record<string, unknown> = {
+          name: item.name,
+          argumentHint: s(item.fields["argument-hint"]) || undefined,
+          intent: s(item.fields.intent),
+          steps: collectSteps(item.name, sectionRaw),
+          externals: [],
+        };
+        const vars = sArr(item.fields.vars);
+        if (vars.length > 0) tpl._vars = vars;
+        return tpl;
+      }),
+    stack: () => [],
+  },
+  // H2="Checklists"（term 类型 Checklist[]）
+  Checklists: {
+    term: (items) =>
+      items.map((it) => ({
+        name: it.name,
+        items: sArr(it.fields.items),
+      })),
+    workflow: () => [],
+    stack: () => [],
+  },
+  // H2="Manual" 保留（向后兼容已存在资产；P9.3 删——届时 Rules/Flows/Checklists 取代）
   Manual: {
     term: (items) =>
       items.map((it) => {

@@ -37,7 +37,7 @@ name: dev-workflow
 ### feasibility-axis
 - desc: 可行性分析三轴：技术（架构 / 依赖 / 兼容性）/ 资源（人力 / 时间 / 工具）/ 风险（数据丢失 / 回滚难度 / 用户影响）。任一轴红 → 改方案；不强行推进。
 
-## Manual
+## Flows
 
 ### feature-lifecycle
 - argument-hint: <requirement-id>

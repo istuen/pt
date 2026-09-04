@@ -24,7 +24,7 @@ name: testing-workflow
 ### regression-baseline
 - desc: 回归基线：tests/verify/phase9.test.ts（v9 四层结构断言）+ tests/verify/flows.test.ts（手册触发断言）。基线变更必须更新断言 + commit。发版前全量回归不只跑 verify，还要查残留（as 断言/console.error/路径字面量散落）。
 
-## Manual
+## Flows
 
 ### add-test-for-change
 - argument-hint: <changed-file>
