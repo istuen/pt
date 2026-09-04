@@ -34,7 +34,7 @@ describe("P0: observe 字段", () => {
     const r = await loadAndTranspile(process.cwd(), "pt-dev");
     s().cachedBundles = r.bundles;
     s().cachedBlueprint = r.blueprint;
-    s().cachedContext = r.context;
+    s().cachedAgentContext = r.agentContext;
 
     const doc = buildManualDoc(process.cwd(), s(), "issue-lifecycle", "test-issue");
     expect(doc.error).toBeUndefined();

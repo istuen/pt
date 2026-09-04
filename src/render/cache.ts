@@ -1,4 +1,4 @@
-// src/render/cache.ts — Context 文件读写 + hash 校验
+// src/render/cache.ts — AgentContext 文件读写 + hash 校验
 //
 // Phase 8.5：v8 缓存配置从 Blueprint.Compilation 取（替代 v7 硬编码 .pt/cache/contexts）。
 //   - cacheDir：从 Blueprint.compilation.cacheDir 读
@@ -6,47 +6,52 @@
 //
 // v9 失效策略：sourceHash = hash(Profile + Blueprint + Domains) 组合。
 // 三者任一变化即失效重编译。
+//
+// Phase term-P1：Context IR → AgentContext 改名同步——
+//   - 文件后缀 .context.md → .agent-context.md
+//   - saveContext → saveAgentContext / loadContext → loadAgentContext
+//   - serializeContext → serializeAgentContext / deserializeContext → deserializeAgentContext
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CompilationConfig, Context } from "../schema.js";
+import type { AgentContext, CompilationConfig } from "../schema.js";
 
-/** 把 Context IR 序列化并写入 <cacheDir>/<name>.context.md。
+/** 把 AgentContext IR 序列化并写入 <cacheDir>/<name>.agent-context.md。
  *  文件头：source-hash: <hash>（缓存失效依据）。 */
-export async function saveContext(
+export async function saveAgentContext(
   cwd: string,
-  ctx: Context,
+  ctx: AgentContext,
   compilation: CompilationConfig
 ): Promise<string> {
   const dir = join(cwd, compilation.cacheDir);
   await mkdir(dir, { recursive: true });
 
-  // single-file：默认路径（<name>.context.md）
-  const file = join(dir, `${ctx.name}.context.md`);
-  const body = serializeContext(ctx);
+  // single-file：默认路径（<name>.agent-context.md）
+  const file = join(dir, `${ctx.name}.agent-context.md`);
+  const body = serializeAgentContext(ctx);
   await writeFile(file, body, "utf8");
   return file;
 }
 
-/** 读 <cacheDir>/<name>.context.md 并校验 sourceHash。
+/** 读 <cacheDir>/<name>.agent-context.md 并校验 sourceHash。
  *  - 文件不存在 → 返 null（首次加载）
  *  - 文件存在但 hash 不一致 → 返 null（需重编译覆盖）
- *  - 命中 → 返 Context IR */
-export async function loadContext(
+ *  - 命中 → 返 AgentContext IR */
+export async function loadAgentContext(
   cwd: string,
   name: string,
   expectedHash: string,
   compilation: CompilationConfig
-): Promise<Context | null> {
-  // v11.x：单文件路径 <name>.context.md（by-injection-point 拆分移除）
-  const file = join(cwd, compilation.cacheDir, `${name}.context.md`);
+): Promise<AgentContext | null> {
+  // v11.x：单文件路径 <name>.agent-context.md（by-injection-point 拆分移除）
+  const file = join(cwd, compilation.cacheDir, `${name}.agent-context.md`);
   let raw: string;
   try {
     raw = await readFile(file, "utf8");
   } catch {
     return null;
   }
-  const ctx = deserializeContext(name, raw);
+  const ctx = deserializeAgentContext(name, raw);
   if (!ctx) return null;
   if (ctx.sourceHash !== expectedHash) return null; // 失效，需重编译
   return ctx;
@@ -54,8 +59,8 @@ export async function loadContext(
 
 // ==================== 序列化/反序列化 ====================
 
-/** Context IR → 文件内容（含 sourceHash 头）。 */
-function serializeContext(ctx: Context): string {
+/** AgentContext IR → 文件内容（含 sourceHash 头）。 */
+function serializeAgentContext(ctx: AgentContext): string {
   const lines: string[] = [];
   lines.push("---");
   lines.push(`source-hash: ${ctx.sourceHash}`);
@@ -72,8 +77,8 @@ function serializeContext(ctx: Context): string {
   return lines.join("\n").trimEnd();
 }
 
-/** 文件内容 → Context IR。返 null 表示格式损坏。 */
-function deserializeContext(name: string, raw: string): Context | null {
+/** 文件内容 → AgentContext IR。返 null 表示格式损坏。 */
+function deserializeAgentContext(name: string, raw: string): AgentContext | null {
   const fmMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!fmMatch) return null;
   const fm: Record<string, string> = {};

@@ -1,11 +1,14 @@
-// tests/verify/compile-context.test.ts — compileContext + computeSourceHash 单元测试（P2.5）
+// tests/verify/compile-agent-context.test.ts — compileAgentContext + computeSourceHash 单元测试（P2.5）
 //
-// v9 Context IR = { name, blueprint, sourceHash, modules: Record<注入点名, markdown 字符串> }
+// v9 AgentContext IR = { name, blueprint, sourceHash, modules: Record<注入点名, markdown 字符串> }
 //  - 遍历 Blueprint.injectionPoints，按 modName 注册表聚合 Profile 同名 InjectionPointInstance 追加的 Domain H2 段
 //  - sourceHash = hash(profile + blueprint + domains)，缓存失效依据
+//
+// Phase term-P1：compile-context.test.ts → compile-agent-context.test.ts
+//   同步改名 compileContext → compileAgentContext（IR 改名）。
 
 import { describe, it, expect } from "vitest";
-import { compileContext, computeSourceHash } from "../../src/compile/context.js";
+import { compileAgentContext, computeSourceHash } from "../../src/compile/agent-context.js";
 import type { Blueprint, Domain, Profile } from "../../src/schema.js";
 
 function makeProfile(overrides?: Partial<Profile>): Profile {
@@ -39,12 +42,12 @@ function makeDomain(overrides?: Partial<Domain>): Domain {
   };
 }
 
-describe("compileContext", () => {
-  it("返回 Context 基础字段：name / blueprint / sourceHash", () => {
+describe("compileAgentContext", () => {
+  it("返回 AgentContext 基础字段：name / blueprint / sourceHash", () => {
     const p = makeProfile();
     const bp = makeBlueprint();
     const ds = [makeDomain()];
-    const ctx = compileContext(p, bp, ds);
+    const ctx = compileAgentContext(p, bp, ds);
     expect(ctx.name).toBe("test-profile");
     expect(ctx.blueprint).toBe("test-blueprint");
     // sourceHash = simpleHash(FNV-1a 32-bit hex) + "-" + payload.length hex
@@ -55,7 +58,7 @@ describe("compileContext", () => {
     const p = makeProfile({ domains: ["d1"] });
     const bp = makeBlueprint();
     const ds = [makeDomain({ modules: { Scene: [{ name: "t1", desc: "term 1" }] } })];
-    const ctx = compileContext(p, bp, ds);
+    const ctx = compileAgentContext(p, bp, ds);
     expect(ctx.modules.会话知识).toContain("t1");
     expect(ctx.modules.会话知识).toContain("term 1");
   });
@@ -73,12 +76,12 @@ describe("compileContext", () => {
         modules: { Scene: [{ name: "t2", desc: "term 2" }] },
       }),
     ];
-    const ctx = compileContext(p, bp, ds);
+    const ctx = compileAgentContext(p, bp, ds);
     expect(ctx.modules.会话知识).toContain("t2");
     expect(ctx.modules.会话知识).not.toContain("t1"); // d1 不在追加列表
   });
 
-  it("Blueprint 未声明的注入点不在 Context.modules 中", () => {
+  it("Blueprint 未声明的注入点不在 AgentContext.modules 中", () => {
     const p = makeProfile({
       injectionPoints: [
         { name: "会话知识", domains: [] },
@@ -86,7 +89,7 @@ describe("compileContext", () => {
       ],
     });
     const bp = makeBlueprint();
-    const ctx = compileContext(p, bp, [makeDomain()]);
+    const ctx = compileAgentContext(p, bp, [makeDomain()]);
     expect(ctx.modules.会话知识).toBeDefined();
     expect(ctx.modules.未声明注入点).toBeUndefined();
   });
@@ -171,7 +174,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
         },
       }),
     ];
-    const ctx = compileContext(makeProfile(), makeBlueprint(), ds);
+    const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
     expect(ctx.modules.会话知识).toContain("（字段：必读/设计原则/步骤）");
   });
 
@@ -189,7 +192,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
         },
       }),
     ];
-    const ctx = compileContext(makeProfile(), makeBlueprint(), ds);
+    const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
     expect(ctx.modules.会话知识).toContain(" — 每个硬指标都要有独立验证方式");
   });
 
@@ -208,7 +211,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
         },
       }),
     ];
-    const ctx = compileContext(makeProfile(), makeBlueprint(), ds);
+    const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
     // 顺序：name: desc（字段：a/b） — note
     const out = ctx.modules.会话知识;
     expect(out).toContain("（字段：a/b）");
@@ -222,7 +225,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
         modules: { Scene: [{ name: "plain", desc: "just desc" }] },
       }),
     ];
-    const ctx = compileContext(makeProfile(), makeBlueprint(), ds);
+    const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
     expect(ctx.modules.会话知识).toContain("- plain: just desc");
     // 不应出现 fields/note 追加
     expect(ctx.modules.会话知识).not.toContain("（字段：");

@@ -52,7 +52,7 @@ function makeFixture(marker: string): {
       { name: "system", target: "system_prompt", modules: [] },
       { name: "manual", target: "context_message", modules: [] },
     ],
-    compilation: { cacheDir: ".pt/cache/contexts", split: "single-file" },
+    compilation: { cacheDir: ".pt/cache/agent-contexts", split: "single-file" },
   };
   const context: Context = {
     name: marker,
@@ -98,12 +98,12 @@ describe("manual profile switch and injection", () => {
     const first = makeFixture("A");
     const second = makeFixture("B");
 
-    adapter.setContext(first.context, first.blueprint, first.domains);
+    adapter.setAgentContext(first.context, first.blueprint, first.domains);
     adapter.registerInject(api, first.context, first.blueprint, first.domains);
     const beforeHandler = handlers.get("before_agent_start")?.[0];
     const inputHandler = handlers.get("input")?.[0];
 
-    adapter.setContext(second.context, second.blueprint, second.domains);
+    adapter.setAgentContext(second.context, second.blueprint, second.domains);
     adapter.registerInject(api, second.context, second.blueprint, second.domains);
 
     expect(handlers.get("before_agent_start")).toHaveLength(1);
@@ -129,7 +129,7 @@ describe("manual profile switch and injection", () => {
     const { api, handlers } = makeApi();
     const adapter = new PiAdapter();
     const first = makeFixture("A");
-    adapter.setContext(first.context, first.blueprint, first.domains);
+    adapter.setAgentContext(first.context, first.blueprint, first.domains);
     adapter.registerInject(api, first.context, first.blueprint, first.domains);
     const beforeHandler = handlers.get("before_agent_start")?.[0];
 
@@ -178,7 +178,7 @@ describe("manual profile switch and injection", () => {
     await sessionStart({ type: "session_start" }, ctx);
     expect(events.get("before_agent_start")).toBeUndefined();
 
-    const switchCommand = commands.get("pt-context")!;
+    const switchCommand = commands.get("pt-profile")!;
     await switchCommand.handler("pt-dev", ctx);
     const beforeHandler = events.get("before_agent_start")?.[0];
     const firstSegment = s().cachedSegment;

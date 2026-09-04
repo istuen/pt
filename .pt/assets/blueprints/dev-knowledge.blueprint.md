@@ -18,5 +18,5 @@ target: context_message
 - Manual
 
 ## Compilation
-cache-dir: .pt/cache/contexts/
+cache-dir: .pt/cache/agent-contexts/
 split: single-file

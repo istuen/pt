@@ -25,4 +25,4 @@ name: asset-workflow
 - desc: 改完资产后必跑 `npm run verify`（全测试通过）+ `tsc --noEmit`；失败则修到过，不跳过不绕过
 
 ### cache-invalidation
-- desc: 资产改动后删 .pt/cache/contexts/*.context.md 强制重编译；sourceHash = hash(Profile + Blueprint + Domains)，资产变了 hash 自然不同，cache miss 自动重编译
+- desc: 资产改动后删 .pt/cache/agent-contexts/*.agent-context.md 强制重编译；sourceHash = hash(Profile + Blueprint + Domains)，资产变了 hash 自然不同，cache miss 自动重编译

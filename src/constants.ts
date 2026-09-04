@@ -35,8 +35,9 @@ export const BLUEPRINTS_DIR = `${ASSETS_DIR}/blueprints`;
 /** Profile md 目录（v9 配置层——blueprint + domains + injectionPoints） */
 export const PROFILES_DIR = `${ASSETS_DIR}/profiles`;
 
-/** Context 物理缓存目录（Blueprint.compilation.cacheDir 默认值） */
-export const CACHE_DIR = ".pt/cache/contexts";
+/** AgentContext 物理缓存目录（Blueprint.compilation.cacheDir 默认值）。
+ *  Phase term-P1：.pt/cache/contexts → .pt/cache/agent-contexts（Context IR 改名 AgentContext 同步）。 */
+export const CACHE_DIR = ".pt/cache/agent-contexts";
 
 /** /pt raw 输出目录（segment dump） */
 export const RAW_DIR = ".pt/cache/raws";

@@ -50,5 +50,5 @@ name: issue-workflow
 - step: 手动验证现象消失 — 按排查方法段复现，确认不再触发
 - step: 更新 issue 文档 — status 改 resolved；body 末尾加"## 修复"段：commit hash + 验证方式 + 修复日期
 - step: 检查关联 issue — 若本 issue 阻塞其他 issue，更新它们的关联段
-- step: 删 .pt/cache/contexts/pt-dev.context.md（让 resolved 状态重编译）
+- step: 删 .pt/cache/agent-contexts/pt-dev.agent-context.md（让 resolved 状态重编译）
 - step: git commit "Resolve {{issue-name}}: 修复说明"

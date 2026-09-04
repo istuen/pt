@@ -20,7 +20,7 @@ import { AGENT_PI, MOD_MANUAL } from "../constants.js";
 import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
 import { renderInjectionFooter } from "../injection-status.js";
 import { getSessionById } from "../session.js";
-import type { AgentAdapter, AgentAPI, Blueprint, Context, Domain } from "../schema.js";
+import type { AgentAdapter, AgentAPI, AgentContext, Blueprint, Domain } from "../schema.js";
 import { renderContextMessage } from "../render/context-message.js";
 import { renderSystemPrompt } from "../render/system-prompt.js";
 
@@ -37,7 +37,7 @@ export class PiAdapter implements AgentAdapter {
   name = AGENT_PI;
   supportedTargets = ["system_prompt", "context_message"];
 
-  private ctx: Context | null = null;
+  private ctx: AgentContext | null = null;
   private blueprint: Blueprint | null = null;
   private domains: Domain[] = [];
   private segment: string | null = null;
@@ -48,7 +48,7 @@ export class PiAdapter implements AgentAdapter {
 
   /** 设置编译产物（transpile 后调）。v12.x：per-pi 实例字段——本 session 的 segment
    *  不会被其他 session 覆盖。 */
-  setContext(ctx: Context, blueprint: Blueprint, domains: Domain[]): void {
+  setAgentContext(ctx: AgentContext, blueprint: Blueprint, domains: Domain[]): void {
     this.ctx = ctx;
     this.blueprint = blueprint;
     this.domains = domains;
@@ -64,10 +64,10 @@ export class PiAdapter implements AgentAdapter {
     this.segment = null;
   }
 
-  /** 启动时注册：把 Context 注入到 Agent。 */
+  /** 启动时注册：把 AgentContext 注入到 Agent。 */
   registerInject(
     api: AgentAPI,
-    ctx: Context,
+    ctx: AgentContext,
     blueprint: Blueprint,
     domains: Domain[] = this.domains
   ): void {
@@ -199,7 +199,7 @@ export class PiAdapter implements AgentAdapter {
   /** 查询可用手册（/pt flows 用）。
    *  v9：遍历 Blueprint 的 context_message 注入点 → 引用 Domain → 找 FlowTemplate + term 的 Manual Rule。 */
   listManuals(
-    _ctx: Context,
+    _ctx: AgentContext,
     blueprint: Blueprint,
     domains: Domain[]
   ): Array<{ name: string; hint?: string; domain: string }> {

@@ -3,26 +3,31 @@
 // Phase 9.7：v9 链路——Profile 用户面 + Blueprint 结构层 + AgentAdapter 注入。
 //   parse(profile md) → IR (SchemaBundle with profiles)
 //     ↓
-//   findProfile → findBlueprint → compileContext(profile, blueprint, domains) → Context IR
+//   findProfile → findBlueprint → compileAgentContext(profile, blueprint, domains) → AgentContext IR
 //     ↓
-//   cache.load? 命中 → 用缓存 : cache.save(Context) → 重编译
+//   cache.load? 命中 → 用缓存 : cache.save(AgentContext) → 重编译
 //     ↓
-//   render.systemPrompt(Context, Blueprint) → 给 AgentAdapter 注入 before_agent_start
+//   render.systemPrompt(AgentContext, Blueprint) → 给 AgentAdapter 注入 before_agent_start
 //
 // Phase 11.x / P1：单源线性（YAGNI 多源合并）——取第一个成功的 adapter。
 //   旧版多 bundle 循环 + 5 个 lastXxx 累积已删（P1.1）。bundles 仍返 [bundle]
 //   保留 SchemaBundle[] 形态（index.ts:786 r.bundles[0] 依赖）。无成功 bundle
 //   抛错（P1.2）由 index.ts:286 catch 兜底。
+//
+// Phase term-P1：Context IR → AgentContext 改名同步——
+//   - compileContext → compileAgentContext
+//   - saveContext/loadContext → saveAgentContext/loadAgentContext
+//   - TranspileResult.context → TranspileResult.agentContext（字段改名）
 
 import { errMsg, reportError, reportWarn } from "./diagnostics.js";
 import { mdAdapter } from "./parse/index.js";
-import { compileContext } from "./compile/context.js";
-import { saveContext, loadContext } from "./render/cache.js";
+import { compileAgentContext } from "./compile/agent-context.js";
+import { saveAgentContext, loadAgentContext } from "./render/cache.js";
 import { renderSystemPrompt } from "./render/system-prompt.js";
 import { findBlueprint, findProfile } from "./schema.js";
 import type {
+  AgentContext,
   Blueprint,
-  Context,
   Domain,
   Profile,
   SchemaBundle,
@@ -37,8 +42,8 @@ export interface TranspileResult {
   bundles: SchemaBundle[];
   /** 缓存命中信息 */
   cacheHit: boolean;
-  /** v9 新增（给 AgentAdapter 用） */
-  context: Context;
+  /** v9 新增（给 AgentAdapter 用）。Phase term-P1：context → agentContext（IR 改名同步）。 */
+  agentContext: AgentContext;
   blueprint: Blueprint;
   domains: Domain[];
   /** 当前激活的 Profile 名 */
@@ -104,7 +109,7 @@ export async function loadAndTranspile(
       `transpile: blueprint "${profile.blueprint}" not found for profile "${profile.name}"`
     );
   }
-  const ctx = compileContext(profile, blueprint, bundle.domains);
+  const ctx = compileAgentContext(profile, blueprint, bundle.domains);
   adapterCtx?.log?.debug("transpile:compile done", {
     profileName: profile.name,
     sourceHashPrefix: ctx.sourceHash.slice(0, 8),
@@ -112,16 +117,16 @@ export async function loadAndTranspile(
   });
 
   // 3. cache：load 命中 → 用缓存（跳过写入），未命中 → save
-  const cached = await loadContext(cwd, ctx.name, ctx.sourceHash, blueprint.compilation);
-  let used: Context;
+  const cached = await loadAgentContext(cwd, ctx.name, ctx.sourceHash, blueprint.compilation);
+  let used: AgentContext;
   let cacheHit = false;
   if (cached) {
     cacheHit = true;
-    adapterCtx?.log?.info("transpile:cache hit", { contextName: ctx.name });
+    adapterCtx?.log?.info("transpile:cache hit", { agentContextName: ctx.name });
     used = cached;
   } else {
-    adapterCtx?.log?.info("transpile:cache miss → save", { contextName: ctx.name });
-    await saveContext(cwd, ctx, blueprint.compilation);
+    adapterCtx?.log?.info("transpile:cache miss → save", { agentContextName: ctx.name });
+    await saveAgentContext(cwd, ctx, blueprint.compilation);
     used = ctx;
   }
 
@@ -140,7 +145,7 @@ export async function loadAndTranspile(
     segment,
     bundles: [bundle],
     cacheHit,
-    context: used,
+    agentContext: used,
     blueprint,
     domains: bundle.domains,
     activeProfile: profile.name,

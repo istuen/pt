@@ -1,8 +1,11 @@
-// src/compile/context.ts — 中端：Profile + Blueprint + Domains → Context IR
+// src/compile/agent-context.ts — 中端：Profile + Blueprint + Domains → AgentContext IR
 //
 // Phase 9.4：v9 中端重写。
 //   - 输入：profile（v9 配置：blueprint + domains + injectionPoints）+ blueprint（v9 结构：injectionPoints + compilation）+ domains[]
-//   - 输出：Context IR（v9 产物层）—— modules: Record<注入点名, 聚合后 markdown>
+//   - 输出：AgentContext IR（v9 产物层）—— modules: Record<注入点名, 聚合后 markdown>
+//
+// Phase term-P1：Context IR 改名 AgentContext（避免与 Pi 的 context_message 撞名，加入 Agent 概念族）。
+//   文件同步改名 src/compile/context.ts → src/compile/agent-context.ts。
 //
 // v9 编译流程：
 //   遍历 Blueprint.injectionPoints：
@@ -21,8 +24,8 @@
 
 import { MOD_MANUAL, MOD_SCENE, MOD_TRIGGER } from "../constants.js";
 import type {
+  AgentContext,
   Blueprint,
-  Context as ContextIR,
   Domain,
   InjectionPointConfig,
   InjectionPointInstance,
@@ -38,19 +41,21 @@ import {
 } from "./type-guards.js";
 import { formatManualBody } from "./format-manual-body.js";
 
-// ==================== Context 编译入口 ====================
+// ==================== AgentContext 编译入口 ====================
 
 /**
- * 编译 Profile 为 Context IR（v9）。
+ * 编译 Profile 为 AgentContext IR（v9）。
  * - 遍历 Blueprint.injectionPoints
  * - 每个注入点找 Profile 同名 InjectionPointInstance
  * - 按 modName 注册表聚合（dispatchInjectionPoint）
+ *
+ * Phase term-P1：函数名 compileContext → compileAgentContext（IR 改名同步）。
  */
-export function compileContext(
+export function compileAgentContext(
   profile: Profile,
   blueprint: Blueprint,
   domains: Domain[]
-): ContextIR {
+): AgentContext {
   // 1. 按 Domain 名建立索引
   const domainByName = new Map(domains.map((d) => [d.name, d]));
 
