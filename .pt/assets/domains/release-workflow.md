@@ -1,14 +1,14 @@
 ---
 type: workflow
-name: ci-cd
+name: release-workflow
 ---
 
-# ci-cd
+# release-workflow
 
 ## Trigger
-### ci-cd-trigger
-- desc: 搭建/改 CI-CD 流水线时参考；含 CI workflow / Release workflow / npm 包字段 / 发布内容验证 / 发版与回滚自动化
-- hint: /manual:ci-cd 查看完整流水线配置
+### release-workflow-trigger
+- desc: 发版时参考；含 CI workflow / Release workflow / npm 包字段 / 发布内容验证 / 发版与回滚自动化
+- hint: /manual:release-workflow 查看完整流水线配置
 
 ## Scene
 
@@ -34,7 +34,7 @@ name: ci-cd
 - desc: NPM_TOKEN 用 npm automation token（非 publish token——automation 不被 2FA 流程阻塞）；GitHub 仓库 Settings → Secrets and variables → Actions → New repository secret；release.yml 用 ${{ secrets.NPM_TOKEN }} 注入 NODE_AUTH_TOKEN。
 
 ### deployment-relationship
-- desc: 与 deployment.md 互补——deployment 是发版策略层（版本策略/发布渠道/回滚策略，手动 release manual 作 CI 不可用时的 fallback）；ci-cd 是自动化实现层（workflow 文件/字段/secrets/触发模型）。主路径走 ci-cd#release-flow 自动化。
+- desc: 与 deployment.md 互补——deployment 是发版策略层（版本策略/发布渠道/回滚策略，手动 release manual 作 CI 不可用时的 fallback）；release-workflow 是自动化实现层（workflow 文件/字段/secrets/触发模型）。主路径走 release-workflow#release 自动化。
 
 ## Manual
 

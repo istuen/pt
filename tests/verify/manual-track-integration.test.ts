@@ -128,7 +128,7 @@ describe("manual track 集成", () => {
     if (!ptManualTool) throw new Error("pt_manual tool not registered");
     const result = (await ptManualTool.execute(
       "call-1",
-      { procedure: "deliver-feature", args: "manual-track-test" },
+      { procedure: "feature-lifecycle", args: "manual-track-test" },
       undefined,
       undefined,
       m.ctx
@@ -136,11 +136,11 @@ describe("manual track 集成", () => {
 
     expect(result).toBeDefined();
     expect(result.details).toBeDefined();
-    expect(result.details.path).toMatch(/deliver-feature-\d+\.md$/);
+    expect(result.details.path).toMatch(/feature-lifecycle-\d+\.md$/);
 
     // 1. s().activeManual 已设
     expect(s().activeManual).not.toBeNull();
-    expect(s().activeManual?.procedure).toBe("deliver-feature");
+    expect(s().activeManual?.procedure).toBe("feature-lifecycle");
     expect(s().activeManual?.args).toBe("manual-track-test");
 
     // 2. widget 已 set（aboveEditor）
@@ -153,12 +153,12 @@ describe("manual track 集成", () => {
     // 3. appendEntry 已调（pt:active-manual）
     const manualEntries = m.appendedEntries.filter(([t]) => t === "pt:active-manual");
     expect(manualEntries.length).toBe(1);
-    expect((manualEntries[0]?.[1] as { procedure: string }).procedure).toBe("deliver-feature");
+    expect((manualEntries[0]?.[1] as { procedure: string }).procedure).toBe("feature-lifecycle");
 
-    // 4. footer 已 setStatus（含 "manual: deliver-feature" 后缀）
+    // 4. footer 已 setStatus（含 "manual: feature-lifecycle" 后缀）
     const lastStatus = m.statusCalls[m.statusCalls.length - 1]!;
     expect(lastStatus[0]).toBe("pt");
-    expect(lastStatus[1]).toContain("manual: deliver-feature");
+    expect(lastStatus[1]).toContain("manual: feature-lifecycle");
   });
 
   it("session_shutdown → resetSession 清空 activeManual + injectionState", async () => {
@@ -314,9 +314,9 @@ status: completed
     m.appendedEntries.length = 0;
 
     const ptCmd = m.commands.get("pt")!;
-    await ptCmd.handler("manual deliver-feature cmd-test", m.ctx);
+    await ptCmd.handler("manual feature-lifecycle cmd-test", m.ctx);
 
-    expect(s().activeManual?.procedure).toBe("deliver-feature");
+    expect(s().activeManual?.procedure).toBe("feature-lifecycle");
     expect(s().activeManual?.args).toBe("cmd-test");
 
     const widgetSetCalls = m.widgetCalls.filter(([k]) => k === "pt-manual");

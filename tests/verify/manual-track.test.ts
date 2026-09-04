@@ -21,32 +21,32 @@ const FIX = join(process.cwd(), "tests/fixtures/manuals");
 describe("parseManualProgressFromContent（纯函数）", () => {
   it("标准 in-progress 文件：done=2, total=6, nextStep=第三个未完成", () => {
     const content = `---
-procedure: deliver-feature
+procedure: feature-lifecycle
 domain: development
 created: 2026-09-02T09:36:46.251Z
 status: in-progress
 args: p1-verify
 ---
-# deliver-feature 实例
-- [x] plan-implementation p1-verify — 规划路径
+# feature-lifecycle 实例
+- [x] feature-lifecycle p1-verify — 规划路径
 - [x] 按计划走 modify-* — 每步一个 commit
-- [ ] 每个改动文件走 testing#add-test-for-change — 补回归测试
-- [ ] testing#regression-verify — 全量回归
-- [ ] testing#regression-verify — 全量回归（含发版就绪检查）
-- [ ] ci-cd#release <version>
+- [ ] 每个改动文件走 testing-workflow#add-test-for-change — 补回归测试
+- [ ] testing-workflow#regression-verify — 全量回归
+- [ ] testing-workflow#regression-verify — 全量回归（含发版就绪检查）
+- [ ] release-workflow#release <version>
 `;
     const p = parseManualProgressFromContent(content);
     expect(p).not.toBeNull();
-    expect(p?.procedure).toBe("deliver-feature");
+    expect(p?.procedure).toBe("feature-lifecycle");
     expect(p?.status).toBe("in-progress");
     expect(p?.stepDone).toBe(2);
     expect(p?.stepTotal).toBe(6);
-    expect(p?.nextStep).toBe("每个改动文件走 testing#add-test-for-change — 补回归测试");
+    expect(p?.nextStep).toBe("每个改动文件走 testing-workflow#add-test-for-change — 补回归测试");
   });
 
   it("completed 文件：done=total, nextStep=null", () => {
     const content = `---
-procedure: deliver-feature
+procedure: feature-lifecycle
 status: completed
 ---
 - [x] step1
@@ -90,7 +90,7 @@ status: in-progress
 describe("parseManualProgress（文件 IO）", () => {
   it("in-progress fixture：done=2 total=6", async () => {
     const p = await parseManualProgress(join(FIX, "in-progress.md"));
-    expect(p?.procedure).toBe("deliver-feature");
+    expect(p?.procedure).toBe("feature-lifecycle");
     expect(p?.status).toBe("in-progress");
     expect(p?.stepDone).toBe(2);
     expect(p?.stepTotal).toBe(6);
@@ -119,65 +119,65 @@ describe("parseManualProgress（文件 IO）", () => {
 describe("renderManualWidgetLines", () => {
   it("in-progress：3 行 + next 行", () => {
     const lines = renderManualWidgetLines("/x.md", {
-      procedure: "deliver-feature",
+      procedure: "feature-lifecycle",
       stepDone: 3,
       stepTotal: 6,
       status: "in-progress",
       nextStep: "step4 — 接下来",
     });
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toBe("pt ▶ deliver-feature  step 3/6  (in-progress)");
+    expect(lines[0]).toBe("pt ▶ feature-lifecycle  step 3/6  (in-progress)");
     expect(lines[1]).toBe("  next: step4 — 接下来");
     expect(lines[2]).toBe("  file: /x.md");
   });
 
   it("completed：✓ done + 不显示 next 行", () => {
     const lines = renderManualWidgetLines("/x.md", {
-      procedure: "deliver-feature",
+      procedure: "feature-lifecycle",
       stepDone: 4,
       stepTotal: 4,
       status: "completed",
       nextStep: null,
     });
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toBe("pt ▶ deliver-feature  step 4/4  ✓ done");
+    expect(lines[0]).toBe("pt ▶ feature-lifecycle  step 4/4  ✓ done");
     expect(lines[1]).toBe("  file: /x.md");
   });
 
   it("in-progress + nextStep=null：不显示 next 行", () => {
     const lines = renderManualWidgetLines("/x.md", {
-      procedure: "deliver-feature",
+      procedure: "feature-lifecycle",
       stepDone: 5,
       stepTotal: 5,
       status: "in-progress",
       nextStep: null,
     });
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toBe("pt ▶ deliver-feature  step 5/5  (in-progress)");
+    expect(lines[0]).toBe("pt ▶ feature-lifecycle  step 5/5  (in-progress)");
   });
 });
 
 describe("renderManualFooterSuffix", () => {
   it("in-progress → '· manual: <procedure> <done>/<total>'", () => {
     const s = renderManualFooterSuffix({
-      procedure: "deliver-feature",
+      procedure: "feature-lifecycle",
       stepDone: 3,
       stepTotal: 6,
       status: "in-progress",
       nextStep: null,
     });
-    expect(s).toBe("· manual: deliver-feature 3/6");
+    expect(s).toBe("· manual: feature-lifecycle 3/6");
   });
 
   it("completed → '· manual: <procedure> done'", () => {
     const s = renderManualFooterSuffix({
-      procedure: "deliver-feature",
+      procedure: "feature-lifecycle",
       stepDone: 4,
       stepTotal: 4,
       status: "completed",
       nextStep: null,
     });
-    expect(s).toBe("· manual: deliver-feature done");
+    expect(s).toBe("· manual: feature-lifecycle done");
   });
 });
 
