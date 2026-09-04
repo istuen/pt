@@ -198,23 +198,36 @@ npm run verify                   # 仍全过（dev 形态不受影响）
 
 ---
 
-## 完成判定（全部满足）
+## 完成判定（全部满足）— 已落地（commits 2026-09-03 ~ 09-04）
 
 ### P3
-- [ ] `formatManualBody(d, content)` 公共函数存在，被 3 处 switch 调用
-- [ ] `grep -rn "switch (d.type)" src/compile src/render` = 0
-- [ ] `readStderr` 只在 `src/verify/_helpers.ts` 定义
-- [ ] `listManuals` JSDoc 含 domains 参数语义
+- [x] `formatManualBody(d, content)` 公共函数存在，被 3 处 switch 调用（`9ddc237 refactor: P3.6 extract formatManualBody (Manual 段渲染共享)`）
+- [⚠️] `grep -rn "switch (d.type)" src/compile src/render` = 0 — **仅剩 `src/compile/context.ts:163` 1 处**（`renderSceneModule` 内，按 d.type 分支 term/workflow/stack）；P3.6 抽的是 Manual 段格式（workflow/term/... Rule 列表），不适用于 Scene 段（term 列表 vs workflow externals vs stack 空）。这是**简报承诺与实际执行的偏差**——P3.6 范围覆盖 manual 模块（2 处），scene 模块不在内。Scene switch 内容不重复（每 case 输出不同形态），抽 formatSceneBody 也可独立推进，但 P3.1+3.6 没覆盖。
+- [x] `readStderr` 只在 `src/verify/_helpers.ts` 定义 — 实际抽到 `src/verify/read-stderr.ts`（`aa52931`）；与 `_helpers.ts` 等价，文件命名从约定
+- [x] `listManuals` JSDoc 含 domains 参数语义（`11bf2ad docs: P3.7 listManuals JSDoc 详细化`）
 
 ### P4
-- [ ] `tsconfig.build.json` 存在
-- [ ] `package.json.files` = `["dist"]`
-- [ ] `package.json.main` = `"./dist/index.js"`
-- [ ] `package.json.types` = `"./dist/index.d.ts"`
-- [ ] `package.json.pi.extensions` = `["./dist/index.js"]`
-- [ ] `npm run build` 产出 `dist/index.js` + `dist/index.d.ts` + `dist/builtin/assets/*.md`
-- [ ] `npm run verify` 全过（dev + dist 形态）
-- [ ] 162 tests passed（不退步）
+- [x] `tsconfig.build.json` 存在
+- [x] `package.json.files` = `["dist"]`（HEAD `9493f1e` 复核）
+- [x] `package.json.main` = `"./dist/index.js"`
+- [x] `package.json.types` = `"./dist/index.d.ts"`
+- [x] `package.json.pi.extensions` = `["./dist/index.js"]`（含 dist 形态）
+- [x] `npm run build` 产出 `dist/index.js` + `dist/index.d.ts` + `dist/builtin/assets/*.md`（HEAD `9493f1e` 复核：`dist/index.js` / `dist/index.d.ts` / `dist/builtin/assets/{blueprints,domains,profiles}/` 齐全）
+- [x] `npm run verify` 全过（dev + dist 形态，176/176）
+- [x] **176 tests passed**（HEAD `9493f1e` 复核；超 162 目标 +14，含 P3+P4 增量 + v12.x per-session state 回归）
+
+**Commit 拆分**（8 commit + 1 brief = 9 commit）：
+- `aa52931` P3.5 readStderr
+- `9ddc237` P3.6 formatManualBody（Manual 段）
+- `11bf2ad` P3.7 listManuals JSDoc
+- `d8e1221` P4.1+P4.2+P4.3（P4 build config: tsc typecheck + tsup emit + builtin 资产复制）
+- `42a03e5` trim 31→9 project Manual H3（顺带优化，非 P3 必做）
+- 体检 `dd2186d`/`c780ccd`/`5b31dd7`/`dd8a326`（H1/H2/H3/H5，按 pt-health-fix brief 执行）
+
+**决策点处置**（按简报 §⚠️ P3 决策点）：
+- **P3.2 by-injection-point**：选 (c) 不动 → 体检 H5 后续走 (a) 移除字面量（`dd8a326`），保留类型选项兼容、注释说明历史
+- **P3.3 yaml 库**：选 (b) 不动（YAGNI，当前资产都是简单 key:value）
+- **P3.4 AssetKind 历史值**：选 (b) 不动（防御性兼容）
 
 ---
 

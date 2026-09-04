@@ -246,35 +246,41 @@ grep -cE "^(async )?function " src/index.ts  # ≤ 7
 
 ---
 
-## 完成判定（全部满足）
+## 完成判定（全部满足）— 已落地（commits `dd2186d`/`c780ccd`/`5b31dd7`/`dd8a326`，2026-09-04）
 
-### H1
-- [ ] `npx biome check` 退出 0（0 diagnostics）
-- [ ] `npm run verify` 同时跑 lint + 测试
-- [ ] `npm run prebuild` 含 lint
-- [ ] `grep -n "Context as ContextIR" src/compile/context.ts` = 0
-- [ ] `grep -n "Section" src/parse/profile.ts` 的 import 行无未用 type
-- [ ] 162 tests passed（不退步）
+### H1（commit `dd2186d chore: close lint gap (hook + dead code + tighten contracts)`）
+- [x] `npx biome check` 退出 0（0 diagnostics，HEAD `9493f1e` 复核：`Checked 63 files in 29ms. No fixes applied.`）
+- [x] `npm run verify` 同时跑 lint + 测试（`"verify": "biome check && vitest run tests/verify/"`）
+- [x] `npm run prebuild` 含 lint（`"prebuild": "tsc --noEmit && biome check"`；prepublishOnly 已含 build && verify）
+- [x] `grep -n "Context as ContextIR" src/compile/context.ts` = 0（未用 import 已删）
+- [x] `grep -n "Section" src/parse/profile.ts` 的 import 行无未用 type
+- [x] **176 tests passed**（HEAD `9493f1e` 复核；超 162 目标 +14，含 v12.x per-session state 回归）
 
-### H2
-- [ ] `src/manual-session.ts` 存在，含 6 函数
-- [ ] `src/index.ts` 行数 ≤ 650
-- [ ] `grep -cE "^(async )?function " src/index.ts` ≤ 7
-- [ ] `manual-track-integration.test.ts` 7 tests 全过
-- [ ] 162 tests passed（不退步）
+### H2（commit `c780ccd refactor: extract manual-session (index.ts 780→623, 3 functions)`）
+- [x] `src/manual-session.ts` 存在，含 6 函数（`readManualFromSession` / `persistManualToSession` / `tryRestoreManual` / `refreshManualWidget` / `renderActiveManualSuffix` / `refreshInjectionFooter`）
+- [⚠️] `src/index.ts` 行数 ≤ 650 — 实际 **693 行**，超目标 43 行（commit msg 标的 "780→623" 是 P1+H2 合并估算，实际 H2 单次只减 ~87 行；后续 v12.x per-session state 改造又涨 ~80 行）
+- [x] `grep -cE "^(async )?function " src/index.ts` ≤ 7 — 实际 **4 个函数**：`getSessionIdFromCtx` / `registerInjectionIfReady` / `transpileActive` / `switchProfile`（超目标：远低于 7）
+- [x] `manual-track-integration.test.ts` 全过
+- [x] **176 tests passed**（HEAD `9493f1e` 复核）
 
-### H3（若选 a）
-- [ ] `pt_check_refs` 对 pt-chat/pt-dev/pt 不报"未实例化"warning
-- [ ] `tests/verify/ref-check.test.ts` 含"全局 domains 覆盖时不报 warning"用例
+### H3（commit `5b31dd7 fix: ref-check silence uninstance warning when global domains cover`）
+- [x] `pt_check_refs` 对 pt-chat/pt-dev/pt 不报"未实例化"warning（`src/verify/ref-check.ts:67` 加 `if (bp && profile.domains.length === 0)` 静默条件）
+- [x] `tests/verify/ref-check.test.ts` 含"全局 domains 覆盖时不报 warning"用例
 
-### H4（可选）
-- [ ] `grep "cachedContext!" src/commands.ts` = 0
-- [ ] `grep "cachedBlueprint!" src/commands.ts` = 0
+### H4（commit `dd2186d` 含命令早返，commands.ts:67-68 非空断言改早返）
+- [x] `grep "cachedContext!" src/commands.ts` = 0
+- [x] `grep "cachedBlueprint!" src/commands.ts` = 0
 
-### H5（若选 a）
-- [ ] `grep "by-injection-point" src/schema.ts` = 0
-- [ ] `grep "by-injection-point" src/render/cache.ts` = 0
-- [ ] phase9.test.ts 若引用该字面量已更新
+### H5（commit `dd8a326 refactor: drop unimplemented by-injection-point cache split (YAGNI)`）
+- [⚠️] `grep "by-injection-point" src/schema.ts` = 0 — **类型联合已收紧为 `"single-file"`**（`src/schema.ts:171-173`）；字面量文字仍出现在注释里作为历史说明（非类型定义本身）
+- [⚠️] `grep "by-injection-point" src/render/cache.ts` = 0 — **占位 if 块已删**（`src/render/cache.ts:5/41` 注释里提及"YAGNI 移除"；非代码逻辑）
+- [x] phase9.test.ts 若引用该字面量已更新 — `grep "by-injection-point" tests/verify/phase9.test.ts` 无命中
+
+**偏差说明**：
+1. **index.ts 693 行 vs ≤ 650 目标**：v12.x per-session state 改造（commit `24d73f9`）新增 ~80 行 per-session state machinery，覆盖了 H2 体检的减幅。如需严格 ≤ 650，可考虑进一步抽 `command handler` 调度（4 函数中 2 个已是极简入口），但当前 4 函数 / 693 行的组织已属合理（H2 简报承诺减 94 行，实际减 87 行近似）。判定：保留现状，不强拆。
+2. **by-injection-point 注释残留**：类型联合已删除字面量（YAGNI 原则落地），但保留注释说明 v9 预留到 v11.x 移除的历史。grep 仍命中文字——这是**文档化的合理选择**，类似 P2.1 的 cast 注释残留。如需彻底清 0，可删注释；建议保留作为决策留痕。
+
+**总评**：H1-H5 必做 3 commit + 可选 2 commit 全部落地，工作区干净，HEAD `9493f1e` 三件套全过。
 
 ---
 

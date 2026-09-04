@@ -215,18 +215,23 @@ npm run lint        # 0 error
 
 ---
 
-## 完成判定（全部满足）
+## 完成判定（全部满足）— 已落地（commits `972c303`/`c10c6ee`/`8fa38ca`/`8ffbcb7`/`4918b6d`，2026-09-03）
 
-- [ ] `grep -rn "as unknown as" src/render/context-message.ts src/commands.ts src/index.ts` = 0（或仅 P2 范围外的合规 cast）
-- [ ] `grep -rn "as { name" src/commands.ts` = 0
-- [ ] `grep -rn "function isFlowTemplateLike" src/commands.ts` 引用次数 ≥ 1
-- [ ] `tests/verify/parse-*.test.ts` 3 文件存在
-- [ ] `tests/verify/compile-context.test.ts` 存在
-- [ ] `tests/verify/render-cache.test.ts` 存在
-- [ ] `tests/verify/log.test.ts` 存在
-- [ ] 真实 `as` 问题数 ≤ 2（应 = 0）
-- [ ] 测试用例数 ≥ 124（应 +12 ~ +20）
-- [ ] typecheck 0 output
-- [ ] verify 全过
-- [ ] lint 0 error
-- [ ] 5 commit 按序落地
+- [⚠️] `grep -rn "as unknown as" src/render/context-message.ts src/commands.ts src/index.ts` = 0 — **真实 cast 已清零**；仅 `context-message.ts:178` 注释里引用了原双重 cast 的废弃说明（`// 原双重 cast (bt as unknown as { vars?: unknown }).vars 永远 undefined（dead code）`）—— 这是 P2.1 删 cast 时留的历史注释，非真实代码 cast
+- [x] `grep -rn "as { name" src/commands.ts` = 0（P2.2 改用 `isFlowTemplateLike`）
+- [x] `grep -rn "function isFlowTemplateLike" src/commands.ts` 引用次数 ≥ 1（type guard 已收窄 manual.some 回调）
+- [x] `tests/verify/parse-*.test.ts` 3 文件存在（`parse-domain.test.ts` / `parse-blueprint.test.ts` / `parse-profile.test.ts`）
+- [x] `tests/verify/compile-context.test.ts` 存在（P2.5）
+- [x] `tests/verify/render-cache.test.ts` 存在（P2.6，含 round-trip + 命中/降级/损坏）
+- [x] `tests/verify/log.test.ts` 存在（P2.7，含 PtLogger write/tail/clear）
+- [x] 真实 `as` 问题数 = **0**（commit `972c303` 5 cast → 0；type-guards.ts / api-bridge.ts / profile-persist.ts 内的 `as { name?: unknown }` 是合规 type guard 实现，判定为合规 cast，不计入）
+- [x] 测试用例数 **176 passed**（HEAD `9493f1e` 复核；超 124 目标 +52，含 P2 +12~20 + P3 +8 + v12.x +回归）
+- [x] typecheck 0 output（HEAD `9493f1e` 复核）
+- [x] verify 全过（176/176）
+- [x] lint 0 error（HEAD `9493f1e` 复核）
+- [x] 5 commit 按序落地：`972c303`（P2.1+P2.2+P2.3 cast 清理）→ `c10c6ee`（P2.4）→ `8fa38ca`（P2.5）→ `8ffbcb7`（P2.6）→ `4918b6d`（P2.7）
+
+**偏差说明**：
+1. **context-message.ts:178 注释残留**：P2.1 删双重 cast 时保留了一行说明注释（标注"原双重 cast 永远 undefined dead code"）。这是文档化的合理选择——保留删除痕迹供后续读者理解。grep 仍命中文字但语义上 cast 已清除。如需彻底清 0，可再删注释行（建议保留作为设计决策留痕）。
+
+**Pi 事件本地接口**：P2.3 在 `src/index.ts` 顶部定义 `PiTurnEndEvent` / `PiToolCallEvent` / `PiToolResultEvent`，3 处双重 cast 替换为单 cast + 本地接口。验证：`grep -n "interface PiTurnEndEvent\|interface PiToolCallEvent\|interface PiToolResultEvent" src/index.ts` 命中。

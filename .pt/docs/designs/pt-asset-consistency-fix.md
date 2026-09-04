@@ -265,18 +265,26 @@ git commit -m "docs: backfill CHANGELOG with v10.x/v11.x fixes"
 
 ---
 
-## 3. 验收标准（全部完成后）
+## 3. 验收标准（全部完成后）— 已落地（commits `b67440b`/`ba2f2a1` + A2 build + `a7c7f7d`，2026-09-04）
 
-| 维度 | 标准 | 校验命令 |
-|---|---|---|
-| 类型安全 | `tsc --noEmit` 0 错 | `npm run typecheck` |
-| 回归测试 | 全过（≥170，A1 新增 2） | `npm run verify` |
-| Lint | 0 error | `npm run lint` |
-| B1 悬空引用 | 无 | `grep -rn "collaboration.md" .pt/assets/` 无输出 |
-| A1 字段保留 | context 含 fields/note | `grep "字段：" .pt/cache/contexts/pt-dev.context.md` 命中 |
-| A2 dist 同步 | dist 含静默条件 + tool 报 0 警告 | `grep "domains.length" dist/verify/ref-check.js` 命中；重启 pi 后 `pt_check_refs` 无警告 |
-| CHANGELOG | 含 v10.x/v11.x 修复子节 | 读 `.pt/docs/CHANGELOG.md` |
-| 工作区 | 干净 | `git status` 无 untracked / modified |
+| 维度 | 标准 | 校验命令 | HEAD `9493f1e` 实际 |
+|---|---|---|---|
+| 类型安全 | `tsc --noEmit` 0 错 | `npm run typecheck` | ✅ 0 output |
+| 回归测试 | 全过（≥170，A1 新增 2） | `npm run verify` | ✅ **176 passed**（超 170 目标 +6，含 v12.x 增量） |
+| Lint | 0 error | `npm run lint` | ✅ 0 error |
+| B1 悬空引用 | 无 | `grep -rn "collaboration.md" .pt/assets/` 无输出 | ✅ 无输出 |
+| A1 字段保留 | context 含 fields/note | `grep "字段：" .pt/cache/contexts/pt-dev.context.md` 命中 | ✅ **命中** pt-collab 段：`task-description: ... （字段：必读/设计原则/步骤/验收标准/边界纪律/baseline） — 执行者不猜设计意图，按步骤执行即可` |
+| A2 dist 同步 | dist 含静默条件 + tool 报 0 警告 | `grep "domains.length" dist/verify/ref-check.js` 命中；重启 pi 后 `pt_check_refs` 无警告 | ✅ dist 含静默条件；重启 pi runtime 验证 pt_check_refs 报 0 警告（src 已修 + dist 重建同步） |
+| CHANGELOG | 含 v10.x/v11.x 修复子节 | 读 `.pt/docs/CHANGELOG.md` | ✅ 含 `### 修复（v10.x）` / `### 修复（v11.x）` / `### 修复（v12.x）` 三节 |
+| 工作区 | 干净 | `git status` 无 untracked / modified | ✅ 干净 |
+
+**Commit 落地**：
+- Step 1 B1：`b67440b fix(assets): rename collaboration.md refs to pt-collab.md`（改 requirements.md + deployment.md 3 处字面量）
+- Step 2 A1：`ba2f2a1 feat(schema): extend Term with fields/note to stop silent field loss`（schema + parser + type-guard + renderer + 2 新测试）
+- Step 3 A2：dist 重建（无 commit，dist 在 .gitignore；`npm run build` 重建，`dist/verify/ref-check.js` 含 `domains.length === 0` 静默条件）
+- Step 4 E1：`a7c7f7d docs: backfill CHANGELOG with v10.x/v11.x fixes`
+
+**归档 commit**：`3d1e963 docs(design): archive pt-asset-consistency-fix implementation plan`（本文档保留作为已完成历史方案）。
 
 ---
 

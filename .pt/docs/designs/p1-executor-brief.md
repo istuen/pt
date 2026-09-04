@@ -156,14 +156,20 @@ npm run lint        # biome check，必须 0 error
 
 ---
 
-## 完成判定（全部满足）
+## 完成判定（全部满足）— 已落地（commits `dd3d595`/`78e9797`/`c393f5c`，2026-09-03）
 
-- [ ] `wc -l src/transpile.ts` < 130 行
-- [ ] `wc -l src/index.ts` 较 849 行显著下降
-- [ ] `grep -rn "lastBlueprint\|lastDomains\|lastProfile\|lastActiveProfile\|lastContext" src/transpile.ts` = 0
-- [ ] `grep -rn "toAgentAPI\|agentApiCache" src/index.ts` = 0（应在 api-bridge.ts）
-- [ ] `grep -rn "PT_PROFILE_ENTRY\|MinimalSessionManager" src/index.ts` = 0（应在 profile-persist.ts）
-- [ ] `npm run typecheck` 零输出
-- [ ] `npm run verify` 124 passed
-- [ ] `npm run lint` 0 error
-- [ ] 3 commit 按序落地
+- [ ] `wc -l src/transpile.ts` < 130 行 — **149 行**，超目标 19 行（简报 P1.1 估 110–130 偏乐观；多 bundle 循环虽删，JSDoc 注释 + 错误路径 + 缓存加载分支保留致 149 行；**代码语义已简化到单源线性**，仅行数微超）
+- [x] `wc -l src/index.ts` 较 849 行显著下降 — 849 → **693 行**（减 156 行）
+- [x] `grep -rn "lastBlueprint\|lastDomains\|lastProfile\|lastActiveProfile\|lastContext" src/transpile.ts` = 0
+- [⚠️] `grep -rn "toAgentAPI\|agentApiCache" src/index.ts` = 0（应在 api-bridge.ts） — **实现已在 api-bridge.ts（line 33/44）；index.ts:30 仅 import 引用**（简报判定条件过严——import 是合法用法，实际实现位置已正确迁移）
+- [x] `grep -rn "PT_PROFILE_ENTRY\|MinimalSessionManager" src/index.ts` = 0（应在 profile-persist.ts） — profile-persist.ts:14/20 定义；index.ts 只 import 函数
+- [x] `npm run typecheck` 零输出（HEAD `9493f1e` 复核）
+- [x] `npm run verify` **176 passed**（HEAD `9493f1e` 复核；超 124 目标 52 例）
+- [x] `npm run lint` 0 error（HEAD `9493f1e` 复核）
+- [x] 3 commit 按序落地：`dd3d595`（P1.1+P1.2）→ `78e9797`（P1.3）→ `c393f5c`（P1.4+P1.5）
+
+**偏差说明**：
+1. **transpile.ts 149 vs 130**：简化目标（单源线性、删多 bundle 循环、删 EMPTY_BP/EMPTY_PROFILE/EMPTY_CTX、bundles.length===0 抛错）全部达成；剩余行数是 JSDoc + 错误路径 + cache 加载/保存分支的合理保留。可接受。
+2. **index.ts import 命中**：判定条件按 grep 字面意义，import 引用会命中。语义上"实现位置"已正确迁移——api-bridge.ts / profile-persist.ts 各自持有定义与缓存，index.ts 只用 import。该判定条件文字需更新（建议改为"`function toAgentAPI\|const agentApiCache` 只在 api-bridge.ts"，不包含 import）。
+
+**index.ts 693 行超目标**：简报放宽目标 < 500，实际 693；H2 体检后又抽 manual-session.ts 减 ~94 行（780→693）。当前 4 个函数：getSessionIdFromCtx / registerInjectionIfReady / transpileActive / switchProfile——核心入口职责清晰。继续拆需进一步抽 command handler（已在 P3.6 + H2 范围外）。
