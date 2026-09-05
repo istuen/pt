@@ -1,10 +1,11 @@
 ---
 type: issue
 name: pt-no-agent-context-profile-h2-sections
-status: open
+status: resolved
 severity: low
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
+resolved: 2026-09-05
 domain: pt-dev
 parent-issue: pt-no-agent-context-multi-root-causes
 ---
@@ -143,4 +144,45 @@ Profile 范本说明：
 
 ## 修复日志
 
-<!-- 待 commit 后填 -->
+### commit
+
+- `Phase v13.x: Profile.md 范本统一加 H2 注入点段 (sub-issue pt-no-agent-context-profile-h2-sections)`
+
+### 修复要点
+
+1. **3 个 Profile 资产加 H2 注入点段**
+   - `.pt/assets/profiles/pt-dev.profile.md`: 加 `## 会话知识` + `## 参考手册`（保留空段让配置入口可见）
+   - `.pt/assets/profiles/pt-chat.profile.md`: 同上
+   - `src/builtin/assets/profiles/pt.profile.md`: 同上（builtin）
+   - 每段下加 HTML 注释说明"靠 YAML 全局 domains 兜底分发；无追加"
+
+2. **dev-knowledge Domain 加新场景段**
+   - `src/builtin/assets/domains/authoring.md`: 新增 `profile-h2-sections` 场景
+   - 说明 v13.x 起 Profile 范本必加 H2 段 + HTML 注释范式 + 配置可观测性收益
+
+3. **新增单元测试 `tests/verify/issue-pt-no-agent-context-profile-h2-sections.test.ts`**
+   - 5 个测试，覆盖：
+     - pt-dev.profile.md injectionPoints 数 > 0（之前为 0）
+     - pt-chat.profile.md 同
+     - builtin pt.profile.md 同
+     - H2 段无追加时 injectionPoints[].domains 为空数组
+     - H2 段名与 Blueprint.injectionPoints.name 对齐
+
+### 验证方式
+
+- **`npm run typecheck`** → 通过
+- **`npm run verify`** → 196/196 全过（191 之前 + 5 新增）
+- **手动验证**（脚本）：删 `.pt/cache/agent-contexts/pt-dev.agent-context.md` → 跑 transpile
+  - cachedAgentContext.modules keys = `['会话知识', '参考手册']` ✅
+  - profile.injectionPoints 2 个段名，domains=[] ✅
+
+### 边界纪律
+
+- ✅ 未动源码（仅改 Profile 资产 + authoring 文档）
+- ✅ 未动 Blueprint / Domain / 编译流程
+- ✅ 未动 parseProfile 逻辑（现有 H2 段解析已能正确处理）
+- ✅ 未改全局 domains（YAML 全局分发兜底，H2 段仅作配置可视维度）
+
+### 修复日期
+
+2026-09-05

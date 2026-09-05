@@ -20,6 +20,9 @@ name: authoring
 ### profile-format
 - desc: frontmatter（name + blueprint: 引用名 + domains: [列表]）+ 可选 H2 注入点实例化（## 注入点名 + ### Domains 追加）。domains 顺序影响 LLM attention——身份类放前，约束类放后。文件放 .pt/assets/profiles/<name>.profile.md。
 
+### profile-h2-sections
+- desc: v13.x 起（issue pt-no-agent-context-profile-h2-sections）Profile 范本必加 H2 注入点段——即使无追加也保留空段让配置入口可见。具体格式：YAML 后用 H2 标题写出 Blueprint.injectionPoints[].name 同名的段；段下用 HTML 注释说明"此 Profile 用 Blueprint 全局 session/turn 注入点，靠 YAML 全局 domains 兜底分发；无追加"。例如 pt-dev 范本保留 `## 会话知识` + `## 参考手册` 两段（与 dev-knowledge.yaml 的 injectionPoints 对齐）。配置可观测性：parseProfile injectionPoints 数 > 0（之前为 0），用户能看出本 Profile 覆盖哪些注入点。
+
 ### term-domain-pattern
 - desc: term Domain 写法：## Scene 下 ### 概念名 + - desc: 定义；## Manual 下 ### 规则名 + - desc: 不变量描述。适合概念/术语/架构知识。
 
