@@ -112,6 +112,29 @@ export function createSessionState(): SessionState {
  *  对外不导出（避免外部直接 mutate 绕过懒加载）。 */
 const sessionMap = new Map<string, SessionState>();
 
+/** 重置编译产物字段（catch 路径用）。
+ *  v13.x（issue pt-no-agent-context-reset-session-state 修复）：
+ *  - transpile/session_start/switchProfile 三处 catch 调用本函数
+ *  - 避免 stale cachedAgentContext/cachedBlueprint/cachedDomains/cachedProfile/activeAdapter
+ *    误导 /pt flows / /pt manual 返回旧 Profile 的手册列表（掩盖真实失败）
+ *  - 不清 sessionId/logger/lastCwd/activeProfile/loadedFrom/activeManual（生命周期不同：
+ *    session_id 标识当前会话、logger 持续写日志、lastCwd 是项目根、activeProfile 是用户意图、
+ *    loadedFrom 是来源、activeManual 是手动追踪）
+ */
+export function resetSessionState(s: SessionState): void {
+  s.cachedSegment = null;
+  s.cachedBundles = null;
+  s.cachedAgentContext = null;
+  s.cachedBlueprint = null;
+  s.cachedDomains = [];
+  s.cachedProfile = null;
+  s.activeAdapter?.resetInjection?.();
+  s.activeAdapter = null;
+  s.lastCacheHit = false;
+  s.injectionState = "idle";
+  s.injectionError = null;
+}
+
 /** 取指定 sessionId 的 state（lazy create）。TUI 模式下只有一个 entry。 */
 export function getSessionById(sessionId: string): SessionState {
   let s = sessionMap.get(sessionId);
