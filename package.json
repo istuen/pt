@@ -1,12 +1,13 @@
 {
   "name": "@issac/pi-pt",
   "version": "0.1.0",
-  "description": "Pt (Polyglot Transpiler) — Pi extension that transpiles multi-source business knowledge (MD Assets) into Pi systemPrompt",
+  "description": "Pt — Turn domain knowledge into agent context. A Pi extension that compiles domain knowledge assets into agent context (session prompt + turn message).",
   "type": "module",
   "keywords": [
     "pi-package"
   ],
   "files": [
+    "src",
     "dist"
   ],
   "main": "./dist/index.js",
@@ -25,7 +26,7 @@
   },
   "pi": {
     "extensions": [
-      "./dist/index.js"
+      "./src/index.ts"
     ]
   },
   "peerDependencies": {

@@ -1,10 +1,11 @@
 ---
 type: issue
 name: pt-dist-src-desync
-status: open
+status: resolved
 severity: medium
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
+resolved: 2026-09-05
 domain: pt-dev
 ---
 
@@ -170,4 +171,36 @@ export default defineConfig({
 
 ## 修复日志
 
-<!-- 待 commit 后填 -->
+### commit
+
+- `Phase v13.x: pi.extensions 走 src/index.ts (jiti 运行时加载) (issue pt-dist-src-desync)`
+
+### 修复要点
+
+1. **`package.json` 改 dev 形态**
+   - `pi.extensions: ["./dist/index.js"]` → `["./src/index.ts"]`
+   - `files: ["dist"]` → `["src", "dist"]`（双形态发布，npm 装的环境也能 jiti 加载 src/）
+   - `main` / `types` 仍指向 `./dist/index.{js,d.ts}`（非 pi agent 仍可走 dist/）
+   - 不加 `loader: "jiti"` 字段——pi ExtensionAPI 内置 jiti（extensions.md:179 "loaded via jiti"）
+
+2. **文档同步**
+   - `.pt/assets/domains/deployment.md` `publish-form` 段：加 v13.x 注释说明当前走 src/
+   - `.pt/assets/domains/asset-workflow.md` 新增 `code-feedback-loop` 场景：说明改 src/ 即生效，反馈环秒级
+
+### 验证方式
+
+- **`npm run typecheck`** → 通过
+- **`npm run verify`** → 191/191 全过（vitest 通过 tsx 加载 src/，不受 pi.extensions 改动影响）
+- **`npx tsx -e "import('./src/index.js')"`** → load ok，exports 含 default export ✅
+- **手动验证**：下次 pi-web 进程重启时自动加载 `./src/index.ts`，改 src/ 立即反映在 LLM 工具输出（无需 `npm run build` + 重启）
+
+### 边界纪律
+
+- ✅ 未动源码（仅改 package.json + 文档）
+- ✅ 未动 dist 编译流程（`npm run build` 仍可用，发布形态保留）
+- ✅ 未动 pi ExtensionAPI（用 jiti 内置）
+- ✅ 未改 `main` / `types` 字段（非 pi agent 走 dist 仍可用）
+
+### 修复日期
+
+2026-09-05

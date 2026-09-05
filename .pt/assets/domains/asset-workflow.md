@@ -25,3 +25,6 @@ name: asset-workflow
 
 ### cache-invalidation
 - desc: 资产改动后删 .pt/cache/agent-contexts/*.agent-context.md 强制重编译；sourceHash = hash(Profile + Blueprint + Domains)，资产变了 hash 自然不同，cache miss 自动重编译
+
+### code-feedback-loop
+- desc: 改 src/ 代码后的验证反馈环——v13.x（issue pt-dist-src-desync 修复）：`package.json` 的 `pi.extensions` 走 `./src/index.ts`（jiti 运行时加载），改 src 即生效，无需 `npm run build` + 重启 pi-web。改 src/ 后跑 `npm run verify`（vitest + biome）和 `npm run typecheck`（tsc --noEmit）确认基线干净。`dist/` 仍由 `npm run build`（tsup）生成，发布时双形态都发（`files: ["src", "dist"]`）。历史：P4 之前 `pi.extensions` 指向 dist/index.js，src/ 改后必须 rebuild + 重启 pi-server 才会反映（issue pt-dist-src-desync 根因）。
