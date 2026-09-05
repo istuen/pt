@@ -1,10 +1,11 @@
 ---
 type: issue
 name: pt-no-agent-context-reset-session-state
-status: open
+status: resolved
 severity: medium
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
+resolved: 2026-09-05
 domain: pt-dev
 parent-issue: pt-no-agent-context-multi-root-causes
 ---
@@ -117,4 +118,41 @@ export function resetSessionState(s: SessionState): void {
 
 ## 修复日志
 
-<!-- 待 commit 后填 -->
+### commit
+
+- `Phase v13.x: resetSessionState() + 3 catch 补全 (sub-issue pt-no-agent-context-reset-session-state)`
+
+### 修复要点
+
+1. **`src/session.ts` 新增公共函数 `resetSessionState(s: SessionState)`**
+   - 重置 7 个编译产物字段：`cachedSegment / cachedBundles / cachedAgentContext / cachedBlueprint / cachedDomains / cachedProfile / activeAdapter`
+   - 重置 injection 状态：`injectionState / injectionError / lastCacheHit`
+   - 保留生命周期字段：`sessionId / logger / lastCwd / activeProfile / loadedFrom / activeManual`
+   - 调 `activeAdapter?.resetInjection?.()`（如有实现）
+
+2. **`src/index.ts` 三处 catch 调 `resetSessionState`**
+   - `transpileActive` catch（`src/index.ts:140-145`）：throw 前 reset
+   - `session_start` catch（`src/index.ts:296-298`）：替换原 3 字段硬编码
+   - `switchProfile` catch（`src/index.ts:152-158`）：加 reset
+
+3. **新增单元测试 `tests/verify/issue-pt-no-agent-context-reset-session-state.test.ts`**
+   - 6 个测试，覆盖：7 字段清空 / 生命周期字段保留 / activeAdapter.resetInjection 调用 / 无实现不抛错 / idempotent / named export
+
+### 验证方式
+
+- **单元测试**：`npx vitest run tests/verify/issue-pt-no-agent-context-reset-session-state.test.ts` → 6/6 ✅
+- **回归**：`npm run verify` → 182/182 全过（176 原有 + 6 新增）
+- **类型检查**：`npm run typecheck` → 通过
+- **手动验证**（脚本）：`npx tsx .tmp-verify.ts` → 7 字段全 NULL，activeProfile 保留 ✅
+- **测试 mock 修复**：`tests/verify/switch-injection.test.ts` 加 `setWidget: () => undefined`（修复原本 mock 缺方法暴露的 v13.x catch 行为变化——catch 现在重置状态，需 setWidget mock 完整）
+
+### 边界纪律
+
+- ✅ 未动 PiAdapter 接口（仅调既有 `resetInjection` 可选方法）
+- ✅ 未动 Pi 上游 API（ExtensionAPI 无变化）
+- ✅ 未动 SessionState shape（仅加 reset 函数）
+- ✅ 未改 transpile / compile / parse 主循环（reset 是 catch 路径局部行为）
+
+### 修复日期
+
+2026-09-05

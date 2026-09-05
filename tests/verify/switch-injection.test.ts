@@ -169,6 +169,7 @@ describe("manual profile switch and injection", () => {
       ui: {
         notify: () => undefined,
         setStatus: () => undefined,
+        setWidget: () => undefined,
       },
       getSystemPrompt: () => "BASE",
     };

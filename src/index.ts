@@ -33,7 +33,12 @@ import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.
 import { errMsg } from "./diagnostics.js";
 import { readProfileFromSession, persistProfileToSession } from "./profile-persist.js";
 import { LOG_DIR, PtLogger } from "./log.js";
-import { type ProfileLoadSource, clearSessionById, getSessionById } from "./session.js";
+import {
+  type ProfileLoadSource,
+  clearSessionById,
+  getSessionById,
+  resetSessionState,
+} from "./session.js";
 import { buildFullPrompt, buildManualDoc, flowsText, statusText } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
 import type { AgentAPI } from "./schema.js";
@@ -142,6 +147,9 @@ async function transpileActive(
       profileName,
       durationMs: Date.now() - t0,
     });
+    // v13.x（issue pt-no-agent-context-reset-session-state 修复）：
+    // throw 前重置编译产物字段，避免 stale state 让后续 /pt flows 返回旧 Profile 手册
+    resetSessionState(getSessionById(sessionId));
     throw e;
   }
 }
@@ -175,6 +183,13 @@ async function switchProfile(
     });
   } catch (e) {
     ctx.ui.notify(`切换失败：${errMsg(e)}`, "error");
+    // v13.x（issue pt-no-agent-context-reset-session-state 修复）：
+    // 重置编译产物 + injection 状态，避免 stale state 让后续 /pt flows 返回旧 Profile 手册
+    const s2 = getSessionById(sessionId);
+    resetSessionState(s2);
+    s2.injectionState = "failed";
+    s2.injectionError = errMsg(e);
+    refreshInjectionFooter(ctx.ui, s2);
     slog(sessionId, "error", "command:switchProfile failed", {
       profileName: name,
       err: errMsg(e),
@@ -287,12 +302,13 @@ export default function (pi: ExtensionAPI): void {
       await tryRestoreManual(ctx, s);
     } catch (e) {
       ctx.ui.notify(`Pt 加载失败：${errMsg(e)}`, "error");
+      // v13.x（issue pt-no-agent-context-reset-session-state 修复）：
+      // 统一调 resetSessionState 清编译产物 + loadedFrom；保留 activeProfile（便于用户重试）
+      resetSessionState(s);
+      s.loadedFrom = null;
       s.injectionState = "failed";
       s.injectionError = errMsg(e);
       refreshInjectionFooter(ctx.ui, s);
-      s.cachedSegment = null;
-      s.cachedBundles = null;
-      s.loadedFrom = null;
       s.logger?.error("session:start failed", { err: errMsg(e) });
       // v11.x：profile 失败但 manual 仍可能独立恢复（手动追踪不依赖 profile）
       await tryRestoreManual(ctx, s);
