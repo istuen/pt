@@ -1,10 +1,11 @@
 ---
 type: issue
 name: pt-no-agent-context-prune-orphan-caches
-status: open
+status: resolved
 severity: medium
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
+resolved: 2026-09-05
 domain: pt-dev
 parent-issue: pt-no-agent-context-multi-root-causes
 ---
@@ -162,4 +163,53 @@ A 自动化无感，与 P1 改名风格一致。
 
 ## 修复日志
 
-<!-- 待 commit 后填 -->
+### commit
+
+- `Phase v13.x: pruneOrphanCaches() transpile 末尾 + 清旧 contexts/ (sub-issue pt-no-agent-context-prune-orphan-caches)`
+
+### 修复要点
+
+1. **`src/transpile.ts` 新增公共函数 `pruneOrphanCaches(cwd, cacheDir, validProfileNames)`**
+   - 列 cache 目录所有 `.agent-context.md` 文件
+   - 文件名（去 `.agent-context.md` 后缀）不在 validProfileNames → `unlink`
+   - 返被 unlink 的 cache 名列表（trace 用）
+   - 边界：目录不存在返空 / 非 cache 文件不动 / unlink 失败 catch 跳过
+
+2. **`loadAndTranspile` 末尾集成**（render 之后）
+   - validProfileNames = `new Set(bundle.profiles.map(p => p.name))`（项目 + builtin 合并后的全集）
+   - cacheDir = `CACHE_DIR` 常量（Phase term-P4.2 移除 Blueprint.competition）
+   - pruned.length > 0 时打 `transpile:prune orphan caches` log
+
+3. **一次性清理**
+   - `rm -rf .pt/cache/contexts/`（P1 改名遗留旧产物，含 pt-chat.context.md + pt-dev.context.md）
+
+4. **新增单元测试 `tests/verify/issue-pt-no-agent-context-prune-orphan-caches.test.ts`**
+   - 9 个测试，覆盖：
+     - 删除无对应 Profile 的 cache
+     - 保留有效 Profile 的 cache
+     - 场景：删除 Profile 后 transpile
+     - 场景：重命名 Profile 后 transpile
+     - 场景：新建 Profile 后 transpile
+     - 边界：cache 目录不存在返空
+     - 边界：cache 目录为空返空
+     - 边界：忽略非 `.agent-context.md` 文件（README / .DS_Store / subdir）
+     - 边界：validProfileNames 为空时全清
+
+### 验证方式
+
+- **单元测试**：`npx vitest run tests/verify/issue-pt-no-agent-context-prune-orphan-caches.test.ts` → 9/9 ✅
+- **回归**：`npm run verify` → 191/191 全过（182 之前 + 9 新增）
+- **类型检查**：`npm run typecheck` → 通过
+- **手动验证**（脚本）：手工加 `fake-orphan.agent-context.md` → transpile → 被自动 unlink ✅
+- **一次性清理**：`ls .pt/cache/contexts/` → 不存在（已删旧目录）✅
+
+### 边界纪律
+
+- ✅ 未动 PiAdapter / Pi 上游 API
+- ✅ 未动 SessionState / Blueprint / Profile shape
+- ✅ 未动 compile / parse 主循环（prune 在 transpile 末尾，独立函数）
+- ✅ 未改 cache hit/miss 路径（prune 在 save/load 之后，render 之前）
+
+### 修复日期
+
+2026-09-05

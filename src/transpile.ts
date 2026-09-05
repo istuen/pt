@@ -19,6 +19,9 @@
 //   - saveContext/loadContext → saveAgentContext/loadAgentContext
 //   - TranspileResult.context → TranspileResult.agentContext（字段改名）
 
+import { readdir, unlink } from "node:fs/promises";
+import { join } from "node:path";
+import { CACHE_DIR } from "./constants.js";
 import { errMsg, reportError, reportWarn } from "./diagnostics.js";
 import { mdAdapter } from "./parse/index.js";
 import { compileAgentContext } from "./compile/agent-context.js";
@@ -137,10 +140,24 @@ export async function loadAndTranspile(
     .replace(/<!-- =====[^\n]*-->\n?/g, "")
     .trim();
 
+  // 5. prune orphan caches（v13.x issue pt-no-agent-context-prune-orphan-caches 修复）
+  //   Profile 删除/改名后，旧 cache 文件残留——transpile 末尾自动 unlink
+  //   validProfileNames 来自当前 bundle（项目 + builtin 合并后的全集）
+  //   Phase term-P4.2：Blueprint.competition 已移除，cacheDir 用 CACHE_DIR 常量
+  const pruned = await pruneOrphanCaches(
+    cwd,
+    CACHE_DIR,
+    new Set(bundle.profiles.map((p) => p.name))
+  );
+  if (pruned.length > 0) {
+    adapterCtx?.log?.info("transpile:prune orphan caches", { pruned });
+  }
+
   adapterCtx?.log?.info("transpile:done", {
     profileName: profile.name,
     segmentLen: segment.length,
     cacheHit,
+    prunedCount: pruned.length,
   });
 
   return {
@@ -153,4 +170,40 @@ export async function loadAndTranspile(
     activeProfile: profile.name,
     profile,
   };
+}
+
+/** 删除孤儿 cache 文件（Profile 已不存在的 cache）。
+ *  v13.x（issue pt-no-agent-context-prune-orphan-caches）：transpile 末尾自动清理，
+ *  避免 Profile 删改后旧 cache 文件残留误导排查。
+ *
+ *  @param cwd 项目根目录
+ *  @param cacheDir 缓存目录（从 Blueprint.compilation.cacheDir 读，默认 `.pt/cache/agent-contexts/`）
+ *  @param validProfileNames 当前 bundle.profiles 合并后的全集（项目覆盖 builtin）
+ *  @returns 被 unlink 的 cache 名列表（用于 trace）
+ */
+export async function pruneOrphanCaches(
+  cwd: string,
+  cacheDir: string,
+  validProfileNames: Set<string>
+): Promise<string[]> {
+  const dir = join(cwd, cacheDir);
+  let files: string[];
+  try {
+    files = await readdir(dir);
+  } catch {
+    return []; // 目录不存在（首次加载）返空，不抛错
+  }
+  const pruned: string[] = [];
+  for (const f of files) {
+    if (!f.endsWith(".agent-context.md")) continue;
+    const name = f.slice(0, -".agent-context.md".length);
+    if (validProfileNames.has(name)) continue;
+    try {
+      await unlink(join(dir, f));
+      pruned.push(name);
+    } catch {
+      // unlink 失败（权限/不存在）跳过——不影响主流程
+    }
+  }
+  return pruned;
 }
