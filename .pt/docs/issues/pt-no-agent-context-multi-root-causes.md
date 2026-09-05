@@ -1,10 +1,11 @@
 ---
 type: issue
 name: pt-no-agent-context-multi-root-causes
-status: in-progress
+status: resolved
 severity: medium
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
+resolved: 2026-09-05
 domain: pt-dev
 sub-issues: [pt-no-agent-context-reset-session-state, pt-no-agent-context-prune-orphan-caches, pt-no-agent-context-profile-h2-sections]
 related-issues: [pt-dist-src-desync]
@@ -381,12 +382,48 @@ domains: [me, product-design, dev-workflow, ...]
 - 边界纪律：未动 PiAdapter / Pi 上游 API；只改 Pt 内部命名
 - 修复日期：2026-09-04 之前（具体见 commit）
 
-### ⏳ 待修复（3 根因残留 → 已拆 sub-issue）
+#### 根因 3：stale state 残留（commit `d7b7f9f`）— sub-issue 已修
 
-- [ ] **根因 3** → [`pt-no-agent-context-reset-session-state`](pt-no-agent-context-reset-session-state.md)（sub-issue，P1.5 高）
-- [ ] **根因 2** → [`pt-no-agent-context-prune-orphan-caches`](pt-no-agent-context-prune-orphan-caches.md)（sub-issue，P1.5 中）
-- [ ] **根因 4** → [`pt-no-agent-context-profile-h2-sections`](pt-no-agent-context-profile-h2-sections.md)（sub-issue，P2+ 低）
+- commit：`d7b7f9f Phase v13.x: resetSessionState() + 3 catch 补全`
+- sub-issue：[`pt-no-agent-context-reset-session-state`](pt-no-agent-context-reset-session-state.md)（P1.5 高，已 resolved）
+- 改动：`src/session.ts` 加 `resetSessionState(s)` 公共函数 + `src/index.ts` 三处 catch 调它
+- 验收：6 新单元测试 + `npm run verify` 182/182 + 手动脚本验证 7 字段全 NULL + activeProfile 保留
+- 修复日期：2026-09-05
+
+#### 根因 2：孤儿缓存（commit `ad36da0`）— sub-issue 已修
+
+- commit：`ad36da0 Phase v13.x: pruneOrphanCaches() transpile 末尾 + 清旧 contexts/`
+- sub-issue：[`pt-no-agent-context-prune-orphan-caches`](pt-no-agent-context-prune-orphan-caches.md)（P1.5 中，已 resolved）
+- 改动：`src/transpile.ts` 加 `pruneOrphanCaches()` + `loadAndTranspile` 末尾集成 + 一次性删 `.pt/cache/contexts/`
+- 验收：9 新单元测试 + `npm run verify` 191/191 + 手动脚本验证 fake-orphan 自动 unlink
+- 修复日期：2026-09-05
+
+#### 根因 4：Profile H2 段缺失（commit `6a7c177`）— sub-issue 已修
+
+- commit：`6a7c177 Phase v13.x: Profile.md 范本统一加 H2 注入点段`
+- sub-issue：[`pt-no-agent-context-profile-h2-sections`](pt-no-agent-context-profile-h2-sections.md)（P2+ 低，已 resolved）
+- 改动：3 个 Profile.md 加 H2 注入点段 + `authoring.md` 加 `profile-h2-sections` 场景
+- 验收：5 新单元测试 + `npm run verify` 196/196 + 手动验证 injectionPoints 数从 0 → 2
+- 修复日期：2026-09-05
+
+#### dist/src 不同步（commit `6e51843`）— 独立 issue 已修
+
+- commit：`6e51843 Phase v13.x: pi.extensions 走 src/index.ts (jiti 运行时加载)`
+- 独立 issue：[`pt-dist-src-desync`](pt-dist-src-desync.md)（P1.5 中，已 resolved）
+- 改动：`package.json` 改 `pi.extensions` + `files` + 2 文档同步
+- 验收：typecheck + verify + npx tsx 模拟 pi jiti 加载成功 + 用户重启 pi-web 后 pt_flows 工具返回正确 6 个手册
+- 修复日期：2026-09-05
+
+### ✅ 全部完成
+
+- [x] **根因 1**：术语撞名（commit `0455a47`）
+- [x] **根因 2**：孤儿缓存（commit `ad36da0`，sub-issue 已修）
+- [x] **根因 3**：stale state（commit `d7b7f9f`，sub-issue 已修）
+- [x] **根因 4**：Profile H2 段（commit `6a7c177`，sub-issue 已修）
+- [x] **独立 issue**：dist/src 同步（commit `6e51843`）
+
+**总 commit 链**：`0455a47` → `1d16499`（拆 sub-issue）→ `d7b7f9f` → `ad36da0` → `6e51843` → `6a7c177`
 
 ### 🔗 相关独立 issue
 
-- [ ] **[`pt-dist-src-desync`](pt-dist-src-desync.md)**（排查时新发现，开发基础设施层，不在父 issue 范围）
+- [x] **[`pt-dist-src-desync`](pt-dist-src-desync.md)**（排查时新发现，开发基础设施层，不在父 issue 范围，commit `6e51843`）
