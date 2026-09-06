@@ -15,7 +15,7 @@ name: asset-workflow
 - desc: 讨论决策 → 定位目标资产（Domain/Blueprint/Profile）→ 改 .md → 删 cache → verify + typecheck → commit
 
 ### asset-types
-- desc: Domain（.pt/assets/domains/*.md，frontmatter.type 区分 term/workflow/stack，H2 段 Scene/Trigger/Manual）+ Blueprint（.pt/assets/blueprints/*.md，结构层——H2=注入点 + target + Modules + Compilation）+ Profile（.pt/assets/profiles/*.md，配置层——blueprint 引用 + domains 列表 + 注入点追加）
+- desc: Pt Domain（.pt/assets/domains/*.md，H2 段名即 schema 选择器）+ Blueprint（.pt/assets/blueprints/*.blueprint.yaml，结构层——groups 聚合组：name + inject: session/turn + modules）+ Pt Profile（.pt/assets/profiles/*.md，配置层——blueprint 引用 + YAML 全局 domains + 聚合组 H2 实例化追加）
 
 ### directory-layout
 - desc: .pt/ 布局声明式 spec——两类入口：assets/（入 git，转译资产 domains/blueprints/profiles）+ docs/（入 git，文档 designs 设计与执行 / issues 问题跟踪 / CHANGELOG）；运行时产物默认不入 git：manuals/（pt_manual 工作文档）+ cache/（contexts 编译产物 / fulls 完整 prompt dump / raws segment dump）+ logs/（NDJSON trace）。改布局就改本场景——当前代码路径常量在 src/constants.ts 需手动同步，未来计划让转译层直接读本场景配置目录与 git 归属

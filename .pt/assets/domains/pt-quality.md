@@ -12,7 +12,7 @@ name: pt-quality
 ## Scene
 
 ### quality-index
-- desc: 技术规范在 Manual 段；执行开发手册（如 feature-lifecycle）时自动带出参考手册注入点。
+- desc: 技术规范在 Rules/Flows/Checklists 段；执行开发手册（如 feature-lifecycle）时自动带出参考手册聚合组。
 
 ## Rules
 
@@ -39,7 +39,7 @@ name: pt-quality
 ### module-name-constant
 - slot: global
 - type: invariant
-- check: Domain H2 段名（Scene/Trigger/Manual/Term）必须用常量，不散落字符串字面量；注入点名（Blueprint H2 人类自定义语义名）不该常量化
+- check: Domain Schema Name（Scene/Trigger/Rules/Flows/Checklists/Participant）必须用常量，不散落字符串字面量；聚合组名（Blueprint groups[].name 人类自定义语义名）不该常量化
 
 ### naming-consistency
 - slot: global
