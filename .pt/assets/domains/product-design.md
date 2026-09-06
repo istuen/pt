@@ -7,7 +7,7 @@ name: product-design
 ## Scene
 
 ### Pt 是什么
-- desc: Pi 扩展，把业务知识资产（MD 资产）转译成 Pi Agent 用的 System Prompt 和 Context Message；按 v9 四层模型（Pt Domain→Blueprint→Pt Profile→Agent Context）驱动。
+- desc: Pi 扩展，把业务知识资产（MD 资产）转译成 Agent Context（Session Context 固定注入面 + Turn Context 按需触发面）；按 v9 四层模型（Pt Domain→Blueprint→Pt Profile→Agent Context）驱动。
 
 ### v9 四层模型
 - desc: Pt Domain（内容层，H2 段名开放：Scene/Trigger/Rules/Flows/Checklists/Participant/扩展）+ Blueprint（结构层，YAML groups 项，Agent 端，定义聚合组 inject + Modules + mode）+ Pt Profile（配置层，业务端实例，引用 Blueprint + YAML 全局 domains + 聚合组追加 domains）+ Agent Context（产物层，Phase term-P1 前名 Context，Profile 编译输出，按聚合组聚合多 Domain 内容，物理文件 + hash 缓存）。两面对外：Session Context（每轮固定注入面）+ Turn Context（按需触发面）。
@@ -49,7 +49,7 @@ name: product-design
 - role: 验证脚本运行器（verify-*.ts 用 `npx tsx` 直接执行，tsconfig.json allowImportingTsExtensions: true）。
 
 ### md-asset-format
-- role: Domain / Blueprint / Profile 都是 markdown + YAML frontmatter；按 frontmatter 字段分发解析（type → Domain IR，agent → Blueprint IR，blueprint → Profile IR）。v9 资产：Blueprint H2=注入点（target + ### Modules），Profile 同名 H2 实例化注入点（追加 ### Domains），Profile YAML 全局 domains 自动分发到所有注入点。
+- role: Domain / Profile 是 markdown + YAML frontmatter；Blueprint 是纯 YAML（无 frontmatter）。按 frontmatter 字段分发解析（blueprint → Profile IR；Pt Domain 无 type 字段，H2 段名即 schema 选择器）。v9 资产：Blueprint groups（inject + modules），Profile 同名 H2 实例化聚合组（追加 ### Domains），Profile YAML 全局 domains 自动分发到所有聚合组。
 
 ### git
 - role: 版本控制；每 Phase 一个 commit（Phase X.Y: ... 格式），baseline 可回退。
