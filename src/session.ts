@@ -38,7 +38,7 @@ import type { ManualProgress } from "./manual-track.js";
 /** activeProfile 的来源（session_start fallback 命中点）。 */
 export type ProfileLoadSource = "flag" | "settings" | "session" | "auto" | null;
 
-/** pt 注入到 System Prompt 的状态（自报，非检测 Pi）。
+/** pt 注入到 Session Inject 的状态（自报，非检测 Pi）。
  *  - idle：未激活 / 无 segment
  *  - pending：Profile 已加载但还没轮到下一轮 before_agent_start
  *  - injected：本轮 before_agent_start 成功返回注入结果
@@ -74,7 +74,7 @@ export interface SessionState {
   logger: PtLogger | null;
   /** v10.x：当前 activeProfile 的来源（可观测性）。null 表示未加载。 */
   loadedFrom: ProfileLoadSource;
-  /** pt 注入到 System Prompt 的状态（footer 三态文字 + widget 依据）。 */
+  /** pt 注入到 Session Inject 的状态（footer 三态文字 + widget 依据）。 */
   injectionState: InjectionState;
   /** failed 时存错误消息（footer 追加）。其它状态 null。 */
   injectionError: string | null;

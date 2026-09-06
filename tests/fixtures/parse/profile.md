@@ -6,7 +6,7 @@ domains: [d1, d2]
 
 # Test Profile
 
-## 会话知识
+## 会话背景
 
 ### Domains
 

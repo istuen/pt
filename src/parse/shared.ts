@@ -244,11 +244,11 @@ export function sArr(v: unknown): string[] {
 }
 
 /** 从一个 H2 段里取某个字段的标量值（兼容裸值 / 顶层 list `- key: value` / H3 项 fields.key）。
- *  用途：Channel 注入点 H2 下读 target/mode，Blueprint ## Compilation 下读 cache-dir/split。 */
+ *  用途：Blueprint 聚合组 H2 下读 inject/mode，Profile 聚合组 H2 下读 ### Domains 追加列表。 */
 export function extractFieldValue(section: Section | undefined, key: string): string {
   if (!section) return "";
 
-  // 1. 顶层 list 行：`- target: session`
+  // 1. 顶层 list 行：`- inject: session`
   for (const item of section.items) {
     const v = item.fields[key];
     if (v !== undefined) {
@@ -279,8 +279,8 @@ export function extractDomainsList(section: Section | undefined): string[] {
 }
 
 /** 从一个 H2 段下取指定 H3 名下的所有裸名列表项（`- name`）。
- *  用途：Channel `## 会话知识` → `### Modules` 列 Domain H2 段名；
- *        Blueprint `## 会话知识` → `### Domains` 列参与本注入点的 Domain 名。
+ *  用途：Blueprint `## 会话背景` → `### Modules` 列 Domain Schema Name；
+ *        Profile `## 会话背景` → `### Domains` 列参与本聚合组的 Domain 名。
  *
  *  行为：扫描 section.raw，找到 `### <h3Name>` 行后收集紧随其后的 `- name` 行
  *        （无 `key: value`），遇下一个 H3 或段尾终止。

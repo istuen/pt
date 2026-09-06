@@ -9,15 +9,15 @@
 //
 // 四层语义：
 //   - Domain    ：内容层。异构领域知识，按 H2 切模块（Scene/Trigger/Manual/...），Type 标签区分内容性质。
-//   - Blueprint ：结构层。Agent 端注入点结构（H2=注入点人类自定义名），声明 agent + 注入点 target/Modules/mode + 编译方式。
-//   - Profile   ：配置层。业务端实例，引用 Blueprint + 选 Domains（YAML 全局 + 注入点追加）。
-//   - Context   ：产物层。Profile 编译输出，按注入点聚合多 Domain 内容，物理文件 + hash 缓存。
+//   - Blueprint ：结构层。Agent 端聚合组结构（YAML groups 项），声明聚合组 inject/Modules/mode。
+//   - Profile   ：配置层。业务端实例，引用 Blueprint + 选 Domains（YAML 全局 + 聚合组追加）。
+//   - AgentContext ：产物层。Profile 编译输出，按聚合组聚合多 Domain 内容，物理文件 + hash 缓存。
 // （Channel 保留为未来 Connector，预留层不实现）
 //
 // v9 相对 v8 的核心变化：
-//   - Blueprint 吸收 v8 Channel 的 injectionPoints（结构层职责从 Channel 迁到 Blueprint）
+//   - Blueprint 吸收 v8 Channel 的 groups（结构层职责从 Channel 迁到 Blueprint）
 //   - v8 Blueprint 的配置层职责 → Profile（用户面是 Profile）
-//   - InjectionPointInstance 删 trigger/boundaries 字段（Boundaries 丢弃；Trigger 移到 Domain H2 段）
+//   - ProfileGroup 删 trigger/boundaries 字段（Boundaries 丢弃；Trigger 移到 Domain H2 段）
 //   - 新增 AgentAdapter 接口（Pt 核心不感知 Agent API）
 //   - SchemaBundle 加 profiles/activeProfile，去 channels
 
@@ -103,7 +103,7 @@ export interface StepResult {
   message?: string;
 }
 
-/** 手册模板（workflow-Domain.## Manual 段声明，实例化后进 Context Message） */
+/** 手册模板（Domain.## Flows 段声明，实例化后进 Turn Inject） */
 export interface FlowTemplate {
   /** /name 触发 */
   name: string;
@@ -127,7 +127,7 @@ export interface Checklist {
 
 // ==================== 结构层原子 ====================
 
-/** 编排策略。InjectionPointConfig.mode 决定段落拼接顺序。 */
+/** 编排策略。BlueprintGroup.mode 决定段落拼接顺序。 */
 export interface StructureLayout {
   mode: "byDomain" | "byType" | "hybrid";
   /** byDomain / hybrid 时的模块顺序；未指定则原序 */
@@ -144,32 +144,33 @@ export interface BoundaryNode {
   desc: string;
 }
 
-// ==================== v9 注入点（Blueprint 拥有，注入点是 Agent 端技术位置映射） ====================
+// ==================== v9 聚合组（Blueprint 拥有，聚合组是 Agent 端注入位置映射） ====================
 
 /** Agent 注入位置（结构层术语，由 AgentAdapter 映射到 Agent 技术 API 名）。
  *  v9（Phase term-P4.3）：语义值 "session"/"turn" 取代旧 "system_prompt"/"context_message"——session
  *  对应 LLM 失忆后重注入（system_prompt 级），turn 对应按需触发（context_message 级）。
- *  Agent-agnostic：AgentAdapter 内部映射到 Pi 的 system_prompt/context_message 等技术名。 */
-export type InjectionTarget = "session" | "turn" | string;
+ *  Agent-agnostic：AgentAdapter 内部映射到 Pi 的 system_prompt/context_message 等技术名。
+ *  Phase term-naming：字段名 target → inject（更直白表达动作意图）。InjectTarget 类型名。 */
+export type InjectTarget = "session" | "turn" | string;
 
-/** Blueprint 的注入点定义（对应 Blueprint md 的 H2，注入点名=人类自定义语义名）。 */
-export interface InjectionPointConfig {
-  /** 注入点名（语义名，Blueprint H2 标题，如 "会话知识"/"参考手册"）。 */
+/** Blueprint 的聚合组定义（对应 Blueprint yaml 的 groups 项，聚合组名=人类自定义语义名）。 */
+export interface BlueprintGroup {
+  /** 聚合组名（语义名，Blueprint 配置项，如 "会话背景"/"参考手册"）。 */
   name: string;
-  /** Agent 注入位置（session / turn / 扩展）。 */
-  target: InjectionTarget;
-  /** 聚合点：参与的 Domain H2 段名列表（来自 ### Modules 无符号项，data-driven）。 */
+  /** 注入位置（session / turn / 扩展）——值语义名，经由 AgentAdapter 映射到具体 Agent Runtime API。 */
+  inject: InjectTarget;
+  /** 聚合点：参与的 Domain Schema Name 列表（来自 modules: [..] 无符号项，data-driven）。 */
   modules: string[];
-  /** 聚合方式（仅 session 类注入点有意义）。 */
+  /** 聚合方式（仅 session 类聚合组有意义）。 */
   mode?: StructureLayout["mode"];
 }
 
-/** Profile 的注入点实例化（对应 Profile md 的 H2，与 Blueprint 的 InjectionPointConfig 同名）。
- *  v9：只保留 domains（追加到本注入点的 Domain 名列表）。trigger/boundaries 删除。 */
-export interface InjectionPointInstance {
-  /** 注入点名（与 Blueprint 的 InjectionPointConfig.name 对应）。 */
+/** Profile 的聚合组实例化（对应 Profile md 的 H2，与 Blueprint 的 BlueprintGroup 同名）。
+ *  v9：只保留 domains（追加到本聚合组的 Domain 名列表）。trigger/boundaries 删除。 */
+export interface ProfileGroup {
+  /** 聚合组名（与 Blueprint 的 BlueprintGroup.name 对应）。 */
   name: string;
-  /** 追加到本注入点的 Domain 名列表（只贡献该注入点）。 */
+  /** 追加到本聚合组的 Domain 名列表（只贡献该聚合组）。 */
   domains: string[];
 }
 
@@ -197,19 +198,19 @@ export interface Domain {
 // ==================== 结构层：Blueprint（v8 Channel 吸收进来） ====================
 
 /**
- * v9 Blueprint：Agent 端注入点结构，结构层模块。
+ * v9 Blueprint：Agent 端聚合组结构，结构层模块。
  *   - （Phase term-P4.1）移除 agent 字段：Blueprint 应 Agent-agnostic，agent 是运行时选择不是结构定义。
  *     消费方 fallback 硬编码 "pi"（见 src/index.ts transpileActive）；等第二个 Adapter（OpenCodeAdapter）
  *     落实后改 transpile(profile, agent) 编译维度参数（§11 实现节奏）。
  *   - compilation：编译方式（缓存目录 + 拆分策略）。P4.2 将移除。
- *   - injectionPoints：注入点列表（H2=注入点人类自定义名），定义 target + Modules 聚合点 + mode。
+ *   - groups：聚合组列表（YAML groups: [...] 项），定义 inject + Modules 聚合点 + mode。
  *
- * 跨项目复用。加新 Agent 只加 AgentAdapter；加新注入点 = Blueprint 加 H2 + ### Modules。
+ * 跨项目复用。加新 Agent 只加 AgentAdapter；加新聚合组 = Blueprint groups 加一项 + modules 列。
  */
 export interface Blueprint {
   name: string;
-  /** 注入点列表（H2=注入点人类自定义名），定义 target + Modules + mode。 */
-  injectionPoints: InjectionPointConfig[];
+  /** 聚合组列表（YAML groups: [...] 项），定义 inject + Modules + mode。 */
+  groups: BlueprintGroup[];
 }
 
 // ==================== 配置层：Profile（v8 Blueprint 业务实例化角色） ====================
@@ -217,8 +218,8 @@ export interface Blueprint {
 /**
  * v9 Profile：业务端实例，配置层模块。
  *   - blueprint：引用哪个 Blueprint（结构复用）。
- *   - domains：YAML 全局 Domain 列表，自动分发到所有注入点（有匹配 H2 段则贡献）。
- *   - injectionPoints：注入点实例化（H2 = 注入点名，与 Blueprint 同名），其下 ### Domains 是追加列表。
+ *   - domains：YAML 全局 Domain 列表，自动分发到所有聚合组（有匹配 H2 段则贡献）。
+ *   - groups：聚合组实例化（H2 = 聚合组名，与 Blueprint 同名），其下 ### Domains 是追加列表。
  *
  * 项目级，不跨项目复用。
  */
@@ -226,18 +227,18 @@ export interface Profile {
   name: string;
   /** 引用的 Blueprint 名（结构复用）。 */
   blueprint: string;
-  /** 全局 Domain 列表，自动分发到所有注入点。 */
+  /** 全局 Domain 列表，自动分发到所有聚合组。 */
   domains: string[];
-  /** 注入点实例化（与 Blueprint 的 InjectionPointConfig 同名）。 */
-  injectionPoints: InjectionPointInstance[];
+  /** 聚合组实例化（与 Blueprint 的 BlueprintGroup 同名）。 */
+  groups: ProfileGroup[];
 }
 
-// ==================== 产物层：Context ====================
+// ==================== 产物层：AgentContext ====================
 
 /**
  * v9 AgentContext（Phase term-P1 前名 Context）：产物层，Profile 编译输出。
  *   - sourceHash：hash(Profile + Blueprint + Domains) 组合——任一变化即失效。
- *   - modules   ：注入点名（语义名）→ 聚合后的 markdown 字符串。
+ *   - modules   ：聚合组名（语义名）→ 聚合后的 markdown 字符串。
  *
  * AgentContext 是物理文件（.pt/cache/agent-contexts/*.agent-context.md），缓存复用。
  * Pt 读取 AgentContext 时比 sourceHash：一致用缓存，不一致重编译覆盖。
@@ -251,7 +252,7 @@ export interface AgentContext {
   blueprint: string;
   /** hash(profile + blueprint + domains)，缓存失效依据。 */
   sourceHash: string;
-  /** 注入点名（语义名）→ 聚合后的 markdown 字符串。 */
+  /** 聚合组名（语义名）→ 聚合后的 markdown 字符串。 */
   modules: Record<string, string>;
 }
 
@@ -339,7 +340,7 @@ export interface AgentAPI {
 export interface AgentAdapter {
   /** Agent 名（pi / codex / opencode / ...） */
   name: string;
-  /** 该 Agent 支持的技术注入点 target 名（Pi: system_prompt, context_message）——
+  /** 该 Agent 支持的技术注入 API 名（Pi: system_prompt, context_message）——
    *  注意：这是 AgentAdapter 映射边界。Blueprint 用 session/turn 语义值，Adapter 内部映射到此字段声明的 Pi API 名。 */
   supportedTargets: string[];
   /** 设置编译产物（compile 后调） */
@@ -351,9 +352,9 @@ export interface AgentAdapter {
   /** 查询可用手册（/pt flows 命令 + /manual:xxx 触发 共同消费）。
    *
    * 参数语义：
-   *  - `ctx`：当前激活的 AgentContext IR（含缓存 sourceHash / 各注入点 modules 内容）
-   *  - `blueprint`：当前 Profile 引用的 Blueprint（遍历 injectionPoints 找 target=turn 注入点）
-   *  - `domains`：**Profile 注入点 scope 过滤后的 Domain 集**——非全集
+   *  - `ctx`：当前激活的 AgentContext IR（含缓存 sourceHash / 各聚合组 modules 内容）
+   *  - `blueprint`：当前 Profile 引用的 Blueprint（遍历 groups 找 inject=turn 聚合组）
+   *  - `domains`：**Profile 聚合组 scope 过滤后的 Domain 集**——非全集
    *    - 由调用方（如 commands.ts flowsText）通过 filterDomainsByProfile 预过滤
    *    - Adapter 内部无需再过滤（信任传入的就是 scope 内）
    *    - v9 当前实现（pi-adapter.ts:listManuals）按"全集"处理——这是历史简化，v10+ 应改

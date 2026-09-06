@@ -17,7 +17,7 @@ name: dev-workflow
 
 ### assets-tree
 - path: .pt/assets/
-- desc: 资产目录，含三个子目录：domains/（Domain md，按 frontmatter.type 分发）+ blueprints/（Blueprint md，结构层——H2=注入点人类自定义名 + agent + injectionPoints + Compilation，跨项目复用）+ profiles/（Profile md，配置层——引用 Blueprint + YAML 全局 domains + 各注入点 ### Domains 追加，项目级）。
+- desc: 资产目录，含三个子目录：domains/（Pt Domain md，H2 段名即 schema 选择器）+ blueprints/（Blueprint yaml，结构层——groups 聚合组：name + inject + modules，跨项目复用）+ profiles/（Pt Profile md，配置层——引用 Blueprint + YAML 全局 domains + 各聚合组 ### Domains 追加，项目级）。
 
 ### cache-tree
 - path: .pt/cache/agent-contexts/

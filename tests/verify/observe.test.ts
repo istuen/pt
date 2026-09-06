@@ -1,7 +1,7 @@
 // tests/verify/observe.test.ts — P0：observe 字段解析 + 渲染 + Manual 实例文档
 import { describe, it, expect } from "vitest";
 import { loadAndTranspile } from "../../src/transpile.js";
-import { bindFlowTemplate, findFlowInBlueprint } from "../../src/render/turn-message.js";
+import { bindFlowTemplate, findFlowInBlueprint } from "../../src/render/turn-inject.js";
 import { buildManualDoc } from "../../src/commands.js";
 import { s } from "./session-fixtures.js";
 

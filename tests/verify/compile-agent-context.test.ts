@@ -1,7 +1,7 @@
 // tests/verify/compile-agent-context.test.ts — compileAgentContext + computeSourceHash 单元测试（P2.5）
 //
-// v9 AgentContext IR = { name, blueprint, sourceHash, modules: Record<注入点名, markdown 字符串> }
-//  - 遍历 Blueprint.injectionPoints，按 modName 注册表聚合 Profile 同名 InjectionPointInstance 追加的 Domain H2 段
+// v9 AgentContext IR = { name, blueprint, sourceHash, modules: Record<聚合组名, markdown 字符串> }
+//  - 遍历 Blueprint.groups，按 modName 注册表聚合 Profile 同名 ProfileGroup 追加的 Domain H2 段
 //  - sourceHash = hash(profile + blueprint + domains)，缓存失效依据
 //
 // Phase term-P1：compile-context.test.ts → compile-agent-context.test.ts
@@ -16,7 +16,7 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
     name: "test-profile",
     blueprint: "test-blueprint",
     domains: ["d1"],
-    injectionPoints: [{ name: "会话知识", domains: [] }],
+    groups: [{ name: "会话背景", domains: [] }],
     ...overrides,
   };
 }
@@ -24,7 +24,7 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
 function makeBlueprint(overrides?: Partial<Blueprint>): Blueprint {
   return {
     name: "test-blueprint",
-    injectionPoints: [{ name: "会话知识", target: "session", modules: ["Scene"] }],
+    groups: [{ name: "会话背景", inject: "session", modules: ["Scene"] }],
     ...overrides,
   };
 }
@@ -32,7 +32,6 @@ function makeBlueprint(overrides?: Partial<Blueprint>): Blueprint {
 function makeDomain(overrides?: Partial<Domain>): Domain {
   return {
     name: "d1",
-    type: "term",
     modules: {
       Scene: [{ name: "t1", desc: "term 1 desc" }],
     },
@@ -52,19 +51,19 @@ describe("compileAgentContext", () => {
     expect(ctx.sourceHash).toMatch(/^[a-f0-9]+(-[a-f0-9]+)?$/);
   });
 
-  it("按 Blueprint.injectionPoints 聚合 Profile 注入点的 Domain H2 段", () => {
+  it("按 Blueprint.groups 聚合 Profile 聚合组的 Domain H2 段", () => {
     const p = makeProfile({ domains: ["d1"] });
     const bp = makeBlueprint();
     const ds = [makeDomain({ modules: { Scene: [{ name: "t1", desc: "term 1" }] } })];
     const ctx = compileAgentContext(p, bp, ds);
-    expect(ctx.modules.会话知识).toContain("t1");
-    expect(ctx.modules.会话知识).toContain("term 1");
+    expect(ctx.modules.会话背景).toContain("t1");
+    expect(ctx.modules.会话背景).toContain("term 1");
   });
 
-  it("Profile 注入点追加的 Domain（injectionPoints[].domains）也参与聚合", () => {
+  it("Profile 聚合组追加的 Domain（groups[].domains）也参与聚合", () => {
     const p = makeProfile({
       domains: [],
-      injectionPoints: [{ name: "会话知识", domains: ["d2"] }],
+      groups: [{ name: "会话背景", domains: ["d2"] }],
     });
     const bp = makeBlueprint();
     const ds = [
@@ -75,21 +74,21 @@ describe("compileAgentContext", () => {
       }),
     ];
     const ctx = compileAgentContext(p, bp, ds);
-    expect(ctx.modules.会话知识).toContain("t2");
-    expect(ctx.modules.会话知识).not.toContain("t1"); // d1 不在追加列表
+    expect(ctx.modules.会话背景).toContain("t2");
+    expect(ctx.modules.会话背景).not.toContain("t1"); // d1 不在追加列表
   });
 
-  it("Blueprint 未声明的注入点不在 AgentContext.modules 中", () => {
+  it("Blueprint 未声明的聚合组不在 AgentContext.modules 中", () => {
     const p = makeProfile({
-      injectionPoints: [
-        { name: "会话知识", domains: [] },
-        { name: "未声明注入点", domains: [] },
+      groups: [
+        { name: "会话背景", domains: [] },
+        { name: "未声明聚合组", domains: [] },
       ],
     });
     const bp = makeBlueprint();
     const ctx = compileAgentContext(p, bp, [makeDomain()]);
-    expect(ctx.modules.会话知识).toBeDefined();
-    expect(ctx.modules.未声明注入点).toBeUndefined();
+    expect(ctx.modules.会话背景).toBeDefined();
+    expect(ctx.modules.未声明聚合组).toBeUndefined();
   });
 });
 
@@ -110,10 +109,10 @@ describe("computeSourceHash", () => {
       name: "p",
       blueprint: "b",
       domains: [],
-      injectionPoints: [],
+      groups: [],
     };
     const p2: Profile = {
-      injectionPoints: [],
+      groups: [],
       domains: [],
       blueprint: "b",
       name: "p",
@@ -129,18 +128,18 @@ describe("computeSourceHash", () => {
     expect(h1).not.toBe(h2);
   });
 
-  it("不同 Blueprint.injectionPoints → 不同 hash", () => {
+  it("不同 Blueprint.groups → 不同 hash", () => {
     const h1 = computeSourceHash(
       makeProfile(),
       makeBlueprint({
-        injectionPoints: [{ name: "会话知识", target: "session", modules: ["Scene"] }],
+        groups: [{ name: "会话背景", inject: "session", modules: ["Scene"] }],
       }),
       [makeDomain()]
     );
     const h2 = computeSourceHash(
       makeProfile(),
       makeBlueprint({
-        injectionPoints: [{ name: "参考手册", target: "turn", modules: ["Manual"] }],
+        groups: [{ name: "参考手册", inject: "turn", modules: ["Flows"] }],
       }),
       [makeDomain()]
     );
@@ -173,7 +172,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
       }),
     ];
     const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
-    expect(ctx.modules.会话知识).toContain("（字段：必读/设计原则/步骤）");
+    expect(ctx.modules.会话背景).toContain("（字段：必读/设计原则/步骤）");
   });
 
   it("有 note → 产物含 ` — note`", () => {
@@ -191,7 +190,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
       }),
     ];
     const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
-    expect(ctx.modules.会话知识).toContain(" — 每个硬指标都要有独立验证方式");
+    expect(ctx.modules.会话背景).toContain(" — 每个硬指标都要有独立验证方式");
   });
 
   it("fields + note 同时有 → 两个追加都输出", () => {
@@ -211,7 +210,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
     ];
     const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
     // 顺序：name: desc（字段：a/b） — note
-    const out = ctx.modules.会话知识;
+    const out = ctx.modules.会话背景;
     expect(out).toContain("（字段：a/b）");
     expect(out).toContain(" — note text");
     expect(out).toContain("- task-description: desc");
@@ -224,9 +223,9 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
       }),
     ];
     const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
-    expect(ctx.modules.会话知识).toContain("- plain: just desc");
+    expect(ctx.modules.会话背景).toContain("- plain: just desc");
     // 不应出现 fields/note 追加
-    expect(ctx.modules.会话知识).not.toContain("（字段：");
-    expect(ctx.modules.会话知识).not.toContain(" — ");
+    expect(ctx.modules.会话背景).not.toContain("（字段：");
+    expect(ctx.modules.会话背景).not.toContain(" — ");
   });
 });

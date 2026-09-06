@@ -1,24 +1,24 @@
 // src/compile/agent-context.ts — 中端：Profile + Blueprint + Domains → AgentContext IR
 //
 // Phase 9.4：v9 中端重写。
-//   - 输入：profile（v9 配置：blueprint + domains + injectionPoints）+ blueprint（v9 结构：injectionPoints + compilation）+ domains[]
-//   - 输出：AgentContext IR（v9 产物层）—— modules: Record<注入点名, 聚合后 markdown>
+//   - 输入：profile（v9 配置：blueprint + domains + groups）+ blueprint（v9 结构：groups）+ domains[]
+//   - 输出：AgentContext IR（v9 产物层）—— modules: Record<聚合组名, 聚合后 markdown>
 //
 // Phase term-P1：Context IR 改名 AgentContext（避免与 Pi 的 context_message 撞名，加入 Agent 概念族）。
 //   文件同步改名 src/compile/context.ts → src/compile/agent-context.ts。
 //
 // v9 编译流程：
-//   遍历 Blueprint.injectionPoints：
-//     1. 找 Profile 对应 InjectionPointInstance（同名）—— 注入点追加的 Domains
-//     2. resolveDomains(profile, ipInstance, ipConfig, domainByName) — 合并全局 + 追加，按 Blueprint.Modules 过滤
-//     3. dispatchInjectionPoint — 遍历 ipConfig.modules，按 modName 注册表聚合
+//   遍历 Blueprint.groups：
+//     1. 找 Profile 对应 ProfileGroup（同名）—— 聚合组追加的 Domains
+//     2. resolveDomains(profile, group, bpGroup, domainByName) — 合并全局 + 追加，按 Blueprint.modules 过滤
+//     3. dispatchGroup — 遍历 bpGroup.modules，按 modName 注册表聚合
 //
 // v9 核心变化：
-//   - dispatchInjectionPoint 按 modName 驱动聚合（v8 按 target 硬编码）
+//   - dispatchGroup 按 modName 驱动聚合（v8 按 target 硬编码）
 //   - moduleRenderers 注册表替代 domainSceneRenderers（v8 按 type 分发）
-//   - 加新聚合标题（### Modules 加新项）= 改 Blueprint，不用改代码；generic fallback 自动处理
-//   - Trigger 段聚合在 system_prompt 注入点，作为索引段
-//   - Profile domains 自动分发：YAML 全局 domains + 注入点追加
+//   - 加新聚合标题（Blueprint.modules 加项）= 改 Blueprint，不用改代码；generic fallback 自动处理
+//   - Trigger 段聚合在 session 聚合组，作为索引段
+//   - Profile domains 自动分发：YAML 全局 domains + 聚合组追加
 //
 // Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
 
@@ -33,10 +33,10 @@ import {
 import type {
   AgentContext,
   Blueprint,
+  BlueprintGroup,
   Domain,
-  InjectionPointConfig,
-  InjectionPointInstance,
   Profile,
+  ProfileGroup,
   StructureLayout,
 } from "../schema.js";
 import {
@@ -53,9 +53,9 @@ import {
 
 /**
  * 编译 Profile 为 AgentContext IR（v9）。
- * - 遍历 Blueprint.injectionPoints
- * - 每个注入点找 Profile 同名 InjectionPointInstance
- * - 按 modName 注册表聚合（dispatchInjectionPoint）
+ * - 遍历 Blueprint.groups
+ * - 每个聚合组找 Profile 同名 ProfileGroup
+ * - 按 modName 注册表聚合（dispatchGroup）
  *
  * Phase term-P1：函数名 compileContext → compileAgentContext（IR 改名同步）。
  */
@@ -67,17 +67,17 @@ export function compileAgentContext(
   // 1. 按 Domain 名建立索引
   const domainByName = new Map(domains.map((d) => [d.name, d]));
 
-  // 2. 按 Blueprint 的注入点遍历
+  // 2. 按 Blueprint 的聚合组遍历
   const modules: Record<string, string> = {};
-  for (const ipConfig of blueprint.injectionPoints) {
-    // 找 Profile 对应的注入点实例化（同名）
-    const ipInstance = profile.injectionPoints.find((i) => i.name === ipConfig.name);
+  for (const bpGroup of blueprint.groups) {
+    // 找 Profile 对应的聚合组实例化（同名）
+    const profileGroup = profile.groups.find((g) => g.name === bpGroup.name);
 
-    // v9 Domains 分发：全局 domains + 注入点追加，按 Blueprint Modules 过滤
-    const refDomains = resolveDomains(profile, ipInstance, ipConfig, domainByName);
+    // v9 Domains 分发：全局 domains + 聚合组追加，按 Blueprint.modules 过滤
+    const refDomains = resolveDomains(profile, profileGroup, bpGroup, domainByName);
 
     // 按 modName 驱动聚合
-    modules[ipConfig.name] = dispatchInjectionPoint(ipInstance, ipConfig, refDomains);
+    modules[bpGroup.name] = dispatchGroup(profileGroup, bpGroup, refDomains);
   }
 
   // 3. 算 sourceHash
@@ -91,55 +91,55 @@ export function compileAgentContext(
   };
 }
 
-/** v9 Domains 分发：全局 domains + 注入点追加（去重，保序），按 Blueprint Modules 过滤。
- *  规则：Domain 有该注入点 Modules 列出的任一 H2 段 → 贡献；没有 → 跳过。
- *  这就是 v9 "Domain 同一份内容可贡献多注入点" 的语义——Profile 引用的 Domain，
- *  只有其 H2 段匹配 Blueprint.Modules 时才进当前注入点。 */
+/** v9 Domains 分发：全局 domains + 聚合组追加（去重，保序），按 Blueprint.modules 过滤。
+ *  规则：Domain 有该聚合组 modules 列出的任一 H2 段 → 贡献；没有 → 跳过。
+ *  这就是 v9 "Domain 同一份内容可贡献多聚合组" 的语义——Profile 引用的 Domain，
+ *  只有其 H2 段匹配 Blueprint.modules 时才进当前聚合组。 */
 function resolveDomains(
   profile: Profile,
-  ipInstance: InjectionPointInstance | undefined,
-  ipConfig: InjectionPointConfig,
+  profileGroup: ProfileGroup | undefined,
+  bpGroup: BlueprintGroup,
   domainByName: Map<string, Domain>
 ): Domain[] {
-  // 合并：全局 domains + 注入点追加（去重，保序）
+  // 合并：全局 domains + 聚合组追加（去重，保序）
   const allNames = [...profile.domains];
-  if (ipInstance) {
-    for (const dn of ipInstance.domains) {
+  if (profileGroup) {
+    for (const dn of profileGroup.domains) {
       if (!allNames.includes(dn)) allNames.push(dn);
     }
   }
 
-  // 过滤：Domain 有该注入点 Modules 列出的任一 H2 段才贡献
+  // 过滤：Domain 有该聚合组 modules 列出的任一 H2 段才贡献
   return allNames
     .map((n) => domainByName.get(n))
     .filter((d): d is Domain => !!d)
-    .filter((d) => ipConfig.modules.some((m) => d.modules[m] !== undefined));
+    .filter((d) => bpGroup.modules.some((m) => d.modules[m] !== undefined));
 }
 
 // ==================== modName 驱动聚合（v9 核心） ====================
 
 /**
- * v9 dispatchInjectionPoint：按 modName 驱动聚合。
- *   - 遍历 ipConfig.modules（Blueprint 声明的聚合标题列表）
+ * v9 dispatchGroup：按 modName 驱动聚合。
+ *   - 遍历 bpGroup.modules（Blueprint 声明的聚合标题列表）
  *   - 每个 modName 调对应 moduleRenderers[modName] 渲染
  *   - renderer 内部按段名 spec 取内容格式（Phase term-P9.3：不再按 d.type 分发）
- *   - target 不在此判断——target 决定注入位置，由 AgentAdapter 处理（compile 不感知 Agent）
+ *   - inject 不在此判断——inject 决定注入位置，由 AgentAdapter 处理（compile 不感知 Agent）
  */
-function dispatchInjectionPoint(
-  _ipInstance: InjectionPointInstance | undefined,
-  ipConfig: InjectionPointConfig,
+function dispatchGroup(
+  _profileGroup: ProfileGroup | undefined,
+  bpGroup: BlueprintGroup,
   refDomains: Domain[]
 ): string {
   const parts: string[] = [];
 
-  // 遍历 Blueprint.Modules 列出的聚合标题
-  for (const modName of ipConfig.modules) {
+  // 遍历 Blueprint.modules 列出的聚合标题
+  for (const modName of bpGroup.modules) {
     const renderer = moduleRenderers[modName] ?? renderGenericModule;
     const modParts: string[] = [];
     for (const d of refDomains) {
       const content = d.modules[modName];
       if (content === undefined) continue;
-      const rendered = renderer(d, content, ipConfig.mode);
+      const rendered = renderer(d, content, bpGroup.mode);
       if (rendered) modParts.push(rendered);
     }
     if (modParts.length > 0) parts.push(modParts.join("\n\n"));
@@ -156,7 +156,7 @@ type ModuleRenderer = (d: Domain, content: unknown, mode?: StructureLayout["mode
  *  Phase term-P9.2：从 Manual 拆出 Rules/Flows/Checklists 三个 H2 段。
  *  Phase term-P8：加 Participant，复用 renderSceneModule（与 Scene 同构——都是 Term[]）。
  *  扩展：调 registerModuleRenderer("xxx", fn) 加一行 + 一个函数即可，不动主循环。
- *  加新聚合标题（Blueprint.Modules 加项）不注册 = 走 generic fallback（自动按 H3 + name/desc 输出）。 */
+ *  加新聚合标题（Blueprint.modules 加项）不注册 = 走 generic fallback（自动按 H3 + name/desc 输出）。 */
 const moduleRenderers: Record<string, ModuleRenderer> = {
   [MOD_SCENE]: renderSceneModule,
   [MOD_TRIGGER]: renderTriggerModule,

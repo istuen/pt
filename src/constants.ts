@@ -3,7 +3,7 @@
 // 路径常量集中管理：资产/缓存/输出目录
 // 模块名常量：Domain 的 H2 段名（Scene/Trigger/Manual/Term）
 //
-// 注意：注入点名（Blueprint H2，如"会话知识"/"参考手册"）是人类自定义的语义名，
+// 注意：聚合组名（Blueprint groups[].name，如"会话背景"/"参考手册"）是人类自定义的语义名，
 // 不应常量化——常量化的是 Domain 内的 H2 段名（v9 资产的标准段）。
 
 import { fileURLToPath } from "node:url";
@@ -29,10 +29,10 @@ export const ASSETS_DIR = ".pt/assets";
 /** Domain md 目录（type=term/workflow/stack/扩展） */
 export const DOMAINS_DIR = `${ASSETS_DIR}/domains`;
 
-/** Blueprint md 目录（v9 结构层——agent + injectionPoints + Compilation） */
+/** Blueprint yaml 目录（v9 结构层——groups: name + inject + modules，跨项目复用） */
 export const BLUEPRINTS_DIR = `${ASSETS_DIR}/blueprints`;
 
-/** Profile md 目录（v9 配置层——blueprint + domains + injectionPoints） */
+/** Profile md 目录（v9 配置层——blueprint + domains + groups H2 实例化） */
 export const PROFILES_DIR = `${ASSETS_DIR}/profiles`;
 
 /** AgentContext 物理缓存目录（Blueprint.compilation.cacheDir 默认值）。

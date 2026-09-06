@@ -136,14 +136,14 @@ describe("multi-session isolation（v12.x）", () => {
     const adapterB = getAgentAdapter(piB.pi as never, "pi");
 
     // 用真实 fixtures profile+domain 走完整 transpile 路径 → setAgentContext 会写入 sourceHash
-    // 直接验证私有字段 this.ctx / this.blueprint 隔离（不再依赖 renderSessionPrompt 输出）
+    // 直接验证私有字段 this.ctx / this.blueprint 隔离（不再依赖 renderSessionInject 输出）
     const ctxA = {
       modules: {},
       sources: [],
       sourceHash: "hash-A",
       cwd: process.cwd(),
     } as never;
-    const blueprintA = { name: "blueprint-a", injectionPoints: [] } as never;
+    const blueprintA = { name: "blueprint-a", groups: [] } as never;
 
     const ctxB = {
       modules: {},
@@ -151,7 +151,7 @@ describe("multi-session isolation（v12.x）", () => {
       sourceHash: "hash-B",
       cwd: process.cwd(),
     } as never;
-    const blueprintB = { name: "blueprint-b", injectionPoints: [] } as never;
+    const blueprintB = { name: "blueprint-b", groups: [] } as never;
 
     // tab A setAgentContext
     adapterA.setAgentContext(ctxA, blueprintA, []);

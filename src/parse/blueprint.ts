@@ -6,42 +6,40 @@
 //
 // Blueprint asset 格式（v9.5）：
 //   name: <blueprint-name>
-//   injectionPoints:
-//     - name: 会话知识              ← 注入点（人类自定义语义名）
-//       target: session              ← 注入位置（session / turn，Agent-agnostic）
+//   groups:
+//     - name: 会话背景              ← 聚合组（人类自定义语义名）
+//       inject: session              ← 注入位置（session / turn，Agent-agnostic）
 //       mode: hybrid                 ← 可选
-//       modules: [Scene, Trigger]    ← 聚合点（Domain H2 段名列表）
+//       modules: [Scene, Participant]   ← 聚合点（Domain Schema Name 列表）
+//     - name: 触发索引
+//       inject: session
+//       modules: [Trigger]
 //     - name: 参考手册
-//       target: turn
-//       modules: [Manual]
+//       inject: turn
+//       modules: [Rules, Flows, Checklists]
 //
 // Tech Debt T6: 用 constants + type guard（pt-quality #1/#4/#5）
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import type {
-  Blueprint,
-  InjectionPointConfig,
-  InjectionTarget,
-  StructureLayout,
-} from "../schema.js";
+import type { Blueprint, BlueprintGroup, InjectTarget, StructureLayout } from "../schema.js";
 
 const VALID_MODES: ReadonlyArray<StructureLayout["mode"]> = ["byDomain", "byType", "hybrid"];
 
-interface RawInjectionPoint {
+interface RawBlueprintGroup {
   name: string;
-  target: string;
+  inject: string;
   mode?: string;
   modules: string[];
 }
 
 interface RawBlueprint {
   name: string;
-  injectionPoints: RawInjectionPoint[];
+  groups: RawBlueprintGroup[];
 }
 
-/** 读 blueprints/<fileName>.blueprint.yaml → Blueprint { name, injectionPoints } */
+/** 读 blueprints/<fileName>.blueprint.yaml → Blueprint { name, groups } */
 export async function parseBlueprint(absDir: string, fileName: string): Promise<Blueprint> {
   const filePath = join(absDir, fileName);
   const raw = await readFile(filePath, "utf8");
@@ -50,24 +48,24 @@ export async function parseBlueprint(absDir: string, fileName: string): Promise<
   if (!data || typeof data.name !== "string") {
     throw new Error(`parseBlueprint: ${fileName} 缺少顶层 name 字段`);
   }
-  if (!Array.isArray(data.injectionPoints)) {
-    throw new Error(`parseBlueprint: ${fileName} 缺少 injectionPoints 数组`);
+  if (!Array.isArray(data.groups)) {
+    throw new Error(`parseBlueprint: ${fileName} 缺少 groups 数组`);
   }
 
-  const injectionPoints: InjectionPointConfig[] = data.injectionPoints.map((ip) => {
+  const groups: BlueprintGroup[] = data.groups.map((ip) => {
     if (typeof ip.name !== "string") {
-      throw new Error(`parseBlueprint: ${fileName} 注入点缺 name 字段`);
+      throw new Error(`parseBlueprint: ${fileName} 聚合组缺 name 字段`);
     }
-    if (typeof ip.target !== "string") {
-      throw new Error(`parseBlueprint: ${fileName} 注入点 ${ip.name} 缺 target 字段`);
+    if (typeof ip.inject !== "string") {
+      throw new Error(`parseBlueprint: ${fileName} 聚合组 ${ip.name} 缺 inject 字段`);
     }
     if (!Array.isArray(ip.modules)) {
-      throw new Error(`parseBlueprint: ${fileName} 注入点 ${ip.name} 缺 modules 数组`);
+      throw new Error(`parseBlueprint: ${fileName} 聚合组 ${ip.name} 缺 modules 数组`);
     }
 
-    const config: InjectionPointConfig = {
+    const config: BlueprintGroup = {
       name: ip.name,
-      target: ip.target as InjectionTarget,
+      inject: ip.inject as InjectTarget,
       modules: ip.modules.map((m) => String(m)),
     };
     if (ip.mode && isValidMode(ip.mode)) {
@@ -76,7 +74,7 @@ export async function parseBlueprint(absDir: string, fileName: string): Promise<
     return config;
   });
 
-  return { name: data.name, injectionPoints };
+  return { name: data.name, groups };
 }
 
 function isValidMode(x: string): x is StructureLayout["mode"] {

@@ -1,14 +1,13 @@
-// src/render/turn-message.ts — FlowTemplate + 参数 → Turn Message
+// src/render/turn-inject.ts — FlowTemplate + 参数 → Turn Inject
 //
 // Phase 9.5：v9 后端通用化。
-//   - renderTurnMessage(ctx, blueprint, domains, args) 修复死代码——实现 /manual:xxx 触发
+//   - renderTurnInject(ctx, blueprint, domains, args) 修复死代码——实现 /manual:xxx 触发
 //   - findFlowInBlueprint(blueprint, domains, tplName) — 替代 v8 findFlowInBundle
 //
-// /manual:<domain-name> 触发：从 Blueprint 的 turn 注入点引用的 Domain 里查 Manual 段
-// /<flow-name> <args> 触发：展开 workflow-Domain 的 FlowTemplate（v8 逻辑保留）
+// /manual:<domain-name> 触发：从 Blueprint 的 turn 聚合组引用的 Domain 里查 Manual 段
+// /<flow-name> <args> 触发：展开 Domain 的 FlowTemplate（v8 逻辑保留）
 //
-// Phase term-P4.3：renderContextMessage → renderTurnMessage；文件 context-message.ts → turn-message.ts；
-//   target 语义值 context_message → turn（Agent-agnostic 语义值）。
+// Phase term-P4.3：renderContextMessage → renderTurnInject；inject 语义值 context_message → turn（Agent-agnostic 语义值）。
 //   bindFlowTemplate / findFlowInBlueprint 函数名不改——它们是 FlowTemplate 操作，非注入位置概念。
 //
 // Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
@@ -34,9 +33,9 @@ interface VarSpec {
  *   - /manual:<domain-name>：注入该 Domain 的 Manual 段内容（term→Rule checklist / workflow→FlowTemplate 列表）
  *   - /<flow-name> <args>：展开 workflow-Domain 的 FlowTemplate（v8 逻辑保留）
  *
- * Phase term-P4.3：AgentAdapter 内部把 Turn Message 注入到 Agent 的 turn 级（Pi: input 事件 transform）。
+ * Phase term-P4.3：AgentAdapter 内部把 Turn Inject 注入到 Agent 的 turn 级（Pi: input 事件 transform）。
  */
-export function renderTurnMessage(
+export function renderTurnInject(
   _ctx: AgentContext,
   blueprint: Blueprint,
   domains: Domain[],
@@ -195,19 +194,19 @@ function replaceVars(text: string, bound: Map<string, string>): string {
   });
 }
 
-/** 在 Blueprint 注入点（target=turn）的引用域中按名查找 FlowTemplate（跨 Domain）。
- *  v9：renderTurnMessage 拿不到 Profile（Profile 在 transpile 内被消费），
- *       所以这里直接遍历传入的 domains 全集找 workflow-type Domain 的 FlowTemplate。
- *  Phase term-P4.3：target 语义值 context_message → turn。 */
+/** 在 Blueprint 聚合组（inject=turn）的引用域中按名查找 FlowTemplate（跨 Domain）。
+ *  v9：renderTurnInject 拿不到 Profile（Profile 在 transpile 内被消费），
+ *       所以这里直接遍历传入的 domains 全集找含 Flows 段的 Domain 的 FlowTemplate。
+ *  Phase term-P4.3 + term-final：inject 语义值 turn（原 context_message → turn → 现聚合组 inject=turn）。 */
 export function findFlowInBlueprint(
   blueprint: Blueprint,
   // Phase term-P9.3：type 字段删除——Domain 不再有 type 维度，按 H2 段名（这里是 ## Flows）识别 FlowTemplate
   domains: Array<{ name: string; modules: Record<string, unknown> }>,
   tplName: string
 ): BoundableTemplate | undefined {
-  // 验证 Blueprint 里有 target=turn 的注入点（间接确认 input 事件该由本实例覆盖接管）
-  const hasTurnIp = blueprint.injectionPoints.some((ip) => ip.target === "turn");
-  if (!hasTurnIp) return undefined;
+  // 验证 Blueprint 里有 inject=turn 的聚合组（间接确认 input 事件该由本实例覆盖接管）
+  const hasTurnGroup = blueprint.groups.some((g) => g.inject === "turn");
+  if (!hasTurnGroup) return undefined;
 
   for (const d of domains) {
     // Phase term-P9.2：FlowTemplate 在 ## Flows 段（不分 type）。
