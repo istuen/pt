@@ -26,7 +26,7 @@ import { errMsg, reportError, reportWarn } from "./diagnostics.js";
 import { mdAdapter } from "./parse/index.js";
 import { compileAgentContext } from "./compile/agent-context.js";
 import { saveAgentContext, loadAgentContext } from "./render/cache.js";
-import { renderSessionPrompt } from "./render/session-prompt.js";
+import { renderSessionInject } from "./render/session-inject.js";
 import { findBlueprint, findProfile } from "./schema.js";
 import type {
   AgentContext,
@@ -39,7 +39,7 @@ import type {
 } from "./schema.js";
 
 export interface TranspileResult {
-  /** 注入 systemPrompt 的字符串段（聚合所有 target=system_prompt 的注入点） */
+  /** 注入 session 的字符串段（聚合所有 inject=session 的聚合组） */
   segment: string;
   /** 各 adapter 返回的 SchemaBundle（保留给 input handler 找 FlowTemplate / listManuals 用） */
   bundles: SchemaBundle[];
@@ -135,8 +135,8 @@ export async function loadAndTranspile(
   }
 
   // 4. render：剥 asset 分隔注释
-  //   Phase term-P4.3：renderSystemPrompt → renderSessionPrompt（target 语义值改 session/turn）。
-  const segment = renderSessionPrompt(used, blueprint)
+  //   Phase term-P4.3：renderSystemPrompt → renderSessionInject（inject 语义值 session/turn）。
+  const segment = renderSessionInject(used, blueprint)
     .replace(/<!-- =====[^\n]*-->\n?/g, "")
     .trim();
 

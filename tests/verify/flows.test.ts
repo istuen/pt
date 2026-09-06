@@ -20,7 +20,7 @@ describe("Profile 触发手册（listManuals）", () => {
     const profile = r.profile;
     const filteredDomains = b.domains.filter((d) => {
       if (profile.domains.includes(d.name)) return true;
-      return profile.injectionPoints.some((ip) => ip.domains.includes(d.name));
+      return profile.groups.some((ip) => ip.domains.includes(d.name));
     });
 
     const adapter = getAgentAdapter({} as never, "pi");
@@ -29,7 +29,7 @@ describe("Profile 触发手册（listManuals）", () => {
     expect(flows).toEqual([]);
 
     // Blueprint 注入点声明三段 schema（Phase term-P9.2）
-    const manualIp = r.blueprint.injectionPoints.find((ip) => ip.name === "参考手册");
+    const manualIp = r.blueprint.groups.find((ip) => ip.name === "参考手册");
     expect(manualIp?.modules).toContain("Rules");
     expect(manualIp?.modules).toContain("Flows");
     expect(manualIp?.modules).toContain("Checklists");
@@ -43,7 +43,7 @@ describe("Profile 触发手册（listManuals）", () => {
     const profile = r.profile;
     const filteredDomains = b.domains.filter((d) => {
       if (profile.domains.includes(d.name)) return true;
-      return profile.injectionPoints.some((ip) => ip.domains.includes(d.name));
+      return profile.groups.some((ip) => ip.domains.includes(d.name));
     });
 
     const adapter = getAgentAdapter({} as never, "pi");

@@ -12,7 +12,7 @@
 
 import { join } from "node:path";
 import { MANUAL_DIR, MOD_FLOWS } from "./constants.js";
-import { bindFlowTemplate, findFlowInBlueprint } from "./render/turn-message.js";
+import { bindFlowTemplate, findFlowInBlueprint } from "./render/turn-inject.js";
 import type { SessionState } from "./session.js";
 import type { Profile } from "./schema.js";
 import { isFlowTemplateLike } from "./compile/type-guards.js";
@@ -26,7 +26,7 @@ export function filterDomainsByProfile<T extends { name: string }>(
   if (!profile) return domains;
   return domains.filter((d) => {
     if (profile.domains.includes(d.name)) return true;
-    return profile.injectionPoints.some((ip) => ip.domains.includes(d.name));
+    return profile.groups.some((g) => g.domains.includes(d.name));
   });
 }
 
@@ -60,7 +60,7 @@ export function statusText(session: SessionState): string {
 
 /** /pt flows 内核：返回可用手册列表文本。无激活 Profile 返回提示串。
  *
- * 调用 listManuals 时**已用 filterDomainsByProfile 预过滤**——按当前 Profile 注入点 scope
+ * 调用 listManuals 时**已用 filterDomainsByProfile 预过滤**——按当前 Profile 聚合组 scope
  * 过滤后传入（见 schema.ts:AgentAdapter.listManuals JSDoc）。 */
 export function flowsText(session: SessionState): string {
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.activeAdapter) {
@@ -76,10 +76,10 @@ export function flowsText(session: SessionState): string {
       filterDomainsByProfile(session.cachedBundles[0].domains, session.cachedProfile)
     ) ?? [];
   if (flows.length === 0) {
-    return "当前 Profile 无可触发手册（turn 注入点无 workflow-type Domain）";
+    return "当前 Profile 无可触发手册（turn 聚合组无含 Flows 段的 Domain）";
   }
   const lines = flows.map((f) => `  ${f.name} ${f.hint ?? ""}  ← ${f.domain}`);
-  return `可用手册（输入 /手册名 参数 或 /manual:<domain-name> 触发 Context Message）:\n${lines.join("\n")}`;
+  return `可用手册（输入 /手册名 参数 或 /manual:<domain-name> 触发 Turn Inject）:\n${lines.join("\n")}`;
 }
 
 /** /pt full 内核：构建写入 .pt/cache/fulls/ 的完整 systemPrompt 字符串（v10.x 修复 pt-full-duplicate-segment）。

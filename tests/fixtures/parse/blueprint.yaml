@@ -1,9 +1,12 @@
 name: test-blueprint
-injectionPoints:
-  - name: 会话知识
-    target: session
+groups:
+  - name: 会话背景
+    inject: session
     mode: hybrid
-    modules: [Scene, Trigger]
+    modules: [Scene, Participant]
+  - name: 触发索引
+    inject: session
+    modules: [Trigger]
   - name: 参考手册
-    target: turn
-    modules: [Manual]
+    inject: turn
+    modules: [Rules, Flows, Checklists]

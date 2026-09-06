@@ -48,9 +48,9 @@ function makeFixture(marker: string): {
   const blueprint: Blueprint = {
     name: `blueprint-${marker}`,
     agent: "pi",
-    injectionPoints: [
-      { name: "system", target: "session", modules: [] },
-      { name: "manual", target: "turn", modules: [] },
+    groups: [
+      { name: "system", inject: "session", modules: [] },
+      { name: "manual", inject: "turn", modules: [] },
     ],
   };
   const context: Context = {
@@ -73,13 +73,13 @@ function makeFixture(marker: string): {
 }
 
 async function makeProjectCwd(dirs: string[]): Promise<string> {
-  const cwd = await mkdtemp(join(tmpdir(), "pt-switch-injection-"));
+  const cwd = await mkdtemp(join(tmpdir(), "pt-switch-group-"));
   dirs.push(cwd);
   await mkdir(join(cwd, ".pt/assets/profiles"), { recursive: true });
   return cwd;
 }
 
-describe("manual profile switch and injection", () => {
+describe("manual profile switch and Session Inject", () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
@@ -141,7 +141,7 @@ describe("manual profile switch and injection", () => {
     expect(result).toBeUndefined();
   });
 
-  it("installs injection when the first profile is selected by the command", async () => {
+  it("installs Session Inject when the first profile is selected by the command", async () => {
     const events = new Map<string, GenericHandler[]>();
     const commands = new Map<
       string,

@@ -22,12 +22,12 @@ function makePopulatedSessionState(): SessionState {
     name: "pt-dev",
     blueprint: "dev-knowledge",
     sourceHash: "abc",
-    modules: { 会话知识: "content" },
+    modules: { 会话背景: "content" },
   };
   s.cachedBlueprint = {
     name: "dev-knowledge",
     agent: "pi",
-    injectionPoints: [{ name: "会话知识", target: "session", modules: [] }],
+    groups: [{ name: "会话背景", inject: "session", modules: [] }],
     compilation: { cacheDir: ".pt/cache/agent-contexts", split: "single-file" },
   };
   s.cachedDomains = [{ name: "me", modules: {} }];
@@ -35,7 +35,7 @@ function makePopulatedSessionState(): SessionState {
     name: "pt-dev",
     blueprint: "dev-knowledge",
     domains: ["me"],
-    injectionPoints: [],
+    groups: [],
   };
   s.lastCacheHit = true;
   s.injectionState = "injected";

@@ -1,11 +1,11 @@
 // src/parse/profile.ts — profiles/*.md → Profile IR
 //
-// Phase 9.3：v9 新增 — Profile（业务端实例）= 引用 Blueprint + 选 Domains（YAML 全局 + 注入点追加）。
+// Phase 9.3：v9 新增 — Profile（业务端实例）= 引用 Blueprint + 选 Domains（YAML 全局 + 聚合组追加）。
 //   - YAML frontmatter:
 //     - blueprint: <blueprint-name>
-//     - domains: [d1, d2, ...]   ← 全局 Domain 列表（自动分发到所有注入点）
-//   - ## <注入点名> : 注入点实例化（与 Blueprint 同名）
-//     - ### Domains : 追加到本注入点的 Domain 名列表
+//     - domains: [d1, d2, ...]   ← 全局 Domain 列表（自动分发到所有聚合组）
+//   - ## <聚合组名> : 聚合组实例化（与 Blueprint 同名）
+//     - ### Domains : 追加到本聚合组的 Domain 名列表
 //
 // Profile asset 格式（v9）：
 //   ---
@@ -14,7 +14,7 @@
 //   domains: [d1, d2, ...]
 //   ---
 //
-//   ## 会话知识
+//   ## 会话背景
 //   ### Domains
 //   - d3
 //   - d4
@@ -25,10 +25,10 @@
 
 import { join } from "node:path";
 import { SUFFIX_PROFILE } from "../constants.js";
-import type { InjectionPointInstance, Profile } from "../schema.js";
+import type { Profile, ProfileGroup } from "../schema.js";
 import { extractDomainsList, readAsset, sArr } from "./shared.js";
 
-/** 读 profiles/<fileName>.md → Profile { name, blueprint, domains, injectionPoints }
+/** 读 profiles/<fileName>.md → Profile { name, blueprint, domains, groups }
  *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。 */
 export async function parseProfile(absDir: string, fileName: string): Promise<Profile> {
   const asset = await readAsset(join(absDir, fileName));
@@ -38,11 +38,11 @@ export async function parseProfile(absDir: string, fileName: string): Promise<Pr
 
   const domains = sArr(asset.frontmatter.domains); // YAML 全局 domains
 
-  // injectionPoints：每个 H2 = 注入点实例化（只读 ### Domains 追加列表）
-  const injectionPoints: InjectionPointInstance[] = [];
+  // groups：每个 H2 = 聚合组实例化（只读 ### Domains 追加列表）
+  const groups: ProfileGroup[] = [];
   for (const [h2Name, section] of Object.entries(asset.sections)) {
     const appendDomains = extractDomainsList(section);
-    injectionPoints.push({ name: h2Name, domains: appendDomains });
+    groups.push({ name: h2Name, domains: appendDomains });
   }
 
   return {
@@ -52,7 +52,7 @@ export async function parseProfile(absDir: string, fileName: string): Promise<Pr
         : stripProfileSuffix(asset.name),
     blueprint,
     domains,
-    injectionPoints,
+    groups,
   };
 }
 

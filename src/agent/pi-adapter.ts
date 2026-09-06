@@ -3,6 +3,7 @@
 // Phase 9.6：v9 新增 — AgentAdapter 的 Pi 实现。
 //   - system_prompt 注入：api.on("before_agent_start") 每轮追加 segment
 //   - context_message 触发：api.on("input") 拦截 /manual:xxx 和 /<flow-name>
+//   - 这些是 Agent Runtime 层（Pi API），本 Adapter 在该层做 session→system_prompt、turn→context_message 映射
 //
 // Pt 核心只调 AgentAdapter 接口，不直接调 Pi API。加新 Agent 只加 Adapter。
 //
@@ -21,8 +22,8 @@ import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
 import { renderInjectionFooter } from "../injection-status.js";
 import { getSessionById } from "../session.js";
 import type { AgentAdapter, AgentAPI, AgentContext, Blueprint, Domain } from "../schema.js";
-import { renderTurnMessage } from "../render/turn-message.js";
-import { renderSessionPrompt } from "../render/session-prompt.js";
+import { renderTurnInject } from "../render/turn-inject.js";
+import { renderSessionInject } from "../render/session-inject.js";
 
 /** v12.x：从 handler 的 args[1] ctx 提取 sessionId。
  *  pi 的 `pi.on(event, handler)` 触发时传 `(event, ctx)` 两个参数；通过 AgentAPI 包装后
@@ -36,8 +37,8 @@ function sessionIdFromArgs(args: unknown[]): string | undefined {
 export class PiAdapter implements AgentAdapter {
   name = AGENT_PI;
   /** Phase term-P4.3：保留 Pi API 名 system_prompt/context_message——
-   *  这是 AgentAdapter 映射边界声明（Pi 支持哪些技术注入点）。
-   *  Blueprint 用 session/turn 语义值，Adapter 内部映射到此字段声明的 Pi API 名。 */
+   *  这是 AgentAdapter 映射边界声明（Pi 支持哪些 Agent Runtime 层注入位置）。
+   *  Blueprint 用 session/turn 语义值（聚合组 inject 字段），Adapter 内部映射到此字段声明的 Pi API 名。 */
   supportedTargets = ["system_prompt", "context_message"];
 
   private ctx: AgentContext | null = null;
@@ -55,7 +56,7 @@ export class PiAdapter implements AgentAdapter {
     this.ctx = ctx;
     this.blueprint = blueprint;
     this.domains = domains;
-    this.segment = renderSessionPrompt(ctx, blueprint);
+    this.segment = renderSessionInject(ctx, blueprint);
   }
 
   /** 清除当前 session 的 context；保留当前 runtime 的 handler 绑定。
@@ -79,7 +80,7 @@ export class PiAdapter implements AgentAdapter {
     this.ctx = ctx;
     this.blueprint = blueprint;
     this.domains = domains;
-    this.segment = renderSessionPrompt(ctx, blueprint);
+    this.segment = renderSessionInject(ctx, blueprint);
 
     if (this.injectedApi === api) {
       api.log?.debug("agent:registerInject skipped (already injected)");
@@ -87,7 +88,7 @@ export class PiAdapter implements AgentAdapter {
     }
     this.injectedApi = api;
 
-    // session 注入（target=session → Pi system_prompt 事件）：每轮追加 segment
+    // session 注入（inject=session → Pi system_prompt 事件）：每轮追加 segment
     // v10.x：包 try/catch，运行时异常走 api.log.error + ui.notify，不再 swallow
     // v11.x（issue pt-injection-status-manual-track）：三分支写 session.injectionState +
     //   调 api.ui?.setStatus，让 footer 三态文字真实反映注入结果（自报，不检测 Pi）
@@ -164,15 +165,15 @@ export class PiAdapter implements AgentAdapter {
     });
 
     // context_message 触发：/manual:xxx + /<flow-name>
-    // v10.x：包 try/catch，renderTurnMessage 抛错不再 swallow
+    // v10.x：包 try/catch，renderTurnInject 抛错不再 swallow
     api.on("input", async (...args: unknown[]) => {
       const t0 = Date.now();
       try {
         if (!this.ctx || !this.blueprint) return { action: "continue" };
         const event = args[0];
         if (!isInputEvent(event)) return { action: "continue" };
-        // Phase term-P4.3：renderContextMessage → renderTurnMessage
-        const result = renderTurnMessage(this.ctx, this.blueprint, this.domains, event.text);
+        // Phase term-P4.3：renderContextMessage → renderTurnInject
+        const result = renderTurnInject(this.ctx, this.blueprint, this.domains, event.text);
         const durationMs = Date.now() - t0;
         if (result === null) {
           api.log?.debug("agent:input passthrough", {
@@ -201,7 +202,7 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** 查询可用手册（/pt flows 用）。
-   *  v9：遍历 Blueprint 的 context_message 注入点 → 引用 Domain → 找 FlowTemplate + term 的 Manual Rule。 */
+   *  v9：遍历 Blueprint 的 inject=turn 聚合组 → 引用 Domain → 找 FlowTemplate + Rules 段的 Rule。 */
   listManuals(
     _ctx: AgentContext,
     blueprint: Blueprint,
@@ -209,11 +210,12 @@ export class PiAdapter implements AgentAdapter {
   ): Array<{ name: string; hint?: string; domain: string }> {
     const flows: Array<{ name: string; hint?: string; domain: string }> = [];
 
-    for (const ip of blueprint.injectionPoints) {
-      // Phase term-P4.3：target 语义值 context_message → turn
-      if (ip.target !== "turn") continue;
-      // ip.modules 是 modName 列表（"Flows"/"Rules"/"Checklists" P9.2 后）；domains 是 Profile 注入点引用的 Domain 集
-      // 这里用全集 domains 简化——renderTurnMessage 也走全集
+    for (const group of blueprint.groups) {
+      // Phase term-P4.3：inject 语义值 context_message → turn
+      // Phase term-naming：字段名 target → inject
+      if (group.inject !== "turn") continue;
+      // group.modules 是 modName 列表（"Flows"/"Rules"/"Checklists" P9.2 后）；domains 是 Profile 聚合组引用的 Domain 集
+      // 这里用全集 domains 简化——renderTurnInject 也走全集
       for (const d of domains) {
         // Phase term-P9.2：FlowTemplate 在 ## Flows 段；Rule[] 在 ## Rules 段；Checklist[] 在 ## Checklists 段。
         const flowsContent = d.modules[MOD_FLOWS];

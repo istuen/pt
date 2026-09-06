@@ -1,16 +1,16 @@
 // tests/verify/phase9.test.ts — Phase 9.9 v9 完整回归验证（vitest）
 //
 // v9 模型：
-// - Blueprint 吸收 v8 Channel 结构（agent + injectionPoints + Compilation）
+// - Blueprint 吸收 v8 Channel 结构（groups）
 // - Profile 是业务端实例（blueprint + YAML domains + 各注入点 ### Domains 追加）
 // - modName 注册表（替代 v8 domainSceneRenderers）
 // - Trigger 索引段（Domain 内 H2 段）
-// - /manual:xxx 触发（renderTurnMessage 实现）
+// - /manual:xxx 触发（renderTurnInject 实现）
 // - AgentAdapter 抽象（PiAdapter 封装 before_agent_start + input）
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { loadAndTranspile } from "../../src/transpile.js";
-import { renderTurnMessage } from "../../src/render/turn-message.js";
+import { renderTurnInject } from "../../src/render/turn-inject.js";
 import { findBlueprint, findProfile } from "../../src/schema.js";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -121,12 +121,13 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 5. v9 注入点 H2 ==========
   describe("5. v9 注入点 H2", () => {
-    it("pt-dev Context 含 ## 会话知识 + ## 参考手册，不含 ## Scene / ## Manual", async () => {
+    it("pt-dev Context 含 ## 会话背景 + ## 触发索引 + ## 参考手册，不含 ## Scene / ## Manual", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
         "utf8"
       );
-      expect(/^## 会话知识/m.test(raw)).toBe(true);
+      expect(/^## 会话背景/m.test(raw)).toBe(true);
+      expect(/^## 触发索引/m.test(raw)).toBe(true);
       expect(/^## 参考手册/m.test(raw)).toBe(true);
       expect(/^## Scene\b/m.test(raw)).toBe(false);
       expect(/^## Manual\b/m.test(raw)).toBe(false);
@@ -134,7 +135,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   });
 
   // ========== 6. pt-quality Manual ==========
-  describe("6. pt-quality 进参考手册不污染会话知识", () => {
+  describe("6. pt-quality 进参考手册不污染会话背景/触发索引", () => {
     it("pt-quality Manual 段出现在 pt-dev 参考手册", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
@@ -159,13 +160,13 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(qualityManualIdx).toBe(lastIdx);
     });
 
-    it("pt-quality Manual 规范 checklist 不污染会话知识段", async () => {
+    it("pt-quality Manual 规范 checklist 不污染会话背景段", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
         "utf8"
       );
       const _canKaoIdx = raw.indexOf("## 参考手册");
-      const huiHuaIdx = raw.indexOf("## 会话知识");
+      const huiHuaIdx = raw.indexOf("## 会话背景");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
       const modulesTypeSafetyIdx = raw.indexOf("- modules-type-safety:");
       expect(
@@ -176,28 +177,30 @@ describe("Phase 9.9 v9 完整回归", () => {
   });
 
   // ========== 7. Trigger 索引段 ==========
-  describe("7. Trigger 索引段", () => {
-    it("pt-quality-trigger 出现在会话知识段", async () => {
+  describe("7. Trigger 独立索引段", () => {
+    it("pt-quality-trigger 出现在触发索引段", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
         "utf8"
       );
-      const huiHuaIdx = raw.indexOf("## 会话知识");
-      const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
+      // Phase term-naming：Trigger 拉出作独立段（不再是会话背景的一部分）
+      const triggerIdxH2 = raw.indexOf("## 触发索引");
+      const nextH2AfterTrigger = raw.slice(triggerIdxH2 + 1).search(/^## /m);
       const triggerIdx = raw.indexOf("pt-quality-trigger");
-      expect(triggerIdx).toBeGreaterThan(huiHuaIdx);
-      expect(triggerIdx).toBeLessThan(huiHuaIdx + 1 + nextH2AfterHuiHuaOffset);
+      expect(triggerIdxH2).toBeGreaterThan(-1);
+      expect(triggerIdx).toBeGreaterThan(triggerIdxH2);
+      expect(triggerIdx).toBeLessThan(triggerIdxH2 + 1 + nextH2AfterTrigger);
     });
   });
 
   // ========== 8. me Domain ==========
-  describe("8. me Domain 进入会话知识", () => {
-    it("me Domain 段出现在会话知识", async () => {
+  describe("8. me Domain 进入会话背景", () => {
+    it("me Domain 段出现在会话背景", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
         "utf8"
       );
-      const huiHuaIdx = raw.indexOf("## 会话知识");
+      const huiHuaIdx = raw.indexOf("## 会话背景");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
       const meIdx = raw.indexOf("### me");
       expect(meIdx).toBeGreaterThan(huiHuaIdx);
@@ -217,8 +220,8 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 9. 硬编码检查 ==========
   describe("9. 硬编码检查", () => {
-    it("renderSessionPrompt 不硬编码 Scene（Phase term-P4.3 函数名）", async () => {
-      const src = await readFile("src/render/session-prompt.ts", "utf8");
+    it("renderSessionInject 不硬编码 Scene（Phase term-P4.3 函数名）", async () => {
+      const src = await readFile("src/render/session-inject.ts", "utf8");
       expect(src).not.toMatch(/['"]Scene['"]/);
     });
     it("compile/agent-context.ts 不含 domainSceneRenderers 代码（仅历史注释提及）", async () => {
@@ -248,9 +251,9 @@ describe("Phase 9.9 v9 完整回归", () => {
         /interface Profile[\s\S]*?blueprint:\s*string[\s\S]*?domains:\s*string\[\]/
       );
     });
-    it("InjectionPointInstance 无 trigger/boundaries", async () => {
+    it("ProfileGroup 无 trigger/boundaries", async () => {
       const src = await readFile("src/schema.ts", "utf8");
-      const m = src.match(/interface InjectionPointInstance\s*\{[\s\S]*?\}/);
+      const m = src.match(/interface ProfileGroup\s*\{[\s\S]*?\}/);
       expect(m).not.toBeNull();
       expect(m?.[0]).not.toContain("trigger");
       expect(m?.[0]).not.toContain("boundaries");
@@ -275,7 +278,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
       const ptDevBlueprint = findBlueprint(ptDevBundle.blueprints, ptDevProfile.blueprint)!;
-      const result = renderTurnMessage(
+      const result = renderTurnInject(
         r9.context,
         ptDevBlueprint,
         ptDevBundle.domains,
@@ -289,7 +292,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
       const ptDevBlueprint = findBlueprint(ptDevBundle.blueprints, ptDevProfile.blueprint)!;
-      const result = renderTurnMessage(
+      const result = renderTurnInject(
         r9.context,
         ptDevBlueprint,
         ptDevBundle.domains,
@@ -388,24 +391,24 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 18. /pt manual 手册实例化 ==========
   describe("18. /pt manual 手册实例化", () => {
     it("bindFlowTemplate 输出含步骤 + 变量绑定", async () => {
-      const { bindFlowTemplate } = await import("../../src/render/turn-message.js");
+      const { bindFlowTemplate } = await import("../../src/render/turn-inject.js");
       const r = await loadAndTranspile(cwd, "pt");
-      const { findFlowInBlueprint } = await import("../../src/render/turn-message.js");
+      const { findFlowInBlueprint } = await import("../../src/render/turn-inject.js");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       expect(tpl).toBeDefined();
-      const bound = bindFlowTemplate(tpl!, "term my-concept");
+      // Phase term-final：vars 从 [type, name] 简化为 [name]，调用方传单一 name
+      const bound = bindFlowTemplate(tpl!, "my-concept");
       expect(bound).toContain("create-domain-procedure");
       expect(bound).toContain("my-concept");
-      expect(bound).toContain("term");
     });
 
     it("实例文档格式含 checklist + 产物区 + 更新指引", async () => {
       const { bindFlowTemplate, findFlowInBlueprint } = await import(
-        "../../src/render/turn-message.js"
+        "../../src/render/turn-inject.js"
       );
       const r = await loadAndTranspile(cwd, "pt");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
-      const bound = bindFlowTemplate(tpl!, "term my-concept");
+      const bound = bindFlowTemplate(tpl!, "my-concept");
       // 模拟 /pt manual 的文档包装逻辑
       const lines: string[] = ["---", "procedure: create-domain-procedure", "---", ""];
       for (const line of bound.split("\n")) {
@@ -423,11 +426,11 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("实例文档跳过冗余标题/参数提示/步骤段头", async () => {
       const { bindFlowTemplate, findFlowInBlueprint } = await import(
-        "../../src/render/turn-message.js"
+        "../../src/render/turn-inject.js"
       );
       const r = await loadAndTranspile(cwd, "pt");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
-      const bound = bindFlowTemplate(tpl!, "term my-concept");
+      const bound = bindFlowTemplate(tpl!, "my-concept");
       // 模拟 /pt manual 的文档包装逻辑
       const lines: string[] = ["---", "procedure: create-domain-procedure", "---", ""];
       for (const line of bound.split("\n")) {
@@ -446,7 +449,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       // 也不应再出现 ## 前提（Intent） 段头（实例文档已自带标题）
       expect(doc).not.toMatch(/^## 前提/m);
       // intent 正文应保留
-      expect(doc).toContain("创建新 Domain 资产");
+      expect(doc).toContain("创建新 Pt Domain 资产");
       // 步骤转 checklist 应保留
       expect(doc).toContain("- [ ]");
     });

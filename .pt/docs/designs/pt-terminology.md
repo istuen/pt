@@ -222,7 +222,7 @@ Domains              ← 原料：异构领域知识（H2 段 Scene/Trigger/Manu
 | P1 | Context → Agent Context 代码改名（机械替换 + tsc + verify） | P0 |
 | P2 | /pt-context → /pt-profile 改名（含 flag/settings 兼容） | P0 |
 | P3 | §0 重写为 Context-first 倒推叙事 | P1（术语名定了才好写） |
-| P4 | **Blueprint 定型化（五合一打包）**：①移除 `agent` 字段（→ 全局/Profile 多选配置，见 §11）；②移除 `## Compilation` 段（cacheDir 用 `constants.ts` 常量，split 硬编码 single-file，YAGNI）；③`target` 值改 `session`/`turn`（AgentAdapter 映射，render 去硬编码）；④**载体转 YAML**（Blueprint 是纯结构化无叙事，MD 的 H2/H3 是用叙事格式装非叙事数据，语义错位；转 YAML 后 parser 简化为 `yaml.load() + 校验`，与 frontmatter 同构，人写可读 + git diff 友好；Domain 仍用 MD 因有叙事正文）；⑤**概念名 + 函数名 + 文件名对齐 session/turn**：System Prompt → Session Prompt，Context Message → Turn Message，`renderSystemPrompt`→`renderSessionPrompt`，`renderContextMessage`→`renderTurnMessage`，`system-prompt.ts`→`session-prompt.ts`，`context-message.ts`→`turn-message.ts`，`InjectionTarget` 类型 + `supportedTargets` + render 硬编码全改 `session`/`turn`（AgentAdapter 内部映射到 Pi `system_prompt`/`context_message` API，边界仍在） | P1 |
+| P4 | **Blueprint 定型化（五合一打包）**：①移除 `agent` 字段（→ 全局/Profile 多选配置，见 §11）；②移除 `## Compilation` 段（cacheDir 用 `constants.ts` 常量，split 硬编码 single-file，YAGNI）；③`target` 值改 `session`/`turn`（AgentAdapter 映射，render 去硬编码）；④**载体转 YAML**（Blueprint 是纯结构化无叙事，MD 的 H2/H3 是用叙事格式装非叙事数据，语义错位；转 YAML 后 parser 简化为 `yaml.load() + 校验`，与 frontmatter 同构，人写可读 + git diff 友好；Domain 仍用 MD 因有叙事正文）；⑤**概念名 + 函数名 + 文件名对齐 session/turn**：System Prompt → Session Prompt，Context Message → Turn Message，`renderSystemPrompt`→`renderSessionPrompt`，`renderContextMessage`→`renderTurnMessage`，`system-prompt.ts`→`session-prompt.ts`，`context-message.ts`→`turn-message.ts`，`InjectionTarget` 类型 + `supportedTargets` + render 硬编码全改 `session`/`turn`（AgentAdapter 内部映射到 Pi `system_prompt`/`context_message` API，边界仍在）。后续 term-final 把 Session Prompt / Turn Message 进一步重命名为 Session Inject / Turn Inject（详见 §12）。 | P1 |
 | P5 | Manual 模板/实例拆分命名（Manual Run，代码 rename） | P0 |
 | P6 | ~~stack 死术语清理~~ → **并入 P9**（stack 随 Type 删除一并清除） | — |
 | P7 | Agent Context 拆分 prompt.md + manuals.md（by-target split，复活已预留策略） | P1，可选优化 |
@@ -308,3 +308,75 @@ Blueprint 的 `target: turn` 注入点用 Codex 编译时，CodexAdapter 声明�
 ### 不做：同 Profile 多 Agent 版本并存（v9 范围外）
 
 “同一 Profile 同时编译出 Pi 版 + OpenCode 版并存使用”是趋势需求，但当前无实证、且涉及多实例 session 管理复杂度。v9 不做，留作 v10+ 评估。当前单项目单 Agent（Pi）为主场景。
+
+---
+
+## 12. Phase term-final 决策（2026-09-06）
+
+本节登记 term-final 阶段（最后一轮术语对齐）的所有决定。本节为权威决策记录，落地后不再修改。
+
+### 12.1 为什么用 Session Context / Turn Context（不用 Session Profile / Session Prompt / Turn Message）
+
+**Context 准确传达"产物"语义**——编译产出的是上下文，不是配置。Profile 是配置层术语（用户写），Context 是产物层术语（Agent 用）。
+
+**消除歧义**：
+- Session Profile 一词易和 Pi 的 session 设置项（profile selection）混淆
+- Session Prompt 与 Pi 的 system_prompt 撞名（虽然 Session Prompt 是 Pt 抽象、system_prompt 是 Pi 实现，但用户感知上"提示词"两词难分）
+- Turn Message 同上——和 input event "message" 概念重叠
+
+**两面化叙事**：Agent Context 是单一概念，但可分两面（Session 面 + Turn 面）。"Context 的两面"叙事比"Prompt + Message"双概念清晰——两面是同一物的两面，不是两个独立概念。
+
+### 12.2 为什么用 Session Inject / Turn Inject（不用 Session Prompt / Turn Message）
+
+**Inject 是动作词**，直接表达"这组内容注入到哪"。Prompt/Message 是名词，停在"是什么"层。
+
+**避开 Pi API 撞名**：Inject 是 Pt 自己的动词，概念清晰隔离。
+
+**Render 函数名对齐**：renderSessionInject / renderTurnInject 函数名 = 文档术语。读代码不需翻译。
+
+### 12.3 为什么用 groups 字段名（不用 injectionPoints / AggregationPoint）
+
+**简洁**——`groups: [...]` 比 `injectionPoints: [...]` 短 50%，YAML 更易读。
+
+**跨概念统一**——Blueprint.groups（聚合组定义）和 Profile.groups（聚合组实例化）同名字段，编辑时容易对齐。
+
+**AggregationPoint 是临时概念名**——v8 过渡期使用，未沉淀到产品。v9 直接用 Group 简洁统一。
+
+### 12.4 为什么 Blueprint 单名不加前缀
+
+**不撞**——Blueprint 在 Pt 上下文里无歧义。Pt Domain 加 Pt 是为消歧 DDD 的 Domain；Pt Profile 加 Pt 是为消歧通用 settings。
+
+**跨项目复用标识**——Blueprint 是跨项目复用的结构模板，加"Pt"反而暗示"Pt 专属"。单名符合其"中性结构"的地位。
+
+### 12.5 代码标识符与字段名（机械替换对照）
+
+| 旧 | 新 | 范围 |
+|---|---|---|
+| `InjectionPointConfig` | `BlueprintGroup` | IR interface（Blueprint 聚合组定义） |
+| `InjectionPointInstance` | `ProfileGroup` | IR interface（Profile 聚合组实例化） |
+| `InjectionTarget` | `InjectTarget` | type（inject 字段的类型） |
+| `injectionPoints` | `groups` | Blueprint + Profile YAML 字段名 |
+| `renderSessionPrompt` | `renderSessionInject` | render 函数名 + 文件名 session-prompt.ts → session-inject.ts |
+| `renderTurnMessage` | `renderTurnInject` | render 函数名 + 文件名 turn-message.ts → turn-inject.ts |
+
+### 12.6 不变的边界（agent/runtime/cache/IR interface）
+
+- **Agent Runtime 层**：system_prompt / context_message 不改（Pi API 名，AgentAdapter 映射边界）
+- **AgentAdapter 字段**：supportedTargets 不改
+- **用户面命令**：/pt-profile、/manual:xxx、/pt manual、/pt flows、/pt status、/pt raw、/pt full、--pt-profile 不改
+- **向后兼容**：--pt-context 旧 flag 保留
+- **缓存格式**：.agent-context.md 后缀不改；CACHE_DIR 常量值不改；sourceHash 算法不改
+- **技术层 IR interface**：AgentContext 保留（产品层讲 Agent Context，代码 IR 讲 AgentContext，两者并存不混）；compileAgentContext / saveAgentContext / loadAgentContext 函数名保留
+- **Domain Schema Name 常量**：MOD_SCENE / MOD_TRIGGER / MOD_RULES / MOD_FLOWS / MOD_CHECKLISTS / MOD_PARTICIPANT 不改
+
+### 12.7 分层用词规则（每层用每层的词）
+
+| 层 | 词 | 例 |
+|---|---|---|
+| 产品层 | Session Context / Turn Context | README / 用户文档 / What is Pt |
+| 结构层 | group / BlueprintGroup / ProfileGroup | Blueprint YAML / Profile H2 / schema.ts |
+| 契约接口层 | Session Inject / Turn Inject | AgentAdapter / render 函数名 / 文件名 |
+| Agent Runtime 层 | system_prompt / context_message | Pi API（不改） |
+| 技术层 | AgentContext IR / .agent-context.md | schema.ts interface / 缓存文件 |
+
+代码注释按所属层用对应的词——混用会丢信息且读者认知负担。

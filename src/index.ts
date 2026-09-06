@@ -203,7 +203,7 @@ export default function (pi: ExtensionAPI): void {
   //   向后兼容：--pt-context（flag）和 pt.pt-context/au.pt-context（settings key）作为 fallback 保留——
   //   用户升级 Pt 后旧配置仍能工作，新配置优先。
   pi.registerFlag("pt-profile", {
-    description: "启动时激活的 Profile 名（编译成 AgentContext 注入 System Prompt）",
+    description: "启动时激活的 Profile 名（编译成 AgentContext 注入 Session Inject）",
     type: "string",
   });
 
@@ -365,7 +365,7 @@ export default function (pi: ExtensionAPI): void {
   // Phase term-P2：/pt-context → /pt-profile（命令参数是 Profile 名，名该匹配操作目标）。
   pi.registerCommand("pt-profile", {
     description:
-      "切换当前 Profile（编译成 AgentContext 注入 System Prompt），即时重转译（无参则弹出选择器）",
+      "切换当前 Profile（编译成 AgentContext 注入 Session Inject），即时重转译（无参则弹出选择器）",
     getArgumentCompletions: async (prefix) => {
       const sessionId = getSessionIdFromCtx({
         sessionManager: undefined,

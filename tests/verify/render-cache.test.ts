@@ -26,7 +26,7 @@ function makeContext(overrides?: Partial<AgentContext>): AgentContext {
     blueprint: "test-bp",
     sourceHash: "abc12345-00000000",
     modules: {
-      会话知识: "some rendered content",
+      会话背景: "some rendered content",
     },
     ...overrides,
   };
@@ -50,7 +50,7 @@ describe("saveAgentContext + loadAgentContext round-trip", () => {
     expect(loaded).not.toBeNull();
     expect(loaded?.name).toBe(ctx.name);
     expect(loaded?.sourceHash).toBe(ctx.sourceHash);
-    expect(loaded?.modules.会话知识).toBe("some rendered content");
+    expect(loaded?.modules.会话背景).toBe("some rendered content");
   });
 
   it("hash mismatch 降级 → 返 null", async () => {
@@ -81,7 +81,7 @@ describe("saveAgentContext + loadAgentContext round-trip", () => {
     const file = join(dir, "test-ctx.agent-context.md");
     writeFileSync(
       file,
-      `---\nprofile: test-ctx\nblueprint: test-bp\n---\n\n## 会话知识\n\nbody\n`,
+      `---\nprofile: test-ctx\nblueprint: test-bp\n---\n\n## 会话背景\n\nbody\n`,
       "utf8"
     );
     const loaded = await loadAgentContext(tmpDir, "test-ctx", "any-hash");
@@ -98,13 +98,13 @@ describe("saveAgentContext + loadAgentContext round-trip", () => {
   it("多注入点 modules 完整 round-trip", async () => {
     const ctx = makeContext({
       modules: {
-        会话知识: "scene + trigger content",
+        会话背景: "scene + trigger content",
         参考手册: "manual content",
       },
     });
     await saveAgentContext(tmpDir, ctx);
     const loaded = await loadAgentContext(tmpDir, ctx.name, ctx.sourceHash);
-    expect(loaded?.modules.会话知识).toBe("scene + trigger content");
+    expect(loaded?.modules.会话背景).toBe("scene + trigger content");
     expect(loaded?.modules.参考手册).toBe("manual content");
   });
 });
