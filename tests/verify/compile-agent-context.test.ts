@@ -16,7 +16,8 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
     name: "test-profile",
     blueprint: "test-blueprint",
     domains: ["d1"],
-    groups: [{ name: "会话背景", domains: [], modules: ["Scene"] }],
+    // v9.1+（modules-to-profile-complete）：modules 元素从 string 改为 ModName 对象
+    groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
     ...overrides,
   };
 }
@@ -63,7 +64,7 @@ describe("compileAgentContext", () => {
   it("Profile 聚合组追加的 Domain（groups[].domains）也参与聚合", () => {
     const p = makeProfile({
       domains: [],
-      groups: [{ name: "会话背景", domains: ["d2"], modules: ["Scene"] }],
+      groups: [{ name: "会话背景", domains: ["d2"], modules: [{ section: "Scene" }] }],
     });
     const bp = makeBlueprint();
     const ds = [
@@ -81,7 +82,7 @@ describe("compileAgentContext", () => {
   it("Blueprint 未声明的聚合组不在 AgentContext.modules 中", () => {
     const p = makeProfile({
       groups: [
-        { name: "会话背景", domains: [], modules: ["Scene"] },
+        { name: "会话背景", domains: [], modules: [{ section: "Scene" }] },
         { name: "未声明聚合组", domains: [], modules: [] },
       ],
     });
@@ -227,5 +228,147 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
     // 不应出现 fields/note 追加
     expect(ctx.modules.会话背景).not.toContain("（字段：");
     expect(ctx.modules.会话背景).not.toContain(" — ");
+  });
+});
+
+/** v9.1+（modules-to-profile-complete）：H3 项粒度 modules（段.项）
+ *  - modName "User.user-profile" 精确选 H3 项
+ *  - modName "User.senior-developer" 在 User 段不匹配 senior-developer（跨段不跨段匹配） */
+describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete）", () => {
+  it("段.项形态：精确选 H3 项 → 输出 ### <domain>.<item> 形式", () => {
+    const p: Profile = {
+      ...makeProfile(),
+      domains: ["user-info"], // 全局 domains 含 user-info
+      groups: [
+        {
+          name: "会话背景",
+          domains: [],
+          modules: [{ section: "User", item: "user-profile" }],
+        },
+      ],
+    };
+    const ds: Domain[] = [
+      makeDomain({
+        name: "user-info",
+        modules: {
+          User: [
+            { name: "user-profile", desc: "Pt 项目作者与架构师" },
+            { name: "pt-goal", desc: "Pt 要成为异构上下文编译器" },
+          ],
+        },
+      }),
+    ];
+    const ctx = compileAgentContext(p, makeBlueprint(), ds);
+    // H3 项粒度输出：只 user-profile，不含 pt-goal
+    expect(ctx.modules.会话背景).toContain("### user-info.user-profile");
+    expect(ctx.modules.会话背景).toContain("user-profile: Pt 项目作者与架构师");
+    expect(ctx.modules.会话背景).not.toContain("pt-goal");
+    expect(ctx.modules.会话背景).not.toContain("### user-info.pt-goal");
+  });
+
+  it("段.项形态：H3 项不存在 → 产出空段", () => {
+    const p: Profile = {
+      ...makeProfile(),
+      domains: ["user-info"],
+      groups: [
+        {
+          name: "会话背景",
+          domains: [],
+          modules: [{ section: "User", item: "nonexistent" }],
+        },
+      ],
+    };
+    const ds: Domain[] = [
+      makeDomain({
+        name: "user-info",
+        modules: { User: [{ name: "user-profile", desc: "desc" }] },
+      }),
+    ];
+    const ctx = compileAgentContext(p, makeBlueprint(), ds);
+    expect(ctx.modules.会话背景).toBe("");
+  });
+
+  it("段.项形态：跨段同名 H3 不跨段匹配（User.x 不匹配 Agent.x）", () => {
+    const p: Profile = {
+      ...makeProfile(),
+      domains: ["user-info", "agent-info"],
+      groups: [
+        {
+          name: "会话背景",
+          domains: [],
+          modules: [{ section: "User", item: "shared" }],
+        },
+      ],
+    };
+    const ds: Domain[] = [
+      makeDomain({
+        name: "user-info",
+        modules: { User: [{ name: "shared", desc: "in user-info User 段" }] },
+      }),
+      makeDomain({
+        name: "agent-info",
+        modules: { Agent: [{ name: "shared", desc: "in agent-info Agent 段" }] },
+      }),
+    ];
+    const ctx = compileAgentContext(p, makeBlueprint(), ds);
+    // 只匹配 User 段下 shared，不匹配 Agent 段下
+    expect(ctx.modules.会话背景).toContain("in user-info User 段");
+    expect(ctx.modules.会话背景).not.toContain("in agent-info Agent 段");
+  });
+
+  it("段.项形态：同段内 H3 重名 → 后覆盖前（只取最后一个）", () => {
+    const p: Profile = {
+      ...makeProfile(),
+      domains: ["user-info"],
+      groups: [
+        {
+          name: "会话背景",
+          domains: [],
+          modules: [{ section: "User", item: "shared" }],
+        },
+      ],
+    };
+    const ds: Domain[] = [
+      makeDomain({
+        name: "user-info",
+        modules: {
+          User: [
+            { name: "shared", desc: "first occurrence" },
+            { name: "shared", desc: "second occurrence (overrides first)" },
+          ],
+        },
+      }),
+    ];
+    const ctx = compileAgentContext(p, makeBlueprint(), ds);
+    expect(ctx.modules.会话背景).toContain("second occurrence");
+    expect(ctx.modules.会话背景).not.toContain("first occurrence");
+  });
+
+  it("段名形态：整段聚合 → 跨所有引用域该段", () => {
+    const p: Profile = {
+      ...makeProfile(),
+      domains: ["user-info", "agent-info"],
+      groups: [
+        {
+          name: "会话背景",
+          domains: [],
+          modules: [{ section: "User" }],
+        },
+      ],
+    };
+    const ds: Domain[] = [
+      makeDomain({
+        name: "user-info",
+        modules: { User: [{ name: "user-profile", desc: "u" }] },
+      }),
+      makeDomain({
+        name: "agent-info",
+        modules: { Agent: [{ name: "agent-role-architect", desc: "a" }] },
+      }),
+    ];
+    const ctx = compileAgentContext(p, makeBlueprint(), ds);
+    // User 段聚合：只 user-info 的 User 段（agent-info 没有 User 段）
+    expect(ctx.modules.会话背景).toContain("user-profile");
+    expect(ctx.modules.会话背景).not.toContain("agent-role-architect");
   });
 });
