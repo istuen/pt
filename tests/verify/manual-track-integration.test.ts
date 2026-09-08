@@ -338,7 +338,7 @@ status: completed
 
     // 切换 profile
     const switchCmd = m.commands.get("pt-profile")!;
-    await switchCmd.handler("pt-chat", m.ctx);
+    await switchCmd.handler("pt-design", m.ctx);
 
     // 切换后立即 pending
     expect(s().injectionState).toBe("pending");

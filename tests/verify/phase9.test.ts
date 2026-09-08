@@ -53,7 +53,7 @@ beforeAll(async () => {
     }
   } catch {}
 
-  for (const name of ["pt-chat", "pt-dev"]) {
+  for (const name of ["pt-design", "pt-dev"]) {
     const r = await loadAndTranspile(cwd, name);
     loadedProfiles[name] = {
       name,
@@ -70,12 +70,12 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 1. 两 Profile 产物 ==========
   describe("1. 两 Profile 产物", () => {
     it("两个 Profile 都成功加载", () => {
-      expect(loadedProfiles["pt-chat"]).toBeDefined();
+      expect(loadedProfiles["pt-design"]).toBeDefined();
       expect(loadedProfiles["pt-dev"]).toBeDefined();
     });
 
-    it("pt-chat Profile 含 v9 措辞", () => {
-      const r = loadedProfiles["pt-chat"].segment;
+    it("pt-design Profile 含 v9 措辞", () => {
+      const r = loadedProfiles["pt-design"].segment;
       expect(r).toContain("parse");
       expect(r).toContain("compile");
       expect(r).toContain("render");
@@ -95,10 +95,10 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 2. Context 缓存命中 ==========
   describe("2. Context 缓存命中", () => {
-    it("pt-chat 二次加载命中缓存", async () => {
-      const r2 = await loadAndTranspile(cwd, "pt-chat");
+    it("pt-design 二次加载命中缓存", async () => {
+      const r2 = await loadAndTranspile(cwd, "pt-design");
       expect(r2.cacheHit).toBe(true);
-      expect(r2.segment).toBe(loadedProfiles["pt-chat"].segment);
+      expect(r2.segment).toBe(loadedProfiles["pt-design"].segment);
     });
   });
 
@@ -193,21 +193,21 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
   });
 
-  // ========== 8. me Domain ==========
-  describe("8. me Domain 进入会话背景", () => {
-    it("me Domain 段出现在会话背景", async () => {
+  // ========== 8. user-info Domain ==========
+  describe("8. user-info Domain 进入会话背景", () => {
+    it("user-info Domain 段出现在会话背景", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
         "utf8"
       );
       const huiHuaIdx = raw.indexOf("## 会话背景");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
-      const meIdx = raw.indexOf("### me");
-      expect(meIdx).toBeGreaterThan(huiHuaIdx);
-      expect(meIdx).toBeLessThan(huiHuaIdx + 1 + nextH2AfterHuiHuaOffset);
+      const userInfoIdx = raw.indexOf("### user-info");
+      expect(userInfoIdx).toBeGreaterThan(huiHuaIdx);
+      expect(userInfoIdx).toBeLessThan(huiHuaIdx + 1 + nextH2AfterHuiHuaOffset);
     });
 
-    it("me 含 user-profile/pt-goal/collab-mode", async () => {
+    it("user-info 含 user-profile/pt-goal/collab-mode + user-role-po/tl", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
         "utf8"
@@ -215,6 +215,9 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(raw).toContain("user-profile");
       expect(raw).toContain("pt-goal");
       expect(raw).toContain("collab-mode");
+      expect(raw).toContain("user-role-product-owner");
+      expect(raw).toContain("user-role-tech-lead");
+      expect(raw).toContain("collab-principle");
     });
   });
 
@@ -373,12 +376,12 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
 
     it("内建 domains 进入池但不污染项目 profile", async () => {
-      const r = await loadAndTranspile(cwd, "pt-chat");
+      const r = await loadAndTranspile(cwd, "pt-design");
       const domainNames = r.bundles[0].domains.map((d) => d.name);
       expect(domainNames).toContain("authoring");
       expect(domainNames).toContain("project-analysis");
       expect(domainNames).toContain("usage");
-      // pt-chat 不引用内建 domains
+      // pt-design 不引用 authoring/project-analysis/usage
       expect(r.segment).not.toContain("### project-analysis");
     });
 

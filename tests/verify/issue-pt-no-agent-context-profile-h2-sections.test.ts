@@ -7,7 +7,7 @@
 // v13.x 边界纪律：
 //   - 不依赖真实 pi ExtensionAPI
 //   - 不依赖真实 transpile（手工读 Profile 资产 + 调 parseProfile）
-//   - 覆盖 3 个 Profile 资产（pt-dev / pt-chat / builtin pt）
+//   - 覆盖 3 个 Profile 资产（pt-dev / pt-design / builtin pt）
 
 import { describe, expect, it } from "vitest";
 import { parseProfile } from "../../src/parse/profile.js";
@@ -27,10 +27,10 @@ describe("parseProfile groups (v13.x issue pt-no-agent-context-profile-h2-sectio
     expect(names).toContain("参考手册");
   });
 
-  it("pt-chat.profile.md 解析后 groups 长度 > 0", async () => {
+  it("pt-design.profile.md 解析后 groups 长度 > 0", async () => {
     const profile = await parseProfile(
       "/Users/issac/pro/pt/.pt/assets/profiles",
-      "pt-chat.profile.md"
+      "pt-design.profile.md"
     );
     expect(profile.groups.length).toBe(3);
     const names = profile.groups.map((ip) => ip.name);

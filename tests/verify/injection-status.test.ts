@@ -26,31 +26,35 @@ describe("renderInjectionFooter", () => {
     });
   });
 
-  describe("profile = 'pt-chat'", () => {
-    it("idle → 'pt: pt-chat idle'", () => {
-      expect(renderInjectionFooter("idle", "pt-chat", null)).toBe("pt: pt-chat idle");
+  describe("profile = 'pt-design'", () => {
+    it("idle → 'pt: pt-design idle'", () => {
+      expect(renderInjectionFooter("idle", "pt-design", null)).toBe("pt: pt-design idle");
     });
 
-    it("pending → 'pt: pt-chat pending'", () => {
-      expect(renderInjectionFooter("pending", "pt-chat", null)).toBe("pt: pt-chat pending");
+    it("pending → 'pt: pt-design pending'", () => {
+      expect(renderInjectionFooter("pending", "pt-design", null)).toBe("pt: pt-design pending");
     });
 
-    it("injected → 'pt: pt-chat ok'", () => {
-      expect(renderInjectionFooter("injected", "pt-chat", null)).toBe("pt: pt-chat ok");
+    it("injected → 'pt: pt-design ok'", () => {
+      expect(renderInjectionFooter("injected", "pt-design", null)).toBe("pt: pt-design ok");
     });
 
-    it("failed + 短 error → 'pt: pt-chat failed: <error>'", () => {
-      expect(renderInjectionFooter("failed", "pt-chat", "boom")).toBe("pt: pt-chat failed: boom");
+    it("failed + 短 error → 'pt: pt-design failed: <error>'", () => {
+      expect(renderInjectionFooter("failed", "pt-design", "boom")).toBe(
+        "pt: pt-design failed: boom"
+      );
     });
 
     it("failed + 40+ 字符 error → 截断到 40 + '...'", () => {
       const long = "x".repeat(50);
-      const out = renderInjectionFooter("failed", "pt-chat", long);
-      expect(out).toMatch(/^pt: pt-chat failed: x{40}\.\.\.$/);
+      const out = renderInjectionFooter("failed", "pt-design", long);
+      expect(out).toMatch(/^pt: pt-design failed: x{40}\.\.\.$/);
     });
 
     it("failed + null error → 'failed: unknown'", () => {
-      expect(renderInjectionFooter("failed", "pt-chat", null)).toBe("pt: pt-chat failed: unknown");
+      expect(renderInjectionFooter("failed", "pt-design", null)).toBe(
+        "pt: pt-design failed: unknown"
+      );
     });
   });
 

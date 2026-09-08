@@ -41,7 +41,7 @@ name: release-workflow
 - argument-hint: <version>
 - intent: 完整发版流程（确认内建资产 → verify → version → changelog → tag → push → CI 自动发布）
 - vars: [version]
-- step: 确认内建资产已更新 —— 把本版本要对外发的稳定资产复制到 src/builtin/assets/（剔除 me domain / 引用 me 的 profile）；有改动则 git commit "Sync builtin assets"
+- step: 确认内建资产已更新 —— 把本版本要对外发的稳定资产复制到 src/builtin/assets/（剔除 user-info domain / 引用 user-info 的 profile）；有改动则 git commit "Sync builtin assets"
 - step: npm run verify && tsc --noEmit —— 全过才能发版
 - step: npm version <patch|minor|major> —— 自动改 package.json + commit + 打本地 tag
 - step: 追加 .pt/.pt/.pt/docs/CHANGELOG.md —— 版本/日期/新功能/修复/破坏性变更

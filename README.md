@@ -59,12 +59,12 @@ pi --pt-profile guide
 
 在项目 `.pt/assets/` 下加 Domain 和 Profile。项目资产优先级高于内建（同名覆盖）：
 
-`.pt/assets/domains/me.md`：
+`.pt/assets/domains/user-info.md`：
 ```markdown
 ---
-name: me
+name: user-info
 ---
-# me
+# user-info
 ## Participant
 ### user_profile
 - desc: 我是这个项目的作者，偏好类型安全、模块化设计

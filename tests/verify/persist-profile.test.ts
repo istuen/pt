@@ -98,7 +98,7 @@ describe("s().activeProfile 持久化（issue pt-context-persist-lost 修复）"
 
     it("多个 pt:active-profile entry → 取最后一个（最新）", () => {
       const sm = makeSessionManager([
-        { type: "custom", customType: "pt:active-profile", data: { profile: "pt-chat" } },
+        { type: "custom", customType: "pt:active-profile", data: { profile: "pt-design" } },
         { type: "custom", customType: "pt:active-profile", data: { profile: "pt-dev" } },
       ]);
       expect(readProfileFromSession(sm)).toBe("pt-dev");
