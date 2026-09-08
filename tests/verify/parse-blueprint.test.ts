@@ -25,12 +25,13 @@ describe("parseBlueprint", () => {
     expect(groupNames).toEqual(["会话背景", "参考手册", "触发索引"]);
   });
 
-  it("聚合组字段：inject + mode + modules", async () => {
+  it("聚合组字段：inject + mode（v9.1 modules 迁移到 Profile）", async () => {
     const bp = await parseBlueprint(FIXTURE_DIR, "blueprint.yaml");
     const sessionGroup = bp.groups.find((g) => g.name === "会话背景");
     expect(sessionGroup?.inject).toBe("session");
     expect(sessionGroup?.mode).toBe("hybrid");
-    expect(sessionGroup?.modules).toEqual(["Scene", "Participant"]);
+    // v9.1：BlueprintGroup.modules 已删除——modules 由 ProfileGroup 提供
+    expect((sessionGroup as { modules?: unknown } | undefined)?.modules).toBeUndefined();
   });
 
   it("Phase term-P4.2：Blueprint 不含 compilation 字段", async () => {

@@ -27,7 +27,7 @@ function makePopulatedSessionState(): SessionState {
   s.cachedBlueprint = {
     name: "dev-knowledge",
     agent: "pi",
-    groups: [{ name: "会话背景", inject: "session", modules: [] }],
+    groups: [{ name: "会话背景", inject: "session" }],
     compilation: { cacheDir: ".pt/cache/agent-contexts", split: "single-file" },
   };
   s.cachedDomains = [{ name: "user-info", modules: {} }];

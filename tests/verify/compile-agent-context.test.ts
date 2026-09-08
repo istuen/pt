@@ -16,7 +16,7 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
     name: "test-profile",
     blueprint: "test-blueprint",
     domains: ["d1"],
-    groups: [{ name: "会话背景", domains: [] }],
+    groups: [{ name: "会话背景", domains: [], modules: ["Scene"] }],
     ...overrides,
   };
 }
@@ -24,7 +24,7 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
 function makeBlueprint(overrides?: Partial<Blueprint>): Blueprint {
   return {
     name: "test-blueprint",
-    groups: [{ name: "会话背景", inject: "session", modules: ["Scene"] }],
+    groups: [{ name: "会话背景", inject: "session" }],
     ...overrides,
   };
 }
@@ -63,7 +63,7 @@ describe("compileAgentContext", () => {
   it("Profile 聚合组追加的 Domain（groups[].domains）也参与聚合", () => {
     const p = makeProfile({
       domains: [],
-      groups: [{ name: "会话背景", domains: ["d2"] }],
+      groups: [{ name: "会话背景", domains: ["d2"], modules: ["Scene"] }],
     });
     const bp = makeBlueprint();
     const ds = [
@@ -81,8 +81,8 @@ describe("compileAgentContext", () => {
   it("Blueprint 未声明的聚合组不在 AgentContext.modules 中", () => {
     const p = makeProfile({
       groups: [
-        { name: "会话背景", domains: [] },
-        { name: "未声明聚合组", domains: [] },
+        { name: "会话背景", domains: [], modules: ["Scene"] },
+        { name: "未声明聚合组", domains: [], modules: [] },
       ],
     });
     const bp = makeBlueprint();
@@ -132,14 +132,14 @@ describe("computeSourceHash", () => {
     const h1 = computeSourceHash(
       makeProfile(),
       makeBlueprint({
-        groups: [{ name: "会话背景", inject: "session", modules: ["Scene"] }],
+        groups: [{ name: "会话背景", inject: "session" }],
       }),
       [makeDomain()]
     );
     const h2 = computeSourceHash(
       makeProfile(),
       makeBlueprint({
-        groups: [{ name: "参考手册", inject: "turn", modules: ["Flows"] }],
+        groups: [{ name: "参考手册", inject: "turn" }],
       }),
       [makeDomain()]
     );

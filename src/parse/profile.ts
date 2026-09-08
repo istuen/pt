@@ -26,10 +26,11 @@
 import { join } from "node:path";
 import { SUFFIX_PROFILE } from "../constants.js";
 import type { Profile, ProfileGroup } from "../schema.js";
-import { extractDomainsList, readAsset, sArr } from "./shared.js";
+import { extractDomainsList, extractModulesList, readAsset, sArr } from "./shared.js";
 
 /** 读 profiles/<fileName>.md → Profile { name, blueprint, domains, groups }
- *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。 */
+ *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。
+ *  v9.1（modules-to-profile 迁移）：每个 H2 段加读 `### Modules` 填 ProfileGroup.modules。 */
 export async function parseProfile(absDir: string, fileName: string): Promise<Profile> {
   const asset = await readAsset(join(absDir, fileName));
 
@@ -38,11 +39,14 @@ export async function parseProfile(absDir: string, fileName: string): Promise<Pr
 
   const domains = sArr(asset.frontmatter.domains); // YAML 全局 domains
 
-  // groups：每个 H2 = 聚合组实例化（只读 ### Domains 追加列表）
+  // groups：每个 H2 = 聚合组实例化
+  //   - ### Domains → 追加到本聚合组的 Domain 名列表（v9 既有）
+  //   - ### Modules → 本插槽填的聚合模块列表（v9.1 新增，由 Profile 自描述角色身份 / 段类型选择）
   const groups: ProfileGroup[] = [];
   for (const [h2Name, section] of Object.entries(asset.sections)) {
     const appendDomains = extractDomainsList(section);
-    groups.push({ name: h2Name, domains: appendDomains });
+    const modules = extractModulesList(section);
+    groups.push({ name: h2Name, domains: appendDomains, modules });
   }
 
   return {

@@ -28,11 +28,9 @@ describe("Profile 触发手册（listManuals）", () => {
     // pt-design 当前 domains 不含 Rules/Flows/Checklists 段内容——返空是预期
     expect(flows).toEqual([]);
 
-    // Blueprint 注入点声明三段 schema（Phase term-P9.2）
+    // Blueprint 注入点声明 inject=turn——modules 由 ProfileGroup 提供（v9.1）
     const manualIp = r.blueprint.groups.find((ip) => ip.name === "参考手册");
-    expect(manualIp?.modules).toContain("Rules");
-    expect(manualIp?.modules).toContain("Flows");
-    expect(manualIp?.modules).toContain("Checklists");
+    expect(manualIp?.inject).toBe("turn");
   });
 
   it("pt-dev Profile 可触发手册（含 dev-workflow/issue-workflow/release-workflow/testing-workflow 的 Flows + pt-quality 的 Rules + pt-collab 的 Checklists）", async () => {

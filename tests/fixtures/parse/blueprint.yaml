@@ -3,10 +3,8 @@ groups:
   - name: 会话背景
     inject: session
     mode: hybrid
-    modules: [Scene, Participant]
+    # v9.1（modules-to-profile 迁移）：modules 字段已删除——由 Profile `### Modules` 提供
   - name: 触发索引
     inject: session
-    modules: [Trigger]
   - name: 参考手册
     inject: turn
-    modules: [Rules, Flows, Checklists]

@@ -49,8 +49,8 @@ function makeFixture(marker: string): {
     name: `blueprint-${marker}`,
     agent: "pi",
     groups: [
-      { name: "system", inject: "session", modules: [] },
-      { name: "manual", inject: "turn", modules: [] },
+      { name: "system", inject: "session" },
+      { name: "manual", inject: "turn" },
     ],
   };
   const context: Context = {

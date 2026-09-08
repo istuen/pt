@@ -30,6 +30,7 @@ import {
   MOD_SCENE,
   MOD_TRIGGER,
 } from "../constants.js";
+import { reportWarn } from "../diagnostics.js";
 import type {
   AgentContext,
   Blueprint,
@@ -37,6 +38,7 @@ import type {
   Domain,
   Profile,
   ProfileGroup,
+  SourceAdapterContext,
   StructureLayout,
 } from "../schema.js";
 import {
@@ -55,14 +57,19 @@ import {
  * 编译 Profile 为 AgentContext IR（v9）。
  * - 遍历 Blueprint.groups
  * - 每个聚合组找 Profile 同名 ProfileGroup
- * - 按 modName 注册表聚合（dispatchGroup）
+ * - 按 modName 注册表聚合（dispatchGroup）—— modName 来源从 Blueprint.modules 改为 ProfileGroup.modules
  *
  * Phase term-P1：函数名 compileContext → compileAgentContext（IR 改名同步）。
+ * Phase term-P-modules-to-profile：
+ *   - Blueprint 退化为插槽契约（无 modules 字段），modules 由 ProfileGroup.modules 提供
+ *   - 加越权/缺填告警（log warn + notify / log debug only）—— 设计文档 §5
+ *   - ctx 可选：测试 / CLI 直接调可不传；运行链路（transpile）传入同 adapterCtx 用 logger 留痕
  */
 export function compileAgentContext(
   profile: Profile,
   blueprint: Blueprint,
-  domains: Domain[]
+  domains: Domain[],
+  ctx?: SourceAdapterContext
 ): AgentContext {
   // 1. 按 Domain 名建立索引
   const domainByName = new Map(domains.map((d) => [d.name, d]));
@@ -73,14 +80,36 @@ export function compileAgentContext(
     // 找 Profile 对应的聚合组实例化（同名）
     const profileGroup = profile.groups.find((g) => g.name === bpGroup.name);
 
-    // v9 Domains 分发：全局 domains + 聚合组追加，按 Blueprint.modules 过滤
+    // 缺填告警：Blueprint 有此插槽但 Profile 没填 modules（可能故意——log debug only 不 notify）
+    if (!profileGroup || profileGroup.modules.length === 0) {
+      ctx?.log?.debug(`插槽「${bpGroup.name}」未填 modules`, {
+        profile: profile.name,
+        group: bpGroup.name,
+        hasGroup: !!profileGroup,
+      });
+    }
+
+    // v9.1：按 ProfileGroup.modules 过滤（Blueprint 不再带 modules）
     const refDomains = resolveDomains(profile, profileGroup, bpGroup, domainByName);
 
-    // 按 modName 驱动聚合
+    // 按 modName 驱动聚合（来源 = profileGroup.modules）
     modules[bpGroup.name] = dispatchGroup(profileGroup, bpGroup, refDomains);
   }
 
-  // 3. 算 sourceHash
+  // 3. 越权告警：Profile 有 Blueprint 未声明的 H2（遍历 profile.groups 找 bpGroup 没有的）
+  //    几乎总是错误 → log warn + notify（设计文档 §5）。reportWarn 内部已 log → notify → console 三通道 fallback。
+  const bpNames = new Set(blueprint.groups.map((g) => g.name));
+  for (const pg of profile.groups) {
+    if (!bpNames.has(pg.name)) {
+      reportWarn(
+        ctx,
+        `Profile「${profile.name}」的 H2「${pg.name}」不在 Blueprint 插槽中（越权，被忽略）`,
+        { profile: profile.name, group: pg.name }
+      );
+    }
+  }
+
+  // 4. 算 sourceHash
   const sourceHash = computeSourceHash(profile, blueprint, domains);
 
   return {
@@ -91,14 +120,18 @@ export function compileAgentContext(
   };
 }
 
-/** v9 Domains 分发：全局 domains + 聚合组追加（去重，保序），按 Blueprint.modules 过滤。
+/** v9 Domains 分发：全局 domains + 聚合组追加（去重，保序），按 ProfileGroup.modules 过滤。
  *  规则：Domain 有该聚合组 modules 列出的任一 H2 段 → 贡献；没有 → 跳过。
+ *  v9.1（modules-to-profile 迁移）：modules 来源从 Blueprint.modules 改为 ProfileGroup.modules
+ *  —— Blueprint 退化为插槽契约，Profile 自带 modules 选择。ProfileGroup 不存在或 modules 为空
+ *  时返空数组（与 dispatchGroup 行为一致——产出空段由 render 跳过）。
+ *
  *  这就是 v9 "Domain 同一份内容可贡献多聚合组" 的语义——Profile 引用的 Domain，
- *  只有其 H2 段匹配 Blueprint.modules 时才进当前聚合组。 */
+ *  只有其 H2 段匹配 ProfileGroup.modules 时才进当前聚合组。 */
 function resolveDomains(
   profile: Profile,
   profileGroup: ProfileGroup | undefined,
-  bpGroup: BlueprintGroup,
+  _bpGroup: BlueprintGroup,
   domainByName: Map<string, Domain>
 ): Domain[] {
   // 合并：全局 domains + 聚合组追加（去重，保序）
@@ -109,31 +142,39 @@ function resolveDomains(
     }
   }
 
+  // v9.1：从 ProfileGroup.modules 读过滤白名单（Blueprint.modules 已删除）
+  const mods = profileGroup?.modules ?? [];
+
   // 过滤：Domain 有该聚合组 modules 列出的任一 H2 段才贡献
   return allNames
     .map((n) => domainByName.get(n))
     .filter((d): d is Domain => !!d)
-    .filter((d) => bpGroup.modules.some((m) => d.modules[m] !== undefined));
+    .filter((d) => mods.some((m) => d.modules[m] !== undefined));
 }
 
 // ==================== modName 驱动聚合（v9 核心） ====================
 
 /**
  * v9 dispatchGroup：按 modName 驱动聚合。
- *   - 遍历 bpGroup.modules（Blueprint 声明的聚合标题列表）
+ *   - 遍历 profileGroup.modules（Profile 填的聚合标题列表）
  *   - 每个 modName 调对应 moduleRenderers[modName] 渲染
  *   - renderer 内部按段名 spec 取内容格式（Phase term-P9.3：不再按 d.type 分发）
  *   - inject 不在此判断——inject 决定注入位置，由 AgentAdapter 处理（compile 不感知 Agent）
+ *
+ *  v9.1（modules-to-profile 迁移）：modName 来源从 BlueprintGroup.modules 改为
+ *  ProfileGroup.modules。Blueprint 退化为插槽契约（声明有哪些插槽 + inject + mode），
+ *  Profile 通过 H2 `### Modules` 填聚合标题列表。
  */
 function dispatchGroup(
-  _profileGroup: ProfileGroup | undefined,
+  profileGroup: ProfileGroup | undefined,
   bpGroup: BlueprintGroup,
   refDomains: Domain[]
 ): string {
   const parts: string[] = [];
 
-  // 遍历 Blueprint.modules 列出的聚合标题
-  for (const modName of bpGroup.modules) {
+  // 遍历 ProfileGroup.modules 列出的聚合标题（Blueprint.modules 已删除）
+  const mods = profileGroup?.modules ?? [];
+  for (const modName of mods) {
     const renderer = moduleRenderers[modName] ?? renderGenericModule;
     const modParts: string[] = [];
     for (const d of refDomains) {
