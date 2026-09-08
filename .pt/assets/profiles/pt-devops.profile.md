@@ -1,19 +1,22 @@
 ---
 name: pt-devops
 blueprint: dev-knowledge
-domains: [user-info, agent-info, deployment, release-workflow, pt-quality, pt-collab]
+domains: [user-info, agent-info, workflow/deployment, workflow/release-workflow, pt-quality, pt-collab]
 ---
 
 # pt-devops (profile)
 
 <!--
-v9.1（modules-to-profile 迁移）：见 pt-dev.profile.md 头注释。
+v9.1+（modules-to-profile-complete）：见 pt-arch.profile.md 头注释。
+devops profile 含 devops-engineer 单角色。
 -->
 
 ## 会话背景
 ### Modules
 - Scene
-- Participant
+- User
+- Agent.agent-role-devops-engineer
+- Agent.active-role-rule
 
 ## 触发索引
 ### Modules
