@@ -4,7 +4,7 @@ name: user-info
 
 # user-info
 
-## Participant
+## User
 ### user-profile
 - desc: Pt 项目作者与架构师，主导 v9 四层模型设计；偏好类型安全、模块化架构、数据驱动设计
 

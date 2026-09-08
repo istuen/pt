@@ -4,7 +4,7 @@ name: agent-info
 
 # agent-info
 
-## Participant
+## Agent
 ### agent-role-architect
 - desc: 高层设计、技术选型、权衡分析、系统分解；主导 pt-arch 阶段；产出架构图、API 设计文档
 
