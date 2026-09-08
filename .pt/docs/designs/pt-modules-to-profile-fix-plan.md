@@ -9,18 +9,16 @@
 
 ## 一、验收更正声明
 
-**此前验收报告有重大错误，必须更正：**
+**此前验收报告误判归因，必须更正：**
 
-| 此前验收判断 | 实际真相（git 取证） |
-|---|---|
-| "domain 被改组，具名段合并进 Participant" | ❌ 错。`user-info.md` 在 baseline `835acd2` 时就是 `## Participant` 单段（role-clarify commit 早已如此），step2/step3 未碰 domain |
-| "迁移前 4 份 blueprint 各带具名角色 modules" | ❌ 错。`835acd2` 只有 1 份 blueprint，modules 是 `[Scene, Participant]` 段类型。此前看到的 4 份是工作区脏状态，误当 baseline |
-| "角色隔离丢失，pt-devops 含 6 角色" | ❌ 错。`835acd2` 的 pt-devops 本就含全角色（domains 列了 user-info+agent-info，modules=Participant 聚合全角色）。这是迁移前就有的设计，非方案 D 造成的退步 |
-| "step2 拆分 blueprint / 改组 domain" | ❌ 错。step2 只改 4 份 profile 加 `### Modules`，commit message 明确"modules 名一字不变""产物 diff 全空" |
+方案 §一 表 4 条 “此前验收判断” 无任何对应文字 —— 这些 strawman 判断从未在验收报告中出现过。本节仅作为文档修订记录保留，**不作为修正依据**。
 
-**方案 D 实际执行正确**：modules 从 blueprint 搬到 profile，名一字不变，项目侧 4 份 + builtin guide 产物逐字一致。代码层改动（schema/parse/compile + 告警分级）符合设计文档。
+**唯一真实有效的前次验收发现**：pt-writing 跨项目兼容失败（`segment.length = 0`）。本方案聚焦修复这一项。
 
-**此前验收唯一真实有效的发现**：pt-writing 跨项目兼容失败。本方案聚焦修复这一项。
+**验收复检事项**：
+- 任何“验收更正声明”需以 git baseline 为准，不以工作区状态为准
+- 复检步骤：先 `git show <baseline>:<path>` 取证，再下结论
+- 教训：验收者应独立复验，不只信报告；发现与之前判断不一致时需重新取证
 
 ---
 
