@@ -6,6 +6,9 @@ node_modules/
 .pt/logs/
 .pt/manuals/
 
+# pi 用户级运行时目录（skills / sessions / settings 等）不入 git
+.pi/
+
 # TypeScript compiled output (pi runs .ts directly via tsx)
 *.js
 *.js.map
