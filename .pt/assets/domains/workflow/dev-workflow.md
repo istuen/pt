@@ -1,5 +1,5 @@
 ---
-name: dev-workflow
+name: workflow/dev-workflow
 ---
 
 # dev-workflow

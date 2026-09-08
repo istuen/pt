@@ -1,5 +1,5 @@
 ---
-name: testing-workflow
+name: workflow/testing-workflow
 ---
 
 # testing-workflow

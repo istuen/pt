@@ -1,5 +1,5 @@
 ---
-name: release-workflow
+name: workflow/release-workflow
 ---
 
 # release-workflow

@@ -1,5 +1,5 @@
 ---
-name: issue-workflow
+name: workflow/issue-workflow
 ---
 
 # issue-workflow
