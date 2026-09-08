@@ -887,6 +887,8 @@ v9 保留 v8 的核心（异构上下文编译器定位、H2=聚合组、AgentCo
 
 **核心验收**：迁移前后 AgentContext 产物逐字一致（项目侧 4 份 + builtin guide = 全部 baseline diff 为空）。v9.1 是纯职责重分配（modules 从 blueprint 挪到 profile），不改聚合语义。
 
+**项目侧 Blueprint 可省略，复用 builtin**：方案 D 迁移后，项目侧 `blueprint: dev-knowledge` 可不创建项目级 `.pt/assets/blueprints/dev-knowledge.blueprint.yaml`——`src/parse/index.ts` 的 `dedupByName` 机制保证项目优先 + 内建补充，同名 `Profile.blueprint` 引用自动 fallback 到 builtin。项目需要特殊聚合组结构时再创建同名项目侧 blueprint 覆盖 builtin（`dedupByName` 已支持）。**好处**：避免项目侧与 builtin 不一致漂移（modules 字段差异）+ 减少项目侧维护。**已验证**：pt 仓库删项目侧 blueprint 后，5 份产物逐字与 baseline 一致，verify 199/199。
+
 **外部项目同步**：方案 D 是破坏性 schema 变更，所有使用 Pt 的项目（pt-writing / pt-xxx）资产都需同步迁移——blueprint 删 modules、profile 加 ### Modules。执行流程见 `.pt/docs/designs/pt-modules-to-profile-external-migration-brief.md`。
 
 **首次发现遗漏**：pt-writing 跨项目测试 `tests/verify/phase9.test.ts:322-325` 失败（`segment.length = 0`）——根因是 pt-writing 资产仍是旧格式（blueprint 带 modules + profile 无 ### Modules），代码层方案 D 已正确但未在外部项目资产同步。修复后 pt-writing commit `7270336`，phase9 199/199 通过。
