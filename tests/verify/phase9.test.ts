@@ -357,14 +357,16 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 17. Builtin 资产 ==========
   describe("17. Builtin 资产", () => {
-    it("内建 pt profile 加载成功", async () => {
-      const r = await loadAndTranspile(cwd, "pt");
-      expect(r.profile.name).toBe("pt");
+    it("内建 guide profile 加载成功", async () => {
+      const r = await loadAndTranspile(cwd, "guide");
+      expect(r.profile.name).toBe("guide");
       expect(r.blueprint.name).toBe("dev-knowledge");
     });
 
-    it("内建 pt profile 含 project-analysis / usage / authoring", async () => {
-      const r = await loadAndTranspile(cwd, "pt");
+    it("内建 guide profile 含 user-info / agent-info / project-analysis / authoring / usage", async () => {
+      const r = await loadAndTranspile(cwd, "guide");
+      expect(r.segment).toContain("### user-info");
+      expect(r.segment).toContain("### agent-info");
       expect(r.segment).toContain("### project-analysis");
       expect(r.segment).toContain("### usage");
       expect(r.segment).toContain("### authoring");
@@ -381,7 +383,7 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
 
     it("项目资产覆盖内建（dev-knowledge 不重复）", async () => {
-      const r = await loadAndTranspile(cwd, "pt");
+      const r = await loadAndTranspile(cwd, "guide");
       const blueprintNames = r.bundles[0].blueprints.map((b) => b.name);
       const devCount = blueprintNames.filter((n) => n === "dev-knowledge").length;
       expect(devCount).toBe(1); // 项目覆盖内建，不重复
@@ -392,7 +394,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("18. /pt manual 手册实例化", () => {
     it("bindFlowTemplate 输出含步骤 + 变量绑定", async () => {
       const { bindFlowTemplate } = await import("../../src/render/turn-inject.js");
-      const r = await loadAndTranspile(cwd, "pt");
+      const r = await loadAndTranspile(cwd, "guide");
       const { findFlowInBlueprint } = await import("../../src/render/turn-inject.js");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       expect(tpl).toBeDefined();
@@ -406,7 +408,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const { bindFlowTemplate, findFlowInBlueprint } = await import(
         "../../src/render/turn-inject.js"
       );
-      const r = await loadAndTranspile(cwd, "pt");
+      const r = await loadAndTranspile(cwd, "guide");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       const bound = bindFlowTemplate(tpl!, "my-concept");
       // 模拟 /pt manual 的文档包装逻辑
@@ -428,7 +430,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const { bindFlowTemplate, findFlowInBlueprint } = await import(
         "../../src/render/turn-inject.js"
       );
-      const r = await loadAndTranspile(cwd, "pt");
+      const r = await loadAndTranspile(cwd, "guide");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       const bound = bindFlowTemplate(tpl!, "my-concept");
       // 模拟 /pt manual 的文档包装逻辑

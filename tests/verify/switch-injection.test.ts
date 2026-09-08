@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import installExtension from "../../src/index.js";
 import { PiAdapter } from "../../src/agent/pi-adapter.js";
-import { detectSingleProfile, listProfiles } from "../../src/config.js";
+import { detectDefaultProfile, detectSingleProfile, listProfiles } from "../../src/config.js";
 import { resetTestSession, s, TEST_SESSION_ID } from "./session-fixtures.js";
 import type { AgentAPI, Blueprint, Context, Domain, FlowTemplate } from "../../src/schema.js";
 
@@ -177,7 +177,8 @@ describe("manual profile switch and Session Inject", () => {
     installExtension(pi as never);
     const sessionStart = events.get("session_start")?.[0];
     await sessionStart({ type: "session_start" }, ctx);
-    expect(events.get("before_agent_start")).toBeUndefined();
+    // v13.x：detectDefaultProfile 兜底加载内建 guide → session_start 即注册 before_agent_start
+    expect(events.get("before_agent_start")).toBeDefined();
 
     const switchCommand = commands.get("pt-profile")!;
     await switchCommand.handler("pt-dev", ctx);
@@ -209,17 +210,46 @@ describe("manual profile switch and Session Inject", () => {
     const shutdown = events.get("session_shutdown")?.[0];
     await shutdown({ type: "session_shutdown" }, ctx);
     await sessionStart({ type: "session_start" }, ctx);
-    expect(
-      await secondBeforeHandler({ type: "before_agent_start", systemPrompt: "BASE" })
-    ).toBeUndefined();
+    // v13.x：detectDefaultProfile 兜底加载内建 guide → shutdown + session_start 后旧 handler 读到新 state，注入 guide segment（非 pt-chat）
+    const restartResult = (await secondBeforeHandler(
+      { type: "before_agent_start", systemPrompt: "BASE" },
+      ctx
+    )) as { systemPrompt?: string } | undefined;
+    const restartPrompt = restartResult?.systemPrompt ?? "";
+    expect(restartPrompt).not.toContain(secondSegment);
   });
 
   it("does not let the built-in profile affect project auto detection", async () => {
     const cwd = await makeProjectCwd(tempDirs);
-    expect(await listProfiles(cwd)).toContain("pt");
+    expect(await listProfiles(cwd)).toContain("guide");
     expect(await detectSingleProfile(cwd)).toBeNull();
 
     await writeFile(join(cwd, ".pt/assets/profiles/project.profile.md"), "");
     expect(await detectSingleProfile(cwd)).toBe("project");
+  });
+
+  it("detectDefaultProfile: 未设 settings → 返回内建 guide", async () => {
+    const cwd = await makeProjectCwd(tempDirs);
+    expect(await detectDefaultProfile(cwd)).toBe("guide");
+  });
+
+  it("detectDefaultProfile: settings pt.default-profile='none' → 返回 null", async () => {
+    const cwd = await makeProjectCwd(tempDirs);
+    await mkdir(join(cwd, ".pi"), { recursive: true });
+    await writeFile(
+      join(cwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "default-profile": "none" } })
+    );
+    expect(await detectDefaultProfile(cwd)).toBeNull();
+  });
+
+  it("detectDefaultProfile: settings pt.default-profile='my' → 返回 my", async () => {
+    const cwd = await makeProjectCwd(tempDirs);
+    await mkdir(join(cwd, ".pi"), { recursive: true });
+    await writeFile(
+      join(cwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "default-profile": "my" } })
+    );
+    expect(await detectDefaultProfile(cwd)).toBe("my");
   });
 });

@@ -36,7 +36,7 @@ import type { PtLogger } from "./log.js";
 import type { ManualProgress } from "./manual-track.js";
 
 /** activeProfile 的来源（session_start fallback 命中点）。 */
-export type ProfileLoadSource = "flag" | "settings" | "session" | "auto" | null;
+export type ProfileLoadSource = "flag" | "settings" | "session" | "auto" | "default" | null;
 
 /** pt 注入到 Session Inject 的状态（自报，非检测 Pi）。
  *  - idle：未激活 / 无 segment

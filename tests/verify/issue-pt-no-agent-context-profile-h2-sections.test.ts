@@ -39,10 +39,10 @@ describe("parseProfile groups (v13.x issue pt-no-agent-context-profile-h2-sectio
     expect(names).toContain("参考手册");
   });
 
-  it("builtin pt.profile.md 解析后 groups 长度 > 0", async () => {
+  it("builtin guide.profile.md 解析后 groups 长度 > 0", async () => {
     const profile = await parseProfile(
       "/Users/issac/pro/pt/src/builtin/assets/profiles",
-      "pt.profile.md"
+      "guide.profile.md"
     );
     expect(profile.groups.length).toBe(3);
     const names = profile.groups.map((ip) => ip.name);
