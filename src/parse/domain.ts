@@ -29,11 +29,13 @@ import type { Domain, Term } from "../schema.js";
 import { readAsset, s, type Item } from "./shared.js";
 import { getDomainSectionParser } from "./domain-renderers.js";
 
-/** 读 domains/<fileName>.md → Domain { name, modules: Record<H2名, 内容> }
+/** 读 domains/<relPath>.md → Domain { name, modules: Record<H2名, 内容> }
  *  Phase term-P9.3：Domain 不再有 type 字段——H2 段名直接决定 schema。
- *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。 */
-export async function parseDomain(absDir: string, fileName: string): Promise<Domain> {
-  const asset = await readAsset(join(absDir, fileName));
+ *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。
+ *  v9.1+（modules-to-profile-complete）：relPath 是 POSIX 相对路径（如 "user-info.md" /
+ *  "workflow/dev-workflow.md"），用于支持多级目录。Domain.name 默认用 POSIX 相对路径去后缀。 */
+export async function parseDomain(absDir: string, relPath: string): Promise<Domain> {
+  const asset = await readAsset(join(absDir, relPath));
 
   // H2 段名 → 段内容的解析：调注册表 parser，未注册走 fallback (Term[])
   const modules: Record<string, unknown> = {};
@@ -45,9 +47,15 @@ export async function parseDomain(absDir: string, fileName: string): Promise<Dom
     name:
       typeof asset.frontmatter.name === "string"
         ? asset.frontmatter.name
-        : stripTypeSuffix(asset.name),
+        : normalizeDomainName(relPath),
     modules,
   };
+}
+
+/** 从 POSIX 相对路径生成 Domain.name（去 .md 后缀，'/' 保留以支持多级目录）。
+ *  Node.js readdir({ recursive: true }) 跨平台统一返回 '/' 分隔路径——Windows 也用 '/'。 */
+function normalizeDomainName(relPath: string): string {
+  return relPath.split(/[\\/]/).join("/").replace(/\.md$/, "");
 }
 
 /** 调注册表 parser（h2Name）解析单个 H2 段。Phase term-P9.3：删 type 参数，二维注册表降一维。
@@ -67,10 +75,4 @@ function fallbackTerms(items: Item[]): Term[] {
     name: it.name,
     desc: s(it.fields.desc) || s(it.fields.description),
   }));
-}
-
-/** Phase term-P9.3：去掉 type 参数——Type 已删除，文件名后缀剥离仍保留 .term/.workflow 兼容。 */
-function stripTypeSuffix(fileBase: string): string {
-  // v9 资产命名约定不带 .term/.workflow 后缀；保留 v6 兼容
-  return fileBase.replace(/\.(term|workflow|stack)$/, "");
 }

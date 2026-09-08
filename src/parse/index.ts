@@ -88,7 +88,35 @@ export const mdAdapter: SourceAdapter = {
 async function loadAllDomains(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Domain[]> {
   const assetDir = adapterCtx?.assetDir ?? DEFAULT_ASSET_DIR;
   const dir = join(cwd, assetDir, "domains");
-  return loadDir(dir, SUFFIX_MD, (f) => parseDomain(dir, f), adapterCtx);
+  return loadDomainsRecursive(dir, adapterCtx);
+}
+
+/** 递归加载 domains/ 下所有 .md（v9.1+ 多级目录支持）。
+ *  Node.js 20+ readdir({ recursive: true }) 跨平台统一返回 POSIX '/' 分隔路径。
+ *  Domain.name = POSIX 相对路径去 .md（支持 "meta/login" / "workflow/dev-workflow" 等多级命名）。
+ *  Blueprint/Profile 不递归——只加载顶层（避免破坏现有结构）。 */
+async function loadDomainsRecursive(
+  dir: string,
+  adapterCtx?: SourceAdapterContext
+): Promise<Domain[]> {
+  let files: string[];
+  try {
+    // recursive: true 返回 POSIX 相对路径（Windows 也用 '/'）
+    files = (await readdir(dir, { recursive: true })).filter((f) => f.endsWith(SUFFIX_MD));
+  } catch {
+    return []; // 目录不存在返空
+  }
+  const results: Array<Domain | null> = await Promise.all(
+    files.map(async (relPath) => {
+      try {
+        return await parseDomain(dir, relPath);
+      } catch (e) {
+        reportError(adapterCtx, `parse ${dir}/${relPath} failed: ${errMsg(e)}`, { file: relPath });
+        return null;
+      }
+    })
+  );
+  return results.filter((r): r is Domain => !!r);
 }
 
 async function loadAllBlueprints(
@@ -104,7 +132,7 @@ async function loadAllBlueprints(
 async function loadAllProfiles(cwd: string, adapterCtx?: SourceAdapterContext): Promise<Profile[]> {
   const assetDir = adapterCtx?.assetDir ?? DEFAULT_ASSET_DIR;
   const dir = join(cwd, assetDir, "profiles");
-  return loadDir(dir, SUFFIX_MD, (f) => parseProfile(dir, f), adapterCtx);
+  return loadDir(dir, SUFFIX_MD, (f) => parseProfile(dir, f, adapterCtx), adapterCtx);
 }
 
 // ==================== 内建资产加载（src/builtin/assets/，随包发布） ====================

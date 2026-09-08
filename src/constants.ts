@@ -74,6 +74,13 @@ export const MOD_CHECKLISTS = "Checklists";
  *  不是"领域场景元数据"。拆出来让 Blueprint 模块清单更具语义化。 */
 export const MOD_PARTICIPANT = "Participant";
 
+/** Phase modules-to-profile-complete：user-info Domain 专用段名。Phase term-P8 时叫 "Participant"，
+ *  本 phase 拆分为 "User"（user-info）和 "Agent"（agent-info）——段名 = 命名空间，
+ *  限定到单个 domain 通过专用段名实现，避免 modName 形态 3（domain:段.项）的重复写引用。 */
+export const MOD_USER = "User";
+/** agent-info Domain 专用段名——同上拆分理由。 */
+export const MOD_AGENT = "Agent";
+
 /** Domain 的 Term 段（fallback term 形态，未指定 type 默认走 Term[]） */
 export const MOD_TERM = "Term";
 
