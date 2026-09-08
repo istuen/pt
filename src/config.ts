@@ -60,8 +60,22 @@ async function listProfileNamesIn(dir: string): Promise<string[]> {
   }
 }
 
-/** 自动探测：只看项目级 Profile，不把内建 pt 计入用户项目选择。 */
+/** 自动探测：只看项目级 Profile，不把内建 guide 计入用户项目选择。 */
 export async function detectSingleProfile(cwd: string): Promise<string | null> {
   const project = await listProfileNamesIn(join(cwd, PROFILES_DIR));
   return project.length === 1 ? project[0] : null;
+}
+
+/** 默认兜底：项目无单 Profile 时，读 settings `pt.default-profile`。
+ *  - 未设 → 返回内建 "guide"（装包即用，真默认）
+ *  - "none" → 返回 null（用户明确不要自动加载）
+ *  - 具体名 → 返回该名（用户自定义默认 Profile）
+ *  与 detectSingleProfile 分离：auto 是项目探测（pickedFrom="auto"），
+ *  default 是兜底机制（pickedFrom="default"），来源可观测。 */
+export async function detectDefaultProfile(cwd: string): Promise<string | null> {
+  const setting = await readProjectSetting<string>(cwd, "pt.default-profile");
+  if (setting === undefined) return "guide"; // 未设 → 内建兜底
+  if (setting === "none") return null; // 明确关闭
+  const trimmed = setting.trim();
+  return trimmed || null;
 }

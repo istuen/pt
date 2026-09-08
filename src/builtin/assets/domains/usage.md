@@ -53,3 +53,17 @@ name: usage
 - vars: []
 - step: /pt raw → 写入 .pt/cache/raws/segment-<timestamp>.md
 - step: 用于检查 Pt 编译产物是否正确
+
+## Rules
+
+### cache-invalidation-rule
+- check: 改资产后必删 .pt/cache/agent-contexts/*.agent-context.md 强制重编译；sourceHash 会自动失效，但手动删 cache 是最直接的验证方式
+
+### profile-switch-next-turn
+- check: /pt-profile <name> 切换后下一轮才生效（before_agent_start 事件重注入）；当前轮不受影响
+
+### module-fallback-warning
+- check: Domain Module 名拼错（如 ## Scenr）会走 generic fallback 静默聚合，不报错；用 /pt raw 检查 segment 确认 Module 是否正确贡献
+
+### builtin-override
+- check: 项目 .pt/assets/ 下同名资产覆盖内建（dedupByName 项目优先）；内建 guide 被项目 guide 覆盖时 /pt status 仍显示 guide 名但内容是项目版

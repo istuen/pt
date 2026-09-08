@@ -1,13 +1,13 @@
 ---
-name: pt
+name: guide
 blueprint: dev-knowledge
-domains: [project-analysis, authoring, usage]
+domains: [user-info, agent-info, project-analysis, authoring, usage]
 ---
 
-# pt (profile)
+# guide (profile)
 
 <!--
-Profile 范本说明：同 pt-dev.profile.md（YAML 全局 domains 兜底分发，H2 段让配置入口可见）
+Profile 范本说明：同 pt-dev.profile.md（YAML 全局 domains 兜底分发，聚合组段让配置入口可见）
 -->
 
 ## 会话背景

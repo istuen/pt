@@ -29,7 +29,12 @@ import { randomUUID } from "node:crypto";
 import { FULL_DIR, MANUAL_DIR, PROFILES_DIR, RAW_DIR } from "./constants.js";
 import { toAgentAPI } from "./agent/api-bridge.js";
 import { getAgentAdapter } from "./agent/index.js";
-import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
+import {
+  detectDefaultProfile,
+  detectSingleProfile,
+  listProfiles,
+  readProjectSetting,
+} from "./config.js";
 import { errMsg } from "./diagnostics.js";
 import { readProfileFromSession, persistProfileToSession } from "./profile-persist.js";
 import { LOG_DIR, PtLogger } from "./log.js";
@@ -240,6 +245,7 @@ export default function (pi: ExtensionAPI): void {
         (await readProjectSetting<string>(ctx.cwd, "au.pt-context"));
       const fromSession = readProfileFromSession(ctx.sessionManager); // v10.x
       const auto = await detectSingleProfile(ctx.cwd);
+      const defaultProfile = auto ?? (await detectDefaultProfile(ctx.cwd));
 
       // 显式分支记录来源（便于 /pt status 展示 + trace）
       let picked: string | undefined;
@@ -256,6 +262,9 @@ export default function (pi: ExtensionAPI): void {
       } else if (auto) {
         picked = auto;
         pickedFrom = "auto";
+      } else if (defaultProfile) {
+        picked = defaultProfile;
+        pickedFrom = "default";
       } else {
         picked = undefined;
         pickedFrom = null;
