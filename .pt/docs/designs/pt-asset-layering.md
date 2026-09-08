@@ -156,7 +156,9 @@ AgentContext 的结构按聚合组划分（与 Blueprint 的 H2 一一对应）�
 
 **Profile 是配置——把 Blueprint 和 Domains 衔接起来，组合出不同场景的 AgentContext**。Profile 是项目级的：每个项目/场景一份 Profile，填入自己的 Domain 组合。配一次，全员生效。
 
-**核心设计：Domains 自动分发**。Profile 的 YAML frontmatter 有全局 `domains` 列表，自动分发到所有聚合组；聚合组 H2 下的 `### Domains` 是追加列表，只给该聚合组贡献。两者合并后，compile 按 Blueprint 的 `### Modules` 自动判断每个 Domain 贡献哪些 H2 段（有则贡献，无则跳过）。详见 §0.6。
+**核心设计：Domains 自动分发 + 聚合组 modules 由 Profile 填写**。Profile 的 YAML frontmatter 有全局 `domains` 列表，自动分发到所有聚合组；聚合组 H2 下的 `### Domains` 是追加列表，只给该聚合组贡献。两者合并后，compile 按 Profile H2 下的 `### Modules` 段判断每个 Domain 贡献哪些 H2 段（有则贡献，无则跳过）。详见 §0.6。
+
+> **v9.1 变更**（modules-to-profile 迁移）：Blueprint 退化为插槽契约（只声明 `name` + `inject` + `mode`），聚合组的 `modules`（参与本插槽的 H2 段名列表）由 Profile 的 H2 段 `### Modules` 填写。Blueprint 不再带 modules——Profile 持有 modules 选择权，角色身份 / 段类型选择与结构定义解耦。详见 .pt/docs/designs/pt-modules-ownership.md。
 
 Profile 配置用 MD 标题层级 + YAML frontmatter 表达：
 
@@ -170,11 +172,18 @@ domains: [pt-concepts, pt-architecture, me, pt-transpile]
 # pt (profile)
 
 ## 会话背景
+### Modules          ← v9.1：聚合组填本插槽的 modules（具名身份段 + 段类型）
+- Scene
+- Participant
 ### Domains
 - pt-quality
 - pt-collab
 
 ## 参考手册
+### Modules
+- Rules
+- Flows
+- Checklists
 ### Domains
 - pt-quality
 - pt-collab
@@ -185,6 +194,7 @@ domains: [pt-concepts, pt-architecture, me, pt-transpile]
 - YAML `blueprint`：引用哪个 Blueprint（结构复用）
 - YAML `domains`：全局 Domain 列表，自动分发到所有聚合组（有匹配 H2 段则贡献）
 - `## 会话背景` / `## 触发索引` / `## 参考手册`：H2 = 聚合组（与 Blueprint 的 H2 同名，实例化该聚合组）
+  - `### Modules`：v9.1 新增——本插槽的 modules 列表（H2 段名，如 Scene/Participant/Trigger/Rules/Flows/Checklists）
   - `### Domains`：追加到本聚合组的 Domain 列表（只贡献该聚合组）
 
 **全局 vs 聚合组追加**：全局 `domains` 是"基集"——写一次自动分发；聚合组 `### Domains` 是"追加"——精确控制只给某聚合组贡献。Domain 列一次（全局），不必每个聚合组重复写；需要精确控制时用追加。
@@ -199,7 +209,9 @@ Profile 引用两样东西：**Blueprint（结构模板）** 和 **Domains（知
 
 #### Blueprint：聚合组结构模板
 
-**Blueprint 是 Agent 端的聚合组结构设计**——定义有哪些上下文场景（聚合组）、每个聚合组聚合哪些 H2 段（聚合模块）、注入到 Agent 的哪个位置（`target`）、用什么聚合方式（`mode`）。Blueprint 可跨项目复用——「开发知识」这个结构在多个项目都适用，只是具体 Domain 不同。
+**Blueprint 是 Agent 端的聚合组结构设计**——定义有哪些上下文场景（聚合组），注入到 Agent 的哪个位置（`inject`），用什么聚合方式（`mode`）。Blueprint 可跨项目复用——「开发知识」这个结构在多个项目都适用，只是具体 Profile 的 Domain/modules 组合不同。
+
+> **v9.1 变更**（modules-to-profile 迁移）：Blueprint 退化为**插槽契约**——只声明 `name` + `inject` + `mode`，**不再持有 modules 字段**。每个聚合组参与哪些 H2 段（modules 列表）由 Profile 的 H2 段 `### Modules` 填写。详见 .pt/docs/designs/pt-modules-ownership.md（设计依据 + 与方案 A / 合并方案对比）。**根因**：modules 混了"具名身份模块"（tech-lead / senior-developer）和"段类型"（Scene / Trigger / Rules）两种语义，把角色身份选择塞进 Blueprint.modules（结构层）会压缩复用空间——4 份 blueprint 各自独立就是根因。迁移后 Blueprint 只管结构（插槽契约），Profile 持角色身份选择，结构层与配置层职责清晰。
 
 **核心设计：H2 = 聚合组（人类自定义名）**。Blueprint 的每个 H2 是一个聚合组，H2 名由人类自定义（会话背景/触发索引/参考手册/背景知识/操作手册/...），不由代码写死。`inject` 字段把语义名映射到 **Agent 注入位置**（`session` / `turn`，Agent-agnostic 术语）。AgentAdapter 内部把 `inject` 映射到 Agent 的技术 API（Pi: `system_prompt` / `context_message`），Pt 核心不感知其具体含义。
 
@@ -211,13 +223,11 @@ groups:
   - name: 会话背景
     inject: session        # Agent-agnostic：session/turn 语义值
     mode: hybrid
-    modules: [Scene, Participant]
+    # v9.1：modules 字段已删除——由 Profile `### Modules` 提供
   - name: 触发索引
     inject: session        # 同 inject：会话背景 + 触发索引均每轮注入 Session Inject（中间层）
-    modules: [Trigger]
   - name: 参考手册
     inject: turn           # Agent-agnostic：session/turn 语义值
-    modules: [Rules, Flows, Checklists]
 ```
 
 **字段职责**：
@@ -226,9 +236,9 @@ groups:
   - `name`：聚合组名（人类自定义语义名，可任意命名）
   - `target`：Agent 注入位置（`session` / `turn`，由 AgentAdapter 映射到 Agent API）
   - `mode`：聚合方式（byDomain / byType / hybrid，仅 session 类 target 有意义）
-  - `modules`：聚合模块列表，列出参与本聚合组的 Domain H2 段名
+  - `modules`：**v9.1 已删除**——改由 Profile H2 下的 `### Modules` 段提供（详见 .pt/docs/designs/pt-modules-ownership.md）
 
-**Blueprint 只管结构**：不含具体 Domain、不含 Trigger（Trigger 在 Domain 内作 H2 段）。
+**Blueprint 只管结构**：不含具体 Domain、不含 modules（Profile 持有）、不含 Trigger（Trigger 在 Domain 内作 H2 段）。
 
 > **可选跟进**：`target` 未来可下沉到 AgentContext IR 自带 target 标注（自包含 target 信息，AgentAdapter 不必再查 Blueprint）——见末尾"可选跟进"。
 
@@ -513,6 +523,8 @@ return parts.join("\n\n");
 
 Profile 的 Domains 列表有两层：YAML 全局 + 聚合组追加。compile 自动分发。
 
+> **v9.1 变更**（modules-to-profile 迁移）：过滤白名单从 Blueprint.modules 改为 ProfileGroup.modules（H2 段下 `### Modules` 段）。`resolveDomains` 读 `profileGroup.modules`，`dispatchGroup` 遍历 `profileGroup.modules`。Blueprint.modules 已删除——见 .pt/docs/designs/pt-modules-ownership.md。
+
 #### 分发规则
 
 某聚合组的最终 Domain 集 = (全局 domains ∩ 该聚合组有匹配 H2 段) ∪ (该聚合组 ### Domains 追加)
@@ -520,12 +532,14 @@ Profile 的 Domains 列表有两层：YAML 全局 + 聚合组追加。compile �
 ```
 Profile pt:
   YAML domains: [pt-concepts, pt-architecture, me, pt-transpile]   ← 全局基集
-  ## 会话背景 ### Domains: [pt-quality, pt-collab]                 ← 会话背景追加
-  ## 参考手册 ### Domains: [pt-quality, pt-collab]                 ← 参考手册追加
+  ## 会话背景 ### Modules: [Scene, Trigger, Participant]            ← v9.1：Profile 填本插槽 modules
+  ## 会话背景 ### Domains: [pt-quality, pt-collab]                  ← 会话背景追加
+  ## 参考手册 ### Modules: [Rules, Flows, Checklists]
+  ## 参考手册 ### Domains: [pt-quality, pt-collab]                  ← 参考手册追加
 
 Blueprint dev-knowledge:
-  ## 会话背景 modules: [Scene, Trigger, Participant]
-  ## 参考手册 modules: [Rules, Flows, Checklists]
+  ## 会话背景  inject: session, mode: hybrid
+  ## 参考手册  inject: turn
 
 分发结果:
   会话背景（inject=session）的 Domain 集:
@@ -536,7 +550,7 @@ Blueprint dev-knowledge:
     pt-quality     (追加, 有 ## Trigger → 贡献 Trigger; 无 ## Scene → 跳过 Scene)
     pt-collab      (追加, 有 ## Trigger → 贡献 Trigger)
 
-  参考手册（target=turn）的 Domain 集:
+  参考手册（inject=turn）的 Domain 集:
     pt-concepts    (全局, 无 ## Rules/Flows/Checklists → 跳过)
     pt-architecture(全局, 有 ## Rules → 贡献 Rules)
     me             (全局, 无 ## Rules/Flows/Checklists → 跳过)
@@ -546,6 +560,8 @@ Blueprint dev-knowledge:
 ```
 
 **规则**：Domain 有该聚合组 modules 列出的 H2 段 → 贡献；没有 → 跳过。全局 domains 自动判断，聚合组追加也自动判断。**Domains 写一次（全局），需要精确控制时用追加**。
+
+**modules 来源**：v9.1 前 Blueprint.modules 是过滤白名单；v9.1 起 Profile H2 下的 `### Modules` 段是过滤白名单（Profile 持有角色身份 / 段类型选择权）。
 
 #### 为什么不全用聚合组分别列（v8 方式）
 
@@ -830,6 +846,46 @@ v9 保留 v8 的核心（异构上下文编译器定位、H2=聚合组、AgentCo
 | Renderer | 走 Scene renderer | 复用 Scene renderer（`[MOD_PARTICIPANT]: renderSceneModule` 一行注册，Term[] 同构） |
 
 **根因**：me 的 H3 是会话参与者信息（who/goal/how），不是领域场景元数据——`## Participant` 语义更准确。复用 Scene renderer 是因为 Term[] schema 同构，零代码改动一行注册。
+
+#### 变化 19：modules 归属从 Blueprint 挪到 Profile（Phase modules-to-profile，v9 → v9.1）
+
+| 维度 | v9 | v9.1 |
+|---|---|---|
+| Blueprint `groups[].modules` | 声明聚合组参与哪些 H2 段 | **删除**——Blueprint 退化为插槽契约（`name` + `inject` + `mode`） |
+| Profile H2 段下 `### Modules` | 无 | **新增**——Profile 填本插槽的 modules 列表 |
+| `ProfileGroup` schema | `{ name, domains }` | `{ name, domains, modules: string[] }` |
+| 聚合组参与 Domain 过滤 | `bpGroup.modules.some(m => d.modules[m])` | `profileGroup.modules.some(m => d.modules[m])` |
+| 加新插槽（Blueprint） | 旧 Profile 无 H2 实例化 → 模块越界警告 | 旧 Profile 无 H2 → 产出空段（render 跳过），完全兼容 |
+| Profile 越权 H2 | 静默忽略（主循环遍历 Blueprint.groups） | 静默忽略 + 告警（log warn + notify，告警分级见设计文档 §5） |
+| Profile 缺填 H2 | 无告警 | log debug only（可能故意） |
+| 4 份 blueprint 合一 | 4 份 `dev-knowledge-{arch,design,dev,devops}.blueprint.yaml` | 1 份 `dev-knowledge.blueprint.yaml`（各 profile 引同一份，差异全在 `### Modules`） |
+| Blueprint 间复用 | arch / design 除注释外雷同却复刻两份 | 1 份通用 Blueprint + N 份 Profile 填 modules |
+
+**根因**：
+
+1. **modules 混两种语义**：会话背景 `[user-profile, pt-goal, tech-lead, senior-developer, ...]` 是**具名身份模块**（角色选择），触发索引 `[Trigger]` 是**段类型**。`dispatchGroup` 两者渲染机制相同（都是 `d.modules[modName]` 取 H2 段），区别只在 renderer 是否注册。角色身份选择被写进 Blueprint（结构层）→ Profile 想换角色只能换整个 Blueprint→ 4 份 blueprint 各自独立，arch/design 雷同却复刻两份，复用空间被压缩。
+2. **角色身份归属应是配置层**：Profile 本就该管"角色身份选择"，但被 Blueprint 抢走。modules 挪回 Profile 后，Blueprint 退化为插槽契约（声明有哪些插槽 + inject + mode），Profile 持角色身份选择权——结构层与配置层职责清晰。
+3. **复用空间与 modules 偏向相关**：modules 越偏向"段类型"（Scene / Trigger / Rules）→ 复用空间越大；modules 越偏向"具名角色"（tech-lead / senior-dev）→ 复用空间越小。把具名角色挪到 Profile 后，Blueprint.modules 仅需保留段类型语义，复用空间释放。
+
+**向后兼容性**：
+- **加插槽**：Blueprint 加新 group（无旧 Profile H2 实例化）→ 主循环遍历 Blueprint.groups，旧 Profile 无对应 ProfileGroup → `dispatchGroup` 读 `?? []` → 产出空字符串 → `renderSessionInject` 的 `if (content)` 跳过。✅ 旧 Profile 不受影响。
+- **Profile 越权**：Profile 独有 H2（Blueprint 未声明）→ 主循环遍历 Blueprint.groups（非 profile.groups），越权 H2 被静默忽略 + log warn + notify。✅ 永远以 Blueprint 为准。
+- **Profile 缺填**：Blueprint 有插槽但 Profile 无 H2 或 modules 为空 → `dispatchGroup` 返空，产出空段。✅ "故意缺填"是合法用法（log debug 留痕，不打扰）。
+
+**告警分级**（设计文档 §5）：越权（Profile H2 不在 Blueprint.groups）→ log warn + notify（几乎总是错误）；缺填（Blueprint 有插槽但 Profile 未填）→ log debug only（可能故意）。两处都有 log 留痕。
+
+**代码改动**（封闭性已验证）：
+- `src/schema.ts`：`BlueprintGroup` 删 `modules`；`ProfileGroup` 加 `modules: string[]`
+- `src/parse/blueprint.ts`：去掉 modules 解析 + 校验（YAML 中 modules 行若有则忽略）
+- `src/parse/profile.ts`：每 H2 段调 `extractModulesList(section)` 填 `ProfileGroup.modules`（函数复用 `shared.ts` 的旧 Channel 死代码）
+- `src/compile/agent-context.ts`：`resolveDomains` 过滤 + `dispatchGroup` 遍历改读 `profileGroup?.modules ?? []`；加越权 / 缺填告警；加可选 `ctx?: SourceAdapterContext` 参数透传 `log` + `notify`
+
+**封闭性已验证**：
+- `bpGroup.modules` 消费点全部集中在 `compile/agent-context.ts`（grep 确认）
+- render 层（`session-inject.ts` / `turn-inject.ts`）只读 `group.inject`，不碰 modules
+- `pi-adapter.listManuals` 遍历 `blueprint.groups` 按 `group.inject === "turn"` 过滤，内容取自 `d.modules[MOD_FLOWS]` 硬编码常量——不读 `group.modules`
+
+**核心验收**：迁移前后 AgentContext 产物逐字一致（项目侧 4 份 + builtin guide = 全部 baseline diff 为空）。v9.1 是纯职责重分配（modules 从 blueprint 挪到 profile），不改聚合语义。
 
 #### 不变的部分
 
