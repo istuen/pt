@@ -31,7 +31,9 @@ interface RawBlueprintGroup {
   name: string;
   inject: string;
   mode?: string;
-  modules: string[];
+  // v9.1（modules-to-profile 迁移）：modules 已迁到 ProfileGroup，本接口字段保留注释说明。
+  // 旧 YAML 中 modules: [..] 行 parse 后被忽略——迁移期内联文件用。
+  modules?: string[];
 }
 
 interface RawBlueprint {
@@ -39,7 +41,9 @@ interface RawBlueprint {
   groups: RawBlueprintGroup[];
 }
 
-/** 读 blueprints/<fileName>.blueprint.yaml → Blueprint { name, groups } */
+/** 读 blueprints/<fileName>.blueprint.yaml → Blueprint { name, groups }
+ *  v9.1（modules-to-profile 迁移）：BlueprintGroup 不再带 modules——modules 由 ProfileGroup
+ *  通过 H2 `### Modules` 段提供。YAML 中 modules 行（若有）被静默忽略，迁移期兼容。 */
 export async function parseBlueprint(absDir: string, fileName: string): Promise<Blueprint> {
   const filePath = join(absDir, fileName);
   const raw = await readFile(filePath, "utf8");
@@ -59,14 +63,10 @@ export async function parseBlueprint(absDir: string, fileName: string): Promise<
     if (typeof ip.inject !== "string") {
       throw new Error(`parseBlueprint: ${fileName} 聚合组 ${ip.name} 缺 inject 字段`);
     }
-    if (!Array.isArray(ip.modules)) {
-      throw new Error(`parseBlueprint: ${fileName} 聚合组 ${ip.name} 缺 modules 数组`);
-    }
 
     const config: BlueprintGroup = {
       name: ip.name,
       inject: ip.inject as InjectTarget,
-      modules: ip.modules.map((m) => String(m)),
     };
     if (ip.mode && isValidMode(ip.mode)) {
       config.mode = ip.mode;

@@ -153,25 +153,34 @@ export interface BoundaryNode {
  *  Phase term-naming：字段名 target → inject（更直白表达动作意图）。InjectTarget 类型名。 */
 export type InjectTarget = "session" | "turn" | string;
 
-/** Blueprint 的聚合组定义（对应 Blueprint yaml 的 groups 项，聚合组名=人类自定义语义名）。 */
+/** Blueprint 的聚合组定义（对应 Blueprint yaml 的 groups 项，聚合组名=人类自定义语义名）。
+ *  v9.1（modules-to-profile 迁移）：BlueprintGroup 删 `modules` 字段——Blueprint 退化为插槽契约
+ *  （name + inject + mode），modules 由 ProfileGroup 提供。Profile 通过 H2 匹配插槽名，用
+ *  `### Modules` 段填 modules 列表。Blueprint 加新插槽向后兼容（旧 Profile 无 H2 → 产出空段）。 */
 export interface BlueprintGroup {
   /** 聚合组名（语义名，Blueprint 配置项，如 "会话背景"/"参考手册"）。 */
   name: string;
   /** 注入位置（session / turn / 扩展）——值语义名，经由 AgentAdapter 映射到具体 Agent Runtime API。 */
   inject: InjectTarget;
-  /** 聚合点：参与的 Domain Schema Name 列表（来自 modules: [..] 无符号项，data-driven）。 */
-  modules: string[];
   /** 聚合方式（仅 session 类聚合组有意义）。 */
   mode?: StructureLayout["mode"];
 }
 
 /** Profile 的聚合组实例化（对应 Profile md 的 H2，与 Blueprint 的 BlueprintGroup 同名）。
- *  v9：只保留 domains（追加到本聚合组的 Domain 名列表）。trigger/boundaries 删除。 */
+ *  v9：domains（追加到本聚合组的 Domain 名列表）。trigger/boundaries 删除。
+ *  v9.1（modules-to-profile 迁移）：加 `modules` 字段——Profile H2 下的 `### Modules` 列表
+ *  填本插槽的聚合模块（具名身份段 + 段类型）。原 BlueprintGroup.modules 已删除。 */
 export interface ProfileGroup {
   /** 聚合组名（与 Blueprint 的 BlueprintGroup.name 对应）。 */
   name: string;
   /** 追加到本聚合组的 Domain 名列表（只贡献该聚合组）。 */
   domains: string[];
+  /** 本插槽填的聚合模块列表（Profile `### Modules` 段下的裸名项）。
+   *  - 会话背景：具名身份模块（user-profile / pt-goal / senior-developer / ...）
+   *  - 触发索引：段类型（Trigger）
+   *  - 参考手册：段类型（Rules / Flows / Checklists）
+   *  为空数组 = 该 Profile 故意不填此插槽（"缺填"——log debug only 不 notify，见设计文档 §5）。 */
+  modules: string[];
 }
 
 // ==================== 内容层：Domain ====================
