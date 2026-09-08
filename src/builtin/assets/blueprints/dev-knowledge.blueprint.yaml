@@ -3,13 +3,11 @@ groups:
   - name: 会话背景
     inject: session
     mode: hybrid
-    # Phase term-P8：会话参与者信息段——me Domain 的 H3 项（user-profile/pt-goal/collab-mode）走 Participant
-    modules: [Scene, Participant]
+    # v9.1（modules-to-profile 迁移）：modules 字段已删除——由 Profile `### Modules` 提供
+    # Phase term-P8：会话参与者信息段——user-info Domain 的 H3 项（user-profile/pt-goal/collab-mode 等）走 Participant
   - name: 触发索引
     inject: session
     # 桥接 Session↔Turn：把有什么手册、何时查作为索引注入，每轮 LLM 可见
-    modules: [Trigger]
   - name: 参考手册
     inject: turn
     # Phase term-P9.2：Manual 拆三段——Rules / Flows / Checklists
-    modules: [Rules, Flows, Checklists]
