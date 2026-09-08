@@ -4,7 +4,7 @@ name: user-info
 
 # user-info
 
-## Participant
+## User
 ### who-am-i
 - desc: 我是这个项目的开发者（修改为你的真实身份）
 
