@@ -9,11 +9,11 @@ import { loadAndTranspile } from "../../src/transpile.js";
 import { getAgentAdapter } from "../../src/agent/index.js";
 
 describe("Profile 触发手册（listManuals）", () => {
-  it("pt-chat Profile 包含参考手册注入点（Phase term-P9.2：Rules/Flows/Checklists 三段）", async () => {
-    // pt-chat 是会话型 profile（me + product-design + asset-workflow）—— 当前未含 Rules/Flows/Checklists
-    // 段内容，但 Blueprint 的"参考手册"注入点已声明三段 schema。
+  it("pt-design Profile 包含参考手册注入点（Phase term-P9.2：Rules/Flows/Checklists 三段）", async () => {
+    // pt-design 是设计型 profile（user-info + agent-info + product-design + asset-workflow + pt-collab）
+    // —— 当前未含 Rules/Flows/Checklists 段内容，但 Blueprint 的"参考手册"注入点已声明三段 schema。
     // 验证：listManuals 返空（domain 没装手册内容时） + 注入点结构完整。
-    const r = await loadAndTranspile(process.cwd(), "pt-chat");
+    const r = await loadAndTranspile(process.cwd(), "pt-design");
     const b = r.bundles[0];
     expect(b).toBeDefined();
 
@@ -25,7 +25,7 @@ describe("Profile 触发手册（listManuals）", () => {
 
     const adapter = getAgentAdapter({} as never, "pi");
     const flows = adapter.listManuals?.(r.agentContext, r.blueprint, filteredDomains) ?? [];
-    // pt-chat 当前 domains 不含 Rules/Flows/Checklists 段内容——返空是预期
+    // pt-design 当前 domains 不含 Rules/Flows/Checklists 段内容——返空是预期
     expect(flows).toEqual([]);
 
     // Blueprint 注入点声明三段 schema（Phase term-P9.2）

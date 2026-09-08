@@ -194,7 +194,7 @@ describe("manual profile switch and Session Inject", () => {
     expect(s().lastBuiltPrompt).toBe(firstResult.systemPrompt);
     expect(events.get("before_agent_start")).toHaveLength(1);
 
-    await switchCommand.handler("pt-chat", ctx);
+    await switchCommand.handler("pt-design", ctx);
     const secondBeforeHandler = events.get("before_agent_start")?.[0];
     const secondSegment = s().cachedSegment;
     const secondResult = (await secondBeforeHandler(
@@ -210,7 +210,7 @@ describe("manual profile switch and Session Inject", () => {
     const shutdown = events.get("session_shutdown")?.[0];
     await shutdown({ type: "session_shutdown" }, ctx);
     await sessionStart({ type: "session_start" }, ctx);
-    // v13.x：detectDefaultProfile 兜底加载内建 guide → shutdown + session_start 后旧 handler 读到新 state，注入 guide segment（非 pt-chat）
+    // v13.x：detectDefaultProfile 兜底加载内建 guide → shutdown + session_start 后旧 handler 读到新 state，注入 guide segment（非 pt-design）
     const restartResult = (await secondBeforeHandler(
       { type: "before_agent_start", systemPrompt: "BASE" },
       ctx

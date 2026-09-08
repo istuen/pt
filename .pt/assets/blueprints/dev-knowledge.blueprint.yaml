@@ -3,7 +3,7 @@ groups:
   - name: 会话背景
     inject: session
     mode: hybrid
-    # Phase term-P8：会话参与者信息段——me Domain 的 H3 项（user-profile/pt-goal/collab-mode）走 Participant
+    # Phase term-P8：会话参与者信息段——user-info Domain 的 H3 项（user-profile/pt-goal/collab-mode 等）走 Participant
     modules: [Scene, Participant]
   - name: 触发索引
     inject: session

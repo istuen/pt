@@ -56,27 +56,27 @@ describe("pruneOrphanCaches (v13.x issue pt-no-agent-context-prune-orphan-caches
   it("保留有效 Profile 的 cache 文件", async () => {
     await setupCache(cwd, cacheDir, [
       "pt-dev.agent-context.md",
-      "pt-chat.agent-context.md",
+      "pt-design.agent-context.md",
       "orphan.agent-context.md",
     ]);
-    const valid = new Set(["pt-dev", "pt-chat"]);
+    const valid = new Set(["pt-dev", "pt-design"]);
 
     const pruned = await pruneOrphanCaches(cwd, cacheDir, valid);
 
     expect(pruned).toEqual(["orphan"]);
     const remaining = await readdir(join(cwd, cacheDir));
-    expect(remaining.sort()).toEqual(["pt-chat.agent-context.md", "pt-dev.agent-context.md"]);
+    expect(remaining.sort()).toEqual(["pt-design.agent-context.md", "pt-dev.agent-context.md"]);
   });
 
   it("场景：删除 Profile 后 transpile（orphan 自动 unlink）", async () => {
     // 模拟之前有 3 个 Profile 都生成了 cache
     await setupCache(cwd, cacheDir, [
       "pt-dev.agent-context.md",
-      "pt-chat.agent-context.md",
+      "pt-design.agent-context.md",
       "removed.agent-context.md",
     ]);
     // 现在只剩 2 个 Profile（removed 被删了）
-    const valid = new Set(["pt-dev", "pt-chat"]);
+    const valid = new Set(["pt-dev", "pt-design"]);
 
     const pruned = await pruneOrphanCaches(cwd, cacheDir, valid);
 

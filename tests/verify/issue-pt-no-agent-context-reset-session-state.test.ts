@@ -30,11 +30,11 @@ function makePopulatedSessionState(): SessionState {
     groups: [{ name: "会话背景", inject: "session", modules: [] }],
     compilation: { cacheDir: ".pt/cache/agent-contexts", split: "single-file" },
   };
-  s.cachedDomains = [{ name: "me", modules: {} }];
+  s.cachedDomains = [{ name: "user-info", modules: {} }];
   s.cachedProfile = {
     name: "pt-dev",
     blueprint: "dev-knowledge",
-    domains: ["me"],
+    domains: ["user-info"],
     groups: [],
   };
   s.lastCacheHit = true;

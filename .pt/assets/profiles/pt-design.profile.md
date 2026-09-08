@@ -1,10 +1,10 @@
 ---
-name: pt-dev
+name: pt-design
 blueprint: dev-knowledge
-domains: [user-info, agent-info, product-design, dev-workflow, issue-workflow, testing-workflow, pt-quality, pt-collab]
+domains: [user-info, agent-info, product-design, asset-workflow, pt-collab]
 ---
 
-# pt-dev (profile)
+# pt-design (profile)
 
 <!--
 Profile 范本说明：
