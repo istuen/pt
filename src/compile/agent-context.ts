@@ -23,12 +23,14 @@
 // Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
 
 import {
+  MOD_AGENT,
   MOD_CHECKLISTS,
   MOD_FLOWS,
   MOD_PARTICIPANT,
   MOD_RULES,
   MOD_SCENE,
   MOD_TRIGGER,
+  MOD_USER,
 } from "../constants.js";
 import { reportWarn } from "../diagnostics.js";
 import type {
@@ -36,10 +38,12 @@ import type {
   Blueprint,
   BlueprintGroup,
   Domain,
+  ModName,
   Profile,
   ProfileGroup,
   SourceAdapterContext,
   StructureLayout,
+  Term,
 } from "../schema.js";
 import {
   isChecklistArray,
@@ -143,13 +147,14 @@ function resolveDomains(
   }
 
   // v9.1：从 ProfileGroup.modules 读过滤白名单（Blueprint.modules 已删除）
+  // v9.1+（modules-to-profile-complete）：mods 是 ModName[]（段粒度 / 段.项粒度）
   const mods = profileGroup?.modules ?? [];
 
   // 过滤：Domain 有该聚合组 modules 列出的任一 H2 段才贡献
   return allNames
     .map((n) => domainByName.get(n))
     .filter((d): d is Domain => !!d)
-    .filter((d) => mods.some((m) => d.modules[m] !== undefined));
+    .filter((d) => mods.some((m) => d.modules[m.section] !== undefined));
 }
 
 // ==================== modName 驱动聚合（v9 核心） ====================
@@ -172,15 +177,19 @@ function dispatchGroup(
 ): string {
   const parts: string[] = [];
 
-  // 遍历 ProfileGroup.modules 列出的聚合标题（Blueprint.modules 已删除）
+  // 遍历 ProfileGroup.modules 列出的 ModName（Blueprint.modules 已删除）
+  // v9.1+（modules-to-profile-complete）：mod 是 { section, item? } 结构
+  //  - 段粒度：mod.item 未定义 → 整段渲染
+  //  - 段.项粒度：mod.item 已定义 → 单 H3 项渲染
   const mods = profileGroup?.modules ?? [];
-  for (const modName of mods) {
-    const renderer = moduleRenderers[modName] ?? renderGenericModule;
+  for (const mod of mods) {
     const modParts: string[] = [];
     for (const d of refDomains) {
-      const content = d.modules[modName];
+      const content = d.modules[mod.section];
       if (content === undefined) continue;
-      const rendered = renderer(d, content, bpGroup.mode);
+      const rendered = mod.item
+        ? renderItemModule(d, content, mod)
+        : (moduleRenderers[mod.section] ?? renderGenericModule)(d, content, bpGroup.mode);
       if (rendered) modParts.push(rendered);
     }
     if (modParts.length > 0) parts.push(modParts.join("\n\n"));
@@ -205,6 +214,8 @@ const moduleRenderers: Record<string, ModuleRenderer> = {
   [MOD_FLOWS]: renderFlowsModule,
   [MOD_CHECKLISTS]: renderChecklistsModule,
   [MOD_PARTICIPANT]: renderSceneModule, // P8：复用 Scene renderer（Term[] 同构，带 ### domain 标题）
+  [MOD_USER]: renderSceneModule, // v9.1+：user-info 专用段（Term[] 同构）
+  [MOD_AGENT]: renderSceneModule, // v9.1+：agent-info 专用段（Term[] 同构）
 };
 
 /** 扩展接口：加新 modName 只加一行 + 一个 renderer 函数。 */
@@ -237,6 +248,40 @@ function renderSceneModule(d: Domain, content: unknown, _mode?: StructureLayout[
     }
     lines.push(line);
   }
+  return lines.join("\n").trimEnd();
+}
+
+// ==================== H3 项粒度 renderer（v9.1+ modules-to-profile-complete） ====================
+
+/** H3 项粒度渲染：输出 `### <domain>.<item>` 形式。
+ *  复用 Scene/Participant/User/Agent renderer 的输出风格：带 fields/note/path。
+ *  适用 mod：ModName.item 已定义。
+ *  跨段同名 H3 项不跨段匹配——"User.user-profile" 只匹配 User 段下 user-profile，
+ *  不匹配 Agent 段下同名 H3。设计约束：H3 项名跨段由段名命名空间避免。 */
+function renderItemModule(d: Domain, content: unknown, mod: ModName): string {
+  if (!mod.item) return ""; // 防御：未到这里的 caller 已用段粒度路径
+  if (!isTermArray(content)) return "";
+  // 同段内 H3 重名后覆盖前——只取最后一个（parse 时同名 H3 后出现覆盖前）
+  const items = content as Array<Term & { name: string }>;
+  let found: Term | undefined;
+  for (const it of items) {
+    if (it.name === mod.item) found = it;
+  }
+  if (!found) return "";
+  const t = found as Term;
+  const lines: string[] = [`### ${d.name}.${t.name}`];
+  let line: string;
+  if (t.path && t.desc) line = `- ${t.name}: ${t.path} — ${t.desc}`;
+  else if (t.path) line = `- ${t.name}: ${t.path}`;
+  else if (t.desc) line = `- ${t.name}: ${t.desc}`;
+  else line = `- ${t.name}`;
+  if (t.fields && t.fields.length > 0) {
+    line += `（字段：${t.fields.join("/")}）`;
+  }
+  if (t.note) {
+    line += ` — ${t.note}`;
+  }
+  lines.push(line);
   return lines.join("\n").trimEnd();
 }
 

@@ -166,21 +166,34 @@ export interface BlueprintGroup {
   mode?: StructureLayout["mode"];
 }
 
+/** modules-to-profile-complete：modName 解析形态。2 形态：
+ *  - 段名（"Scene" / "User" / "Agent"）— 跨所有引用域找该段，整段聚合
+ *  - 段.项（"User.user-profile" / "Agent.senior-developer"）— 跨所有引用域找该段下 H3 项
+ *  限定到单个 domain 通过专用段名（User / Agent）实现，不引入形态 3（domain:段.项）——避免 profile 重复写引用。
+ *  v9.1（迁移后）原本用裸 string 名（"Scene" / "User"），v9.1+ 用本结构对象。 */
+export interface ModName {
+  /** H2 段名（命名空间） */
+  section: string;
+  /** H3 项名（可选）。undefined = 段粒度匹配；string = 该段下 H3 项名 */
+  item?: string;
+}
+
 /** Profile 的聚合组实例化（对应 Profile md 的 H2，与 Blueprint 的 BlueprintGroup 同名）。
  *  v9：domains（追加到本聚合组的 Domain 名列表）。trigger/boundaries 删除。
  *  v9.1（modules-to-profile 迁移）：加 `modules` 字段——Profile H2 下的 `### Modules` 列表
- *  填本插槽的聚合模块（具名身份段 + 段类型）。原 BlueprintGroup.modules 已删除。 */
+ *  填本插槽的聚合模块（具名身份段 + 段类型）。原 BlueprintGroup.modules 已删除。
+ *  v9.1+（modules-to-profile-complete）：modules 元素从 `string` 改为 `ModName` 对象——
+ *  支持段粒度 + 段.项粒度两种形态。 */
 export interface ProfileGroup {
   /** 聚合组名（与 Blueprint 的 BlueprintGroup.name 对应）。 */
   name: string;
   /** 追加到本聚合组的 Domain 名列表（只贡献该聚合组）。 */
   domains: string[];
-  /** 本插槽填的聚合模块列表（Profile `### Modules` 段下的裸名项）。
-   *  - 会话背景：具名身份模块（user-profile / pt-goal / senior-developer / ...）
-   *  - 触发索引：段类型（Trigger）
-   *  - 参考手册：段类型（Rules / Flows / Checklists）
+  /** 本插槽填的聚合模块列表（Profile `### Modules` 段下的项解析为 ModName 对象）。
+   *  - 段名：跨所有引用域该段整段聚合
+   *  - 段.项：跨所有引用域该段下 H3 项（精确选）
    *  为空数组 = 该 Profile 故意不填此插槽（"缺填"——log debug only 不 notify，见设计文档 §5）。 */
-  modules: string[];
+  modules: ModName[];
 }
 
 // ==================== 内容层：Domain ====================
