@@ -893,7 +893,15 @@ v9 保留 v8 的核心（异构上下文编译器定位、H2=聚合组、AgentCo
 
 **首次发现遗漏**：pt-writing 跨项目测试 `tests/verify/phase9.test.ts:322-325` 失败（`segment.length = 0`）——根因是 pt-writing 资产仍是旧格式（blueprint 带 modules + profile 无 ### Modules），代码层方案 D 已正确但未在外部项目资产同步。修复后 pt-writing commit `7270336`，phase9 199/199 通过。
 
-**硬指标差异**：项目侧 Pt 资产适用"产物逐字一致"（baseline diff 全空）；外部项目不适用（旧资产本就未在 v9 编译通路里），改用"段结构对齐"为硬指标（3 段标题 + 内容非空）。
+**硬指标差异（v9.1）**：项目侧 Pt 资产适用"产物逐字一致"（baseline diff 全空）；外部项目不适用（旧资产本就未在 v9 编译通路里），改用"段结构对齐"为硬指标（3 段标题 + 内容非空）。
+
+**v9.1+ 完整版（Phase modules-to-profile-complete）**：
+
+- **4 profile 角色隔离**：pt-dev 含 senior+qa+cr 不含 arch/devops；pt-arch/design 含 architect 不含其他；pt-devops 含 devops 不含其他；guide 完整（onboarding）
+- **H3 项粒度渲染**：产物含 `### <domain>.<item>` 形式（如 `### agent-info.senior-developer`）
+- **多级目录**：`workflow/dev-workflow` 等 path 形式 Domain.name 正确解析
+- **产物会变是设计目标**（角色隔离必然产物变）——不强制产物逐字一致
+- **设计文档**：`pt-modules-ownership.md`（方案 D 设计意图） + `pt-modules-to-profile-complete-brief.md`（执行简报）
 
 #### 不变的部分
 

@@ -22,6 +22,10 @@ Profile 通过 H2 段下 `### Modules` 填 modules 列表。`src/parse/blueprint
 中 `modules:` 行被静默忽略）；`src/compile/agent-context.ts` 的 `resolveDomains` + `dispatchGroup` 改读
 `profileGroup?.modules ?? []`。
 
+**v9.1+（modules-to-profile-complete）**：modules 元素从 `string[]` 改为 `ModName[]`（`{ section, item? }`），
+支持 2 形态：段名（`Scene` / `User`）和 段.项（`Agent.senior-developer`）。多级目录支持：`workflow/dev-workflow`
+等 path 形式作为 Domain.name。详见 `pt-modules-to-profile-complete-brief.md`。
+
 **破坏性变更范围**：所有使用 Pt 的项目资产（blueprint + profile）都需同步迁移。**首次发现遗漏**：
 pt-writing 跨项目测试 `tests/verify/phase9.test.ts:322-325` 失败（`segment.length = 0`）。
 
