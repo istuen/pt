@@ -1,5 +1,5 @@
 ---
-name: asset-workflow
+name: workflow/asset-workflow
 ---
 
 # asset-workflow

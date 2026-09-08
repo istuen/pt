@@ -1,7 +1,7 @@
 ---
 name: pt-design
 blueprint: dev-knowledge
-domains: [user-info, agent-info, product-design, asset-workflow, pt-collab]
+domains: [user-info, agent-info, product-design, workflow/asset-workflow, pt-collab]
 ---
 
 # pt-design (profile)

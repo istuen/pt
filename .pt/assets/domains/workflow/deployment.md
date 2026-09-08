@@ -1,5 +1,5 @@
 ---
-name: deployment
+name: workflow/deployment
 ---
 
 # deployment
