@@ -84,13 +84,22 @@ export function compileAgentContext(
     // 找 Profile 对应的聚合组实例化（同名）
     const profileGroup = profile.groups.find((g) => g.name === bpGroup.name);
 
-    // 缺填告警：Blueprint 有此插槽但 Profile 没填 modules（可能故意——log debug only 不 notify）
+    // 缺填告警：Blueprint 有此插槽但 Profile 没填 modules
+    // issue pt-status-no-injection-state：升级为 reportWarn——
+    // v9.1 modules-to-profile 迁移后，"未填 modules"几乎总是配置错误，
+    // 不再是 v9 的"故意留空"。三通道 fallback 让用户首次切换就看到告警，
+    // 避免切换后 footer 永远 idle 却 `injected: true` 误导
     if (!profileGroup || profileGroup.modules.length === 0) {
-      ctx?.log?.debug(`插槽「${bpGroup.name}」未填 modules`, {
-        profile: profile.name,
-        group: bpGroup.name,
-        hasGroup: !!profileGroup,
-      });
+      reportWarn(
+        ctx,
+        `Profile「${profile.name}」插槽「${bpGroup.name}」未填 modules（segment 会为空）`,
+        {
+          profile: profile.name,
+          group: bpGroup.name,
+          hasGroup: !!profileGroup,
+          hint: "在 Profile 的 H2 段下加 `### Modules` 列出 modName（段名或 段.项 形态）",
+        }
+      );
     }
 
     // v9.1：按 ProfileGroup.modules 过滤（Blueprint 不再带 modules）

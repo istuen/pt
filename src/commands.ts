@@ -41,6 +41,8 @@ export function statusText(session: SessionState): string {
     `pt segment length: ${session.cachedSegment?.length ?? 0} chars`,
     `pt cache hit: ${session.lastCacheHit ? "yes" : "no"}`,
     `pt last built prompt: ${session.lastBuiltPrompt ? `${session.lastBuiltPrompt.length} chars` : "(未跑过 turn)"}`,
+    // issue pt-status-no-injection-state：暴露 4 态自报状态
+    `pt state: ${session.injectionState}${session.injectionError ? `: ${session.injectionError.slice(0, 40)}` : ""}`,
     `pt cwd: ${session.lastCwd}`,
   ].join(" | ");
 }
