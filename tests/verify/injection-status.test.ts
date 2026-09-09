@@ -191,4 +191,46 @@ describe("renderInjectionFooter", () => {
       expect(outAuto).toBe(outDefault);
     });
   });
+
+  // pi-web / pi-web-style RPC 场景（issue pt-asset-migration-visibility §Layer 2 TUI/Web 兼容）
+  describe("pi-web / RPC 场景", () => {
+    it("pi-web 的 setStatus 走 RPC 模式（stdout 是 pipe，不是 TTY）→ isTTY=false 路径自动触发", () => {
+      // pi-web spawn 一个 --mode=rpc 子进程，stdout/stdin 通过 JSONL RPC 接送，
+      // 子进程的 process.stdout.isTTY 一定是 false。所以即使我们输出 ANSI，
+      // 也不会有 TTY 终端解释它。自动走纯文本 + ⚠ 路径。
+      const out = renderInjectionFooter("failed", "pt-dev", "boom", 3);
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI CSI 序列故意用 ESC 控制符
+      expect(out).not.toMatch(/\x1b\[/);
+      expect(out).toContain("⚠ 3 issues");
+    });
+
+    it("JSON.stringify 输出在 RPC 场景下无损携带 ANSI（colorMode='always' 手动调试场景）", () => {
+      // 如果有人手动 colorMode='always'（如 debug 日志里），ANSI 字节会通过 JSON
+      // 序列化被转成 \u001b—— pi-web 前端拿到后无法渲染（HTML 不解释 ANSI），
+      // 但 JSON.stringify / JSON.parse 本身无损。
+      const text = renderInjectionFooter("failed", "pt-dev", "boom", 3, "always");
+      const rpc = JSON.stringify({
+        method: "setStatus",
+        statusKey: "pt",
+        statusText: text,
+      });
+      const parsed = JSON.parse(rpc);
+      // ANSI 字节被保留（但前端不会解释）
+      expect(parsed.statusText.includes("\x1b[31m")).toBe(true);
+      expect(parsed.statusText.includes("\x1b[1m")).toBe(true);
+      expect(parsed.statusText.endsWith("\x1b[0m")).toBe(true);
+      // 纯文本内容依然可读
+      expect(stripAnsi(parsed.statusText)).toBe("⚠ pt: pt-dev failed: boom ⚠ 3 issues");
+    });
+
+    it("pi-web 默认场景（isTTY=false）→ 跨 emoji 的纯文本输出", () => {
+      const out = renderInjectionFooter("idle", "ysl-developer", null, 5);
+      // 不含 ANSI 字节
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI CSI 序列故意用 ESC 控制符
+      expect(out).not.toMatch(/\x1b\[/);
+      // ⚠ emoji + 中文 项目名 → 纯文本输出
+      expect(out).toContain("⚠ 5 issues");
+      expect(out).toContain("ysl-developer");
+    });
+  });
 });
