@@ -45,7 +45,7 @@ import {
   getSessionById,
   resetSessionState,
 } from "./session.js";
-import { buildFullPrompt, buildManualDoc, flowsText, statusText } from "./commands.js";
+import { buildFullPrompt, buildManualDoc, checkText, flowsText, statusText } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
 import type { AgentAPI } from "./schema.js";
 import {
@@ -600,7 +600,49 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
-      ctx.ui.notify("用法: /pt [status|flows|raw|full|manual|logs|logs:clear|sessions]", "warning");
+      if (sub === "check") {
+        // v14.x（issue pt-asset-migration-visibility Layer 3）：
+        //   /pt check [--profile X] [--fix]
+        //   从 session.assetHealthIssues 格式化（session_start 已扫；不重复扫描）
+        //   支持三种写法：/pt check my-profile | /pt check --profile my-profile | /pt check --profile=my-profile
+        const checkParts = subArgs
+          .trim()
+          .split(/\s+/)
+          .filter((s) => s.length > 0);
+        let profileName: string | undefined;
+        let fix = false;
+        for (let i = 0; i < checkParts.length; i++) {
+          const p = checkParts[i];
+          if (p === undefined) continue;
+          if (p === "--fix") {
+            fix = true;
+            continue;
+          }
+          if (p === "--profile" || p === "-p") {
+            const next = checkParts[i + 1];
+            if (next && !next.startsWith("--")) {
+              profileName = next;
+              i++;
+            }
+            continue;
+          }
+          if (p.startsWith("--profile=")) {
+            profileName = p.slice("--profile=".length);
+            continue;
+          }
+          if (!profileName) {
+            profileName = p; // 简写：/pt check my-profile
+          }
+        }
+        const r = checkText(s, { profileName, fix });
+        ctx.ui.notify(r.output, r.errors > 0 ? "warning" : "info");
+        return;
+      }
+
+      ctx.ui.notify(
+        "用法: /pt [status|flows|raw|full|manual|check|logs|logs:clear|sessions]",
+        "warning"
+      );
     },
   });
 
@@ -763,6 +805,52 @@ export default function (pi: ExtensionAPI): void {
       return {
         content: [{ type: "text", text: formatRefCheckResult(result) }],
         details: result,
+      };
+    },
+  });
+
+  // v14.x（issue pt-asset-migration-visibility Layer 3）：pt_check tool
+  //   LLM 可主动体检项目配置——尤其在接手陌生项目 / 改资产前调用
+  pi.registerTool({
+    name: "pt_check",
+    label: "Pt Check",
+    description:
+      "Scan project assets for known misconfigurations (missing ### Modules, dangling blueprint refs, orphan H2, empty segments, unknown modnames). Read-only.",
+    promptSnippet: "Scan Pt project for configuration issues",
+    promptGuidelines: [
+      "Use pt_check when you suspect a project has stale Pt assets (e.g., after upgrading Pt, before committing Profile changes).",
+      "Pair with pt_status to see health count, then pt_check for the detailed list.",
+    ],
+    parameters: Type.Object({
+      profile: Type.Optional(
+        Type.String({
+          description: "Limit scan to a single Profile name (e.g. 'ysl-developer').",
+        })
+      ),
+      fix: Type.Optional(
+        Type.Boolean({
+          description:
+            "Reserved for v2. Currently always false; check output shows `fix:` hints but does not modify files.",
+        })
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const sessionId = getSessionIdFromCtx(ctx);
+      const s = sessionId ? getSessionById(sessionId) : null;
+      if (!s) {
+        return {
+          content: [{ type: "text", text: "no session" }],
+          details: { error: "no session" },
+        };
+      }
+      const r = checkText(s, { profileName: params.profile, fix: params.fix ?? false });
+      return {
+        content: [{ type: "text", text: r.output }],
+        details: {
+          issueCount: r.issueCount,
+          errors: r.errors,
+          warnings: r.warnings,
+        },
       };
     },
   });

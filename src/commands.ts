@@ -9,10 +9,15 @@
 // v12.x（issue pt-session-singleton-pi-web-pollution 修复）：
 //   - 内核函数签名加 `session: SessionState` 参数，调用方传 per-session state
 //   - 不再 import module-level `session` 单例（已删除）
+//
+// v14.x（issue pt-asset-migration-visibility Layer 3）：
+//   - 加 checkText() 内核 + CheckOptions：/pt check + pt_check tool 共享
+//   - 同步格式化 6 列 biome/tsc 风格 + hint/fix 展示
 
 import { join } from "node:path";
 import { MANUAL_DIR, MOD_FLOWS } from "./constants.js";
 import { bindFlowTemplate, findFlowInBlueprint } from "./render/turn-inject.js";
+import type { AssetHealthIssue } from "./asset-health.js";
 import type { SessionState } from "./session.js";
 import { filterDomainsByProfile } from "./schema.js";
 import { isFlowTemplateLike } from "./compile/type-guards.js";
@@ -209,4 +214,106 @@ export function buildManualDoc(
   const content = lines.join("\n");
   const filePath = join(cwd, MANUAL_DIR, `${procedure}-${ts}.md`);
   return { content, filePath };
+}
+
+/** /pt check 选项（issue pt-asset-migration-visibility Layer 3）。
+ *  - profileName：单 profile 体检（v1 范围；--all 全集是默认）
+ *  - fix：v2 范围（v1 不实现；只输出"运行 `/pt check --fix`"提示）
+ *  v1：format = "biome"（仅一种风格；预留给未来 tsc/eslint 切换）。 */
+export interface CheckOptions {
+  profileName?: string;
+  fix?: boolean;
+  format?: "biome";
+}
+
+/** /pt check 输出结果（供 shell 检查输出与是否 issues）。 */
+export interface CheckResult {
+  /** 格式化后的多行文本（biome 风格）。 */
+  output: string;
+  /** issue 数（errors + warnings）。 */
+  issueCount: number;
+  errors: number;
+  warnings: number;
+}
+
+/** /pt check 内核：从 session.assetHealthIssues（已扫）格式化输出。
+ *  v14.x（issue §Layer 3）：session_start 已扫，/pt check 直接格式化——不重复扫描。
+ *  未扫（null）→ 返回提示串 + 0 issue。
+ *
+ *  输出风格（biome/tsc 同源）：
+ *
+ *      ysl-developer.profile.md
+ *        × [error] ## 会话背景 缺 ### Modules
+ *           hint: 在 H2 段下加 `### Modules: [Scene, ...]`
+ *
+ *      × 6 errors, 0 warnings
+ *        hint: 运行 `/pt check --fix` 自动应用已知 migration
+ *
+ *  --profile X：只列该 profile 的 issue；其它 profile 的忽略（v1 简化）。
+ */
+export function checkText(session: SessionState, opts: CheckOptions = {}): CheckResult {
+  const allIssues = session.assetHealthIssues;
+  if (allIssues === null) {
+    return {
+      output: "未扫描。重启 session 或运行 scanProjectHealth。",
+      issueCount: 0,
+      errors: 0,
+      warnings: 0,
+    };
+  }
+  // 过滤
+  let issues: AssetHealthIssue[];
+  if (opts.profileName) {
+    issues = allIssues.filter((i) => i.name === opts.profileName);
+  } else {
+    issues = allIssues;
+  }
+  if (issues.length === 0) {
+    const okMsg = opts.profileName
+      ? `✓ Profile「${opts.profileName}」配置正常`
+      : "✓ 项目所有 Profile 配置正常";
+    return { output: okMsg, issueCount: 0, errors: 0, warnings: 0 };
+  }
+
+  // 按 profile 分组（biome 风格：file → issues 列表）
+  const byProfile = new Map<string, AssetHealthIssue[]>();
+  for (const i of issues) {
+    const arr = byProfile.get(i.name) ?? [];
+    arr.push(i);
+    byProfile.set(i.name, arr);
+  }
+
+  const lines: string[] = [];
+  for (const [profileName, profIssues] of byProfile) {
+    lines.push(`${profileName}.profile.md`);
+    for (const i of profIssues) {
+      const mark = i.severity === "error" ? "×" : "⚠";
+      const sev = i.severity === "error" ? "error" : "warning";
+      const where = i.field ? ` ${i.field}` : "";
+      lines.push(`  ${mark} [${sev}]${where} ${i.msg}`);
+      if (i.hint) lines.push(`     hint: ${i.hint}`);
+      if (i.fix && !opts.fix) lines.push(`     fix:  ${i.fix}`);
+    }
+    lines.push("");
+  }
+  // trim trailing blank
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+  // summary
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  lines.push("");
+  lines.push(
+    `× ${errorCount} error${errorCount > 1 ? "s" : ""}, ${warningCount} warning${warningCount > 1 ? "s" : ""}`
+  );
+  lines.push(`  hint: 查看 .pt/docs/migrations/v9.0-to-v9.1-modules.md 修复指南`);
+  if (errorCount > 0 && !opts.fix) {
+    lines.push(`  hint: 运行 \`/pt check --fix\` 自动应用已知 migration（v2 范围）`);
+  }
+  return {
+    output: lines.join("\n"),
+    issueCount: issues.length,
+    errors: errorCount,
+    warnings: warningCount,
+  };
 }
