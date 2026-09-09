@@ -1,9 +1,11 @@
 ---
 type: issue
 name: pt-turn-inject-not-profile-scoped
-status: open
+status: resolved
 severity: medium
 created: 2026-09-09
+updated: 2026-09-09
+resolved: 2026-09-09
 domain: pt-dev
 related-issues: []
 ---
@@ -104,3 +106,20 @@ pi-adapter.ts:176  renderTurnInject(this.ctx, this.blueprint, this.domains, even
 - `src/commands.ts:22` — `filterDomainsByProfile`（已存在，/pt flows 已用）
 - `src/transpile.ts:54` — `TranspileResult.profile`（已返回，未传给 adapter）
 - `src/builtin/assets/domains/project-analysis.md` `role-isolation` 场景 — 角色隔离承诺（turn 面被打破）
+
+## 修复
+
+**修复日期**: 2026-09-09
+**验证方式**:
+- `npm run typecheck`（tsc --noEmit）通过
+- `npm run verify`（vitest + biome）205 测试全过，含新增反向用例"pt-design /manual:pt-quality 返 null"
+- 端到端 tsx 脚本验证：pt-design 激活时 /manual:pt-quality 返 null（修复前返非 null）；阶段 2 modules 白名单——删 Flows 段后 /feature-lifecycle 返 null
+
+**改动文件**:
+- `src/schema.ts` — `filterDomainsByProfile` 从 commands.ts 挪入；`AgentAdapter.setAgentContext/registerInject` 加 profile 参数；listManuals JSDoc 更新
+- `src/render/turn-inject.ts` — `renderTurnInject` 加 profile 参数；新增 `turnGroupModules`/`modsAllowsSection` 辅助；`renderDomainManual`/`findFlowInBlueprint` 消费 modules 白名单（阶段 2）
+- `src/agent/pi-adapter.ts` — 持有 `this.profile`；input handler + listManuals 内部 `filterDomainsByProfile` 自过滤
+- `src/commands.ts` — 删本地 `filterDomainsByProfile`（import 自 schema）；`flowsText` 删预过滤；`buildManualDoc` 传 profile
+- `src/index.ts` — `transpileActive`/`registerInjectionIfReady` 传 profile 给 adapter
+- `tests/verify/phase9.test.ts` — renderTurnInject 调用加 profile；新增 pt-design 反向用例
+- `tests/verify/flows.test.ts` — 删测试内联预过滤，改用 setAgentContext 存 profile

@@ -15,7 +15,15 @@
 
 import { MOD_CHECKLISTS, MOD_FLOWS, MOD_RULES } from "../constants.js";
 import { isChecklistArray, isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
-import type { AgentContext, Blueprint, Domain, FlowStep, FlowTemplate } from "../schema.js";
+import type {
+  AgentContext,
+  Blueprint,
+  Domain,
+  FlowStep,
+  FlowTemplate,
+  ModName,
+  Profile,
+} from "../schema.js";
 
 /** FlowTemplate + 元数据（adapter 附加的 _vars）。_vars 优先于 argument-hint fallback。 */
 export type BoundableTemplate = FlowTemplate & { _vars?: string[] };
@@ -34,25 +42,37 @@ interface VarSpec {
  *   - /<flow-name> <args>：展开 workflow-Domain 的 FlowTemplate（v8 逻辑保留）
  *
  * Phase term-P4.3：AgentAdapter 内部把 Turn Inject 注入到 Agent 的 turn 级（Pi: input 事件 transform）。
+ *
+ * v13.x（issue pt-turn-inject-not-profile-scoped）：加 profile 参数——
+ *   - domain 维度：调用方（adapter）应已用 filterDomainsByProfile 过滤 domains，renderTurnInject
+ *     不再二次过滤（信任传入的 domains scope）
+ *   - modules 维度（阶段 2）：从 blueprint 的 inject=turn 聚合组 + profile 同名 ProfileGroup.modules 算
+ *     白名单，/manual:<domain> 只渲染白名单内的段，/<flow-name> 只在白名单含 Flows 段时查找。
+ *     profile 为 null 或无 turn 聚合组 → 白名单 null = 不限制（向后兼容）。
  */
 export function renderTurnInject(
   _ctx: AgentContext,
   blueprint: Blueprint,
   domains: Domain[],
+  profile: Profile | null,
   args: string
 ): string | null {
   const m = args.trim().match(/^\/(\S+)\s*(.*)$/);
   if (!m) return null;
   const [, name, rest] = m;
 
+  // 阶段 2：算 turn 聚合组的 modules 白名单（Profile "参考手册"聚合组的 ### Modules）
+  const mods = turnGroupModules(blueprint, profile);
+
   // /manual:<domain-name> 触发（v9 新增）—— name 可能是 "manual:pt-quality"
   // Phase term-P9.2：Domain 不再有单一 Manual 段，而是 Rules/Flows/Checklists 三选一。
   //   顺序遍历找第一个非空段，返回对应渲染。
+  // v13.x：受 mods 白名单限制——只渲染白名单内的段。
   if (name.startsWith("manual:")) {
     const domainName = name.slice("manual:".length).trim();
     const d = domains.find((x) => x.name === domainName);
     if (!d) return null;
-    return renderDomainManual(d);
+    return renderDomainManual(d, mods);
   }
 
   // /manual <domain-name> 触发——空格分隔形式
@@ -60,13 +80,34 @@ export function renderTurnInject(
     const domainName = rest.trim();
     const d = domains.find((x) => x.name === domainName);
     if (!d) return null;
-    return renderDomainManual(d);
+    return renderDomainManual(d, mods);
   }
 
   // /<flow-name> <args> 触发（v8 逻辑保留）
-  const tpl = findFlowInBlueprint(blueprint, domains, name);
+  // v13.x：findFlowInBlueprint 内部按 mods 白名单判断是否允许查找 Flows 段。
+  const tpl = findFlowInBlueprint(blueprint, domains, name, profile);
   if (!tpl) return null;
   return bindFlowTemplate(tpl, rest);
+}
+
+// ==================== turn 聚合组 modules 白名单辅助（v13.x issue pt-turn-inject-not-profile-scoped） ====================
+
+/** 找 turn 聚合组的 modules 白名单（Profile 同名 ProfileGroup 的 ### Modules）。
+ *  返 null = 不限制（profile 为 null / 无 turn 聚合组 / ProfileGroup 未填 modules——向后兼容）。
+ *  这是阶段 2 的核心：让 Profile "参考手册"### Modules 的段选择真正影响 turn 触发渲染范围。 */
+function turnGroupModules(blueprint: Blueprint, profile: Profile | null): ModName[] | null {
+  if (!profile) return null;
+  const turnGroupName = blueprint.groups.find((g) => g.inject === "turn")?.name;
+  if (!turnGroupName) return null;
+  const pg = profile.groups.find((g) => g.name === turnGroupName);
+  if (!pg || pg.modules.length === 0) return null;
+  return pg.modules;
+}
+
+/** 检查 mods 白名单是否包含某段名。null = 不限制（含）。 */
+function modsAllowsSection(mods: ModName[] | null, section: string): boolean {
+  if (!mods) return true;
+  return mods.some((m) => m.section === section);
 }
 
 /**
@@ -74,46 +115,53 @@ export function renderTurnInject(
  *  - Rules → Rule checklist（"## 规范清单"）
  *  - Flows → FlowTemplate 列表（"## 可用手册"）
  *  - Checklists → Checklist 列表（"## 验收清单"）
- *  优先级：Flows > Rules > Checklists（workhorse 最常被查）。
- *  返回 null 表示该 Domain 没有任何手册段。 */
-function renderDomainManual(d: Domain): string | null {
-  const flows = d.modules[MOD_FLOWS];
-  if (isFlowTemplateArray(flows)) {
-    const lines: string[] = [];
-    for (const t of flows) {
-      const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
-      lines.push(`- ${t.name}${hint}: ${t.intent}`);
-    }
-    if (lines.length > 0) {
-      return `# /manual:${d.name}\n\n## 可用手册\n\n${lines.join("\n")}`.trimEnd();
-    }
-  }
-
-  const rules = d.modules[MOD_RULES];
-  if (isRuleArray(rules)) {
-    const lines: string[] = [];
-    for (const r of rules) {
-      if (r.type === "invariant") {
-        if (r.check) lines.push(`- ${r.name}: ${r.check}`);
-        else lines.push(`- ${r.name}`);
-      } else if (r.type === "ban" && r.items && r.items.length > 0) {
-        if (r.check) lines.push(`- ${r.name}: ${r.check} (${r.items.join(" / ")})`);
-        else lines.push(`- ${r.name}: ${r.items.join(" / ")}`);
+ *  优先级：Flows > Rules > Checklists（workhorse 最常被查）
+ *  v13.x：受 mods 白名单限制——只渲染 modsAllowsSection 通过的段。
+ *  返回 null 表示该 Domain 没有任何手册段（或所有段都被白名单排除）。 */
+function renderDomainManual(d: Domain, mods: ModName[] | null): string | null {
+  if (modsAllowsSection(mods, MOD_FLOWS)) {
+    const flows = d.modules[MOD_FLOWS];
+    if (isFlowTemplateArray(flows)) {
+      const lines: string[] = [];
+      for (const t of flows) {
+        const hint = t.argumentHint ? ` ${t.argumentHint}` : "";
+        lines.push(`- ${t.name}${hint}: ${t.intent}`);
+      }
+      if (lines.length > 0) {
+        return `# /manual:${d.name}\n\n## 可用手册\n\n${lines.join("\n")}`.trimEnd();
       }
     }
-    if (lines.length > 0) {
-      return `# /manual:${d.name}\n\n## 规范清单\n\n${lines.join("\n")}`.trimEnd();
+  }
+
+  if (modsAllowsSection(mods, MOD_RULES)) {
+    const rules = d.modules[MOD_RULES];
+    if (isRuleArray(rules)) {
+      const lines: string[] = [];
+      for (const r of rules) {
+        if (r.type === "invariant") {
+          if (r.check) lines.push(`- ${r.name}: ${r.check}`);
+          else lines.push(`- ${r.name}`);
+        } else if (r.type === "ban" && r.items && r.items.length > 0) {
+          if (r.check) lines.push(`- ${r.name}: ${r.check} (${r.items.join(" / ")})`);
+          else lines.push(`- ${r.name}: ${r.items.join(" / ")}`);
+        }
+      }
+      if (lines.length > 0) {
+        return `# /manual:${d.name}\n\n## 规范清单\n\n${lines.join("\n")}`.trimEnd();
+      }
     }
   }
 
-  const checklists = d.modules[MOD_CHECKLISTS];
-  if (isChecklistArray(checklists)) {
-    const sections: string[] = [];
-    for (const cl of checklists) {
-      sections.push(`### ${cl.name}\n${cl.items.map((i) => `- ${i}`).join("\n")}`);
-    }
-    if (sections.length > 0) {
-      return `# /manual:${d.name}\n\n## 验收清单\n\n${sections.join("\n\n")}`.trimEnd();
+  if (modsAllowsSection(mods, MOD_CHECKLISTS)) {
+    const checklists = d.modules[MOD_CHECKLISTS];
+    if (isChecklistArray(checklists)) {
+      const sections: string[] = [];
+      for (const cl of checklists) {
+        sections.push(`### ${cl.name}\n${cl.items.map((i) => `- ${i}`).join("\n")}`);
+      }
+      if (sections.length > 0) {
+        return `# /manual:${d.name}\n\n## 验收清单\n\n${sections.join("\n\n")}`.trimEnd();
+      }
     }
   }
 
@@ -195,18 +243,23 @@ function replaceVars(text: string, bound: Map<string, string>): string {
 }
 
 /** 在 Blueprint 聚合组（inject=turn）的引用域中按名查找 FlowTemplate（跨 Domain）。
- *  v9：renderTurnInject 拿不到 Profile（Profile 在 transpile 内被消费），
- *       所以这里直接遍历传入的 domains 全集找含 Flows 段的 Domain 的 FlowTemplate。
+ *  v13.x（issue pt-turn-inject-not-profile-scoped）：加 profile 参数——内部算 mods 白名单，
+ *  白名单不含 Flows 段时返 undefined（Profile "参考手册"### Modules 未声明 Flows 则 /<flow-name> 触发失效）。
  *  Phase term-P4.3 + term-final：inject 语义值 turn（原 context_message → turn → 现聚合组 inject=turn）。 */
 export function findFlowInBlueprint(
   blueprint: Blueprint,
   // Phase term-P9.3：type 字段删除——Domain 不再有 type 维度，按 H2 段名（这里是 ## Flows）识别 FlowTemplate
   domains: Array<{ name: string; modules: Record<string, unknown> }>,
-  tplName: string
+  tplName: string,
+  profile: Profile | null = null
 ): BoundableTemplate | undefined {
   // 验证 Blueprint 里有 inject=turn 的聚合组（间接确认 input 事件该由本实例覆盖接管）
   const hasTurnGroup = blueprint.groups.some((g) => g.inject === "turn");
   if (!hasTurnGroup) return undefined;
+
+  // v13.x：mods 白名单不含 Flows 段则不查找——配置即行为
+  const mods = turnGroupModules(blueprint, profile);
+  if (!modsAllowsSection(mods, MOD_FLOWS)) return undefined;
 
   for (const d of domains) {
     // Phase term-P9.2：FlowTemplate 在 ## Flows 段（不分 type）。

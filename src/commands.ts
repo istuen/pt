@@ -14,21 +14,8 @@ import { join } from "node:path";
 import { MANUAL_DIR, MOD_FLOWS } from "./constants.js";
 import { bindFlowTemplate, findFlowInBlueprint } from "./render/turn-inject.js";
 import type { SessionState } from "./session.js";
-import type { Profile } from "./schema.js";
+import { filterDomainsByProfile } from "./schema.js";
 import { isFlowTemplateLike } from "./compile/type-guards.js";
-
-/** 按 Profile 范围过滤 domains（listManuals 需作用域）。
- *  从 src/index.ts 迁移到此处——纯函数，command + tool 双壳共享。 */
-export function filterDomainsByProfile<T extends { name: string }>(
-  domains: T[],
-  profile: Profile | null
-): T[] {
-  if (!profile) return domains;
-  return domains.filter((d) => {
-    if (profile.domains.includes(d.name)) return true;
-    return profile.groups.some((g) => g.domains.includes(d.name));
-  });
-}
 
 /** /pt status 内核：返回状态摘要文本（单行 | 分隔）。 */
 export function statusText(session: SessionState): string {
@@ -60,8 +47,8 @@ export function statusText(session: SessionState): string {
 
 /** /pt flows 内核：返回可用手册列表文本。无激活 Profile 返回提示串。
  *
- * 调用 listManuals 时**已用 filterDomainsByProfile 预过滤**——按当前 Profile 聚合组 scope
- * 过滤后传入（见 schema.ts:AgentAdapter.listManuals JSDoc）。 */
+ * v13.x（issue pt-turn-inject-not-profile-scoped）：不再预过滤——传全集 domains 给 listManuals，
+ * adapter 内部用 setAgentContext 时存下的 profile 自行 filterDomainsByProfile 过滤。 */
 export function flowsText(session: SessionState): string {
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.activeAdapter) {
     return "无激活 Profile，先用 /pt-profile <name> 激活";
@@ -73,7 +60,7 @@ export function flowsText(session: SessionState): string {
     session.activeAdapter.listManuals?.(
       session.cachedAgentContext,
       session.cachedBlueprint,
-      filterDomainsByProfile(session.cachedBundles[0].domains, session.cachedProfile)
+      session.cachedBundles[0].domains
     ) ?? [];
   if (flows.length === 0) {
     return "当前 Profile 无可触发手册（turn 聚合组无含 Flows 段的 Domain）";
@@ -133,10 +120,14 @@ export function buildManualDoc(
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.cachedBlueprint) {
     return { content: "", filePath: "", error: "无激活 Profile，先用 /pt-profile <name> 激活" };
   }
+  // v13.x（issue pt-turn-inject-not-profile-scoped）：按 Profile scope 过滤 + 传 profile
+  //   让 /pt manual 在未引用该 domain 的 Profile 下找不到手册（与 /pt flows 一致）
+  const scoped = filterDomainsByProfile(session.cachedBundles[0].domains, session.cachedProfile);
   const tpl = findFlowInBlueprint(
     session.cachedBlueprint,
-    session.cachedBundles[0].domains,
-    procedure
+    scoped,
+    procedure,
+    session.cachedProfile
   );
   if (!tpl) {
     return {

@@ -365,10 +365,26 @@ export interface AgentAdapter {
   /** 该 Agent 支持的技术注入 API 名（Pi: system_prompt, context_message）——
    *  注意：这是 AgentAdapter 映射边界。Blueprint 用 session/turn 语义值，Adapter 内部映射到此字段声明的 Pi API 名。 */
   supportedTargets: string[];
-  /** 设置编译产物（compile 后调） */
-  setAgentContext(ctx: AgentContext, blueprint: Blueprint, domains: Domain[]): void;
-  /** 启动时注册：把 AgentContext 注入到 Agent（session_start 调用） */
-  registerInject(api: AgentAPI, ctx: AgentContext, blueprint: Blueprint, domains?: Domain[]): void;
+  /** 设置编译产物（compile 后调）。
+   *  v13.x（issue pt-turn-inject-not-profile-scoped）：加 profile 参数——Adapter 持有 profile
+   *  后，turn 路径（renderTurnInject / listManuals）内部统一按 Profile scope 过滤 domains，
+   *  消除"触发用全集 / 列表预过滤"的双轨。 */
+  setAgentContext(
+    ctx: AgentContext,
+    blueprint: Blueprint,
+    domains: Domain[],
+    profile: Profile
+  ): void;
+  /** 启动时注册：把 AgentContext 注入到 Agent（session_start 调用）。
+   *  v13.x（issue pt-turn-inject-not-profile-scoped）：加 profile 参数——与 setAgentContext 对齐，
+   *  Adapter 持有 profile 后 turn 路径自过滤。 */
+  registerInject(
+    api: AgentAPI,
+    ctx: AgentContext,
+    blueprint: Blueprint,
+    domains?: Domain[],
+    profile?: Profile | null
+  ): void;
   /** 清理 session 上下文；handler 仍可由当前 Pi runtime 复用。 */
   resetInjection?(): void;
   /** 查询可用手册（/pt flows 命令 + /manual:xxx 触发 共同消费）。
@@ -376,10 +392,9 @@ export interface AgentAdapter {
    * 参数语义：
    *  - `ctx`：当前激活的 AgentContext IR（含缓存 sourceHash / 各聚合组 modules 内容）
    *  - `blueprint`：当前 Profile 引用的 Blueprint（遍历 groups 找 inject=turn 聚合组）
-   *  - `domains`：**Profile 聚合组 scope 过滤后的 Domain 集**——非全集
-   *    - 由调用方（如 commands.ts flowsText）通过 filterDomainsByProfile 预过滤
-   *    - Adapter 内部无需再过滤（信任传入的就是 scope 内）
-   *    - v9 当前实现（pi-adapter.ts:listManuals）按"全集"处理——这是历史简化，v10+ 应改
+   *  - `domains`：Profile 引用的 Domain 全集——Adapter 内部用 setAgentContext 时存下的
+   *    profile 调 filterDomainsByProfile 自行过滤（issue pt-turn-inject-not-profile-scoped 修复），
+   *    调用方无需预过滤
    *
    * 返回值：可触发手册列表。每项含 name（FlowTemplate.name / Rule.name）+ hint（argumentHint）+ domain（来源 Domain）。
    *  - term-Domain 的 Rule[] 也作为 /manual:<domain> 暴露
@@ -403,4 +418,20 @@ export function findBlueprint(blueprints: Blueprint[], name: string): Blueprint 
 /** 从 Profile 列表里找指定名的 Profile。未找到返 undefined。 */
 export function findProfile(profiles: Profile[], name: string): Profile | undefined {
   return profiles.find((p) => p.name === name);
+}
+
+/** 按 Profile 引用范围过滤 domains（turn 路径 scope 过滤用）。
+ *  规则：domain 在 Profile YAML 全局 domains 列表 或 任一聚合组 ProfileGroup.domains 追加列表中 → 保留。
+ *  v13.x（issue pt-turn-inject-not-profile-scoped）：从 commands.ts 挪到 schema.ts——
+ *  render 层（turn-inject）需要反向依赖它，放 schema.ts 避免层次倒挂。commands.ts 改 import。
+ *  profile 为 null 时返 domains 原样（向后兼容——无激活 Profile 时不限制）。 */
+export function filterDomainsByProfile<T extends { name: string }>(
+  domains: T[],
+  profile: Profile | null
+): T[] {
+  if (!profile) return domains;
+  return domains.filter((d) => {
+    if (profile.domains.includes(d.name)) return true;
+    return profile.groups.some((g) => g.domains.includes(d.name));
+  });
 }
