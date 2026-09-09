@@ -31,8 +31,9 @@ import { extractDomainsList, extractModulesList, readAsset, sArr } from "./share
 
 /** 已知 H2 段名（段名 = 命名空间）。modName 解析时左段必须是段名。
  *  扩展新段名 = 加这一行 + registerModuleRenderer 加一行 + 一致性测试。
- *  v9.1+（modules-to-profile-complete）：加 "User" / "Agent" 专用段（user-info / agent-info 重命名）。 */
-const KNOWN_SECTION_NAMES: ReadonlySet<string> = new Set([
+ *  v9.1+（modules-to-profile-complete）：加 "User" / "Agent" 专用段（user-info / agent-info 重命名）。
+ *  公开导出（src/asset-health.ts 复用做 unknown-modname 检测——避免重复常量）。 */
+export const KNOWN_SECTION_NAMES: ReadonlySet<string> = new Set([
   "Scene",
   "Participant", // 保留兼容——之前 user-info / agent-info 用的段名
   "Trigger",
