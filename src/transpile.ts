@@ -140,6 +140,22 @@ export async function loadAndTranspile(
     .replace(/<!-- =====[^\n]*-->\n?/g, "")
     .trim();
 
+  // issue pt-status-no-injection-state：segmentLen === 0 几乎总是配置错误
+  // (profile 缺 ### Modules / blueprint groups 名错配 / domain 段名不匹配等)。
+  // cache hit 路径下特别危险——空 segment 被缓存复用，footer 永远 idle。
+  // 主动告警让用户首次切换就发现问题，而不是依赖 `injected: true` 误导
+  if (segment.length === 0) {
+    reportWarn(
+      adapterCtx,
+      `Profile「${profile.name}」编译产出空 segment（注入不会生效，footer 会一直 idle）`,
+      {
+        profileName: profile.name,
+        cacheHit,
+        hint: "检查 Profile 的 H2 段下 `### Modules` 配置、Blueprint groups 名匹配、Domain H2 段名",
+      }
+    );
+  }
+
   // 5. prune orphan caches（v13.x issue pt-no-agent-context-prune-orphan-caches 修复）
   //   Profile 删除/改名后，旧 cache 文件残留——transpile 末尾自动 unlink
   //   validProfileNames 来自当前 bundle（项目 + builtin 合并后的全集）

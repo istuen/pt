@@ -169,4 +169,41 @@ describe("s().activeProfile 持久化（issue pt-context-persist-lost 修复）"
       expect(s().loadedFrom).toBeNull();
     });
   });
+
+  // issue pt-status-no-injection-state：statusText 暴露 4 态自报状态
+  describe("4. statusText 输出 injectionState（issue pt-status-no-injection-state）", () => {
+    it("idle 态 → 'pt state: idle'", () => {
+      s().injectionState = "idle";
+      s().injectionError = null;
+      expect(statusText(s())).toContain("pt state: idle");
+    });
+
+    it("pending 态 → 'pt state: pending'", () => {
+      s().injectionState = "pending";
+      s().injectionError = null;
+      expect(statusText(s())).toContain("pt state: pending");
+    });
+
+    it("injected 态 → 'pt state: injected'", () => {
+      s().injectionState = "injected";
+      s().injectionError = null;
+      expect(statusText(s())).toContain("pt state: injected");
+    });
+
+    it("failed 态 → 'pt state: failed: <err 前 40 字>'", () => {
+      s().injectionState = "failed";
+      s().injectionError = "compile error: missing ### Modules";
+      const text = statusText(s());
+      expect(text).toContain("pt state: failed: compile error: missing ### Modules");
+    });
+
+    it("failed 态 + 长错误 → 截断到 40 字", () => {
+      s().injectionState = "failed";
+      s().injectionError = "x".repeat(100);
+      const text = statusText(s());
+      const match = text.match(/pt state: failed: (x+)/);
+      expect(match).not.toBeNull();
+      expect(match?.[1].length).toBe(40);
+    });
+  });
 });
