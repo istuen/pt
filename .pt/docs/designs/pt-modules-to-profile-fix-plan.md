@@ -63,7 +63,7 @@ expect(r.segment.length).toBeGreaterThan(0);  // 实际 = 0
 **理由**：
 - pt-writing 是独立 git 仓库（`/Users/issac/pro/pt-writing`，有完整 commit 历史），可独立迁移
 - 这是方案 D 的正确延伸——所有 Pt 项目资产形态统一
-- 修复后 pt-writing 产物与迁移前逐字一致（同项目侧验证逻辑）
+- 修复后 pt-writing 跨项目测试通过（phase9.test.ts）+ 引用完整（`segment.length > 0` 且 0 悬空）
 
 **改动**：
 - `pt-writing/.pt/assets/blueprints/writing.blueprint.yaml`：删 3 处 `modules:` 行
@@ -188,11 +188,11 @@ git add -A && git commit -m "Phase modules-to-profile: 资产同步方案 D（bl
 
 ## 六、边界纪律
 
-1. **只迁移 pt-writing 资产，不改 Pt 代码**——代码层方案 D 已正确，此前误判不成立。
+1. **只迁移 pt-writing 资产，不改 Pt 代码**——代码层方案 D 已正确。
 2. **不加旧格式兼容层**——选项 B 已否决，理由见 §3。
-3. **pt-writing 产物逐字一致是硬约束**——modules 名一字不变，diff 必须为空。
-4. **baseline 可回退**——`d0dceb9` 可 revert；pt-writing 迁移 commit 可 revert。
-5. **此前验收的错误结论不作为修正依据**——只修真实缺陷（pt-writing 兼容），不回退正确的 step1-5。
+3. **pt-writing 跨项目兼容**——修复后 phase9.test.ts 通过 + 引用完整 + segment.length > 0。
+4. **baseline 可回退**——`d0dceb9` 可 revert；pt-writing 迁移 commit `7270336` 可 revert。
+5. **v9.1+ 完整版（modules-to-profile-complete）后产物必变**——硬指标已升级为"4 profile 角色隔离 + 段名命名空间 + H3 重名"等，不强制产物逐字一致。
 
 ---
 

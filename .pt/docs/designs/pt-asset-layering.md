@@ -885,9 +885,13 @@ v9 保留 v8 的核心（异构上下文编译器定位、H2=聚合组、AgentCo
 - render 层（`session-inject.ts` / `turn-inject.ts`）只读 `group.inject`，不碰 modules
 - `pi-adapter.listManuals` 遍历 `blueprint.groups` 按 `group.inject === "turn"` 过滤，内容取自 `d.modules[MOD_FLOWS]` 硬编码常量——不读 `group.modules`
 
-**核心验收**：迁移前后 AgentContext 产物逐字一致（项目侧 4 份 + builtin guide = 全部 baseline diff 为空）。v9.1 是纯职责重分配（modules 从 blueprint 挪到 profile），不改聚合语义。
+**核心验收**：
+- **v9.1**（半成品）：迁移前后 AgentContext 产物逐字一致（项目侧 4 份 + builtin guide = 全部 baseline diff 为空）——v9.1 是纯职责重分配（modules 从 blueprint 挪到 profile），不改聚合语义
+- **v9.1+**（完整版）：**产物会变是设计目标**——角色隔离必然产物变（4 profile 各自只看自己角色）。验收改用"角色隔离 + 段名 + 多级目录 + H3 重名"等具体硬指标（见上方表格与"v9.1+ 完整版"段）
 
-**项目侧 Blueprint 可省略，复用 builtin**：方案 D 迁移后，项目侧 `blueprint: dev-knowledge` 可不创建项目级 `.pt/assets/blueprints/dev-knowledge.blueprint.yaml`——`src/parse/index.ts` 的 `dedupByName` 机制保证项目优先 + 内建补充，同名 `Profile.blueprint` 引用自动 fallback 到 builtin。项目需要特殊聚合组结构时再创建同名项目侧 blueprint 覆盖 builtin（`dedupByName` 已支持）。**好处**：避免项目侧与 builtin 不一致漂移（modules 字段差异）+ 减少项目侧维护。**已验证**：pt 仓库删项目侧 blueprint 后，5 份产物逐字与 baseline 一致，verify 199/199。
+**项目侧 Blueprint 可省略，复用 builtin**：方案 D 迁移后，项目侧 `blueprint: dev-knowledge` 可不创建项目级 `.pt/assets/blueprints/dev-knowledge.blueprint.yaml`——`src/parse/index.ts` 的 `dedupByName` 机制保证项目优先 + 内建补充，同名 `Profile.blueprint` 引用自动 fallback 到 builtin。项目需要特殊聚合组结构时再创建同名项目侧 blueprint 覆盖 builtin（`dedupByName` 已支持）。**好处**：避免项目侧与 builtin 不一致漂移（modules 字段差异）+ 减少项目侧维护。**已验证**：
+- v9.1：pt 仓库删项目侧 blueprint 后，5 份产物逐字与 baseline 一致，verify 199/199
+- v9.1+：删除项目侧 blueprint + builtin 同步迁移后，verify 204/204，4 profile 角色隔离精准（pt-dev=senior+qa+cr / pt-arch=arch / pt-devops=devops / guide=全）
 
 **外部项目同步**：方案 D 是破坏性 schema 变更，所有使用 Pt 的项目（pt-writing / pt-xxx）资产都需同步迁移——blueprint 删 modules、profile 加 ### Modules。执行流程见 `.pt/docs/designs/pt-modules-to-profile-external-migration-brief.md`。
 
