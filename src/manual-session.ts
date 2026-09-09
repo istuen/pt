@@ -103,13 +103,17 @@ function renderActiveManualSuffix(session: SessionState): string {
   return renderManualFooterSuffix(session.cachedManualProgress);
 }
 
-/** 刷新 footer 注入状态 + manual 后缀（合并写一次 setStatus）。 */
+/** 刷新 footer 注入状态 + manual 后缀（合并写一次 setStatus）。
+ *  v14.x（issue pt-asset-migration-visibility Layer 2）：assetHealthIssues.length 透传给
+ *  renderInjectionFooter → footer 末尾追加 ⚠ N issues（染色）。 */
 function refreshInjectionFooter(ui: ExtensionUIContext, session: SessionState): void {
   const suffix = renderActiveManualSuffix(session);
+  const healthCount = session.assetHealthIssues?.length ?? 0;
   const base = renderInjectionFooter(
     session.injectionState,
     session.activeProfile,
-    session.injectionError
+    session.injectionError,
+    healthCount
   );
   ui.setStatus("pt", suffix ? `${base} ${suffix}` : base);
 }

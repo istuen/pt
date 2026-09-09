@@ -24,6 +24,7 @@
 //     保证 Adapter 实例 per-pi，避免"单例 PiAdapter.this.segment 被其他 session 覆盖"。
 //   - `cachedManualProgress` 从 module-level let 搬到 SessionState 字段。
 
+import type { AssetHealthIssue } from "./asset-health.js";
 import type {
   AgentAdapter,
   AgentContext,
@@ -82,6 +83,10 @@ export interface SessionState {
   activeManual: ActiveManual | null;
   /** v12.x：当前 manual widget 的 async parse 缓存（替代原 module-level `cachedManualProgress`）。 */
   cachedManualProgress: ManualProgress | null;
+  /** v14.x（issue pt-asset-migration-visibility Layer 2）：
+   *  session_start 批量体检结果——footer 追加 ⚠ N issues + /pt status 暴露。
+   *  null = 未扫描（用户加载内置 profile 后才扫描过项目 profile）。 */
+  assetHealthIssues: AssetHealthIssue[] | null;
 }
 
 /** 默认空 SessionState。 */
@@ -105,6 +110,7 @@ export function createSessionState(): SessionState {
     injectionError: null,
     activeManual: null,
     cachedManualProgress: null,
+    assetHealthIssues: null,
   };
 }
 

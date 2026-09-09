@@ -29,6 +29,7 @@ import { randomUUID } from "node:crypto";
 import { FULL_DIR, MANUAL_DIR, PROFILES_DIR, RAW_DIR } from "./constants.js";
 import { toAgentAPI } from "./agent/api-bridge.js";
 import { getAgentAdapter } from "./agent/index.js";
+import { scanProjectHealth } from "./asset-health.js";
 import {
   detectDefaultProfile,
   detectSingleProfile,
@@ -317,6 +318,36 @@ export default function (pi: ExtensionAPI): void {
         loadedFrom: pickedFrom,
         injected,
       });
+
+      // v14.x（issue pt-asset-migration-visibility Layer 2）：
+      //   session_start 末尾批量体检项目所有 profile——主动告知存量项目 schema 错误，
+      //   避免"切换才暴露"。失败降级（不阻塞 session 启动）——scan 内部已 try/catch。
+      const bundles = s.cachedBundles ?? [];
+      const healthBundle = bundles[0];
+      if (healthBundle) {
+        const report = await scanProjectHealth(
+          ctx.cwd,
+          healthBundle.profiles,
+          healthBundle.blueprints,
+          healthBundle.domains,
+          { log: s.logger?.toWriter() }
+        );
+        s.assetHealthIssues = report.issues;
+        if (report.errors > 0 || report.warnings > 0) {
+          const summary =
+            report.issues.length === 1
+              ? `[pt] 项目有 1 个配置问题：${report.issues[0]?.msg ?? ""}（运行 /pt check 查看详情）`
+              : `[pt] 项目有 ${report.errors} errors + ${report.warnings} warnings（运行 /pt check 查看详情）`;
+          ctx.ui.notify(summary, "warning");
+          // 体检结果变化了，刷新 footer 染色
+          refreshInjectionFooter(ctx.ui, s);
+        }
+        s.logger?.info("session:health scan done", {
+          issueCount: report.issues.length,
+          errors: report.errors,
+          warnings: report.warnings,
+        });
+      }
 
       // v11.x：profile 加载后试恢复 manual（独立于 profile 链）
       await tryRestoreManual(ctx, s);

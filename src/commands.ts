@@ -33,6 +33,14 @@ export function statusText(session: SessionState): string {
   const blueprintCount =
     session.cachedBundles?.reduce((acc, b) => acc + b.blueprints.length, 0) ?? 0;
   const profileCount = session.cachedBundles?.reduce((acc, b) => acc + b.profiles.length, 0) ?? 0;
+  // v14.x（issue pt-asset-migration-visibility Layer 2）：暴露 session_start 健康扫描结果
+  const healthIssues = session.assetHealthIssues;
+  const healthLine =
+    healthIssues === null
+      ? "pt health: (not scanned)"
+      : healthIssues.length === 0
+        ? "pt health: ok"
+        : `pt health: ${healthIssues.length} issue${healthIssues.length > 1 ? "s" : ""} (${healthIssues.filter((i) => i.severity === "error").length} errors, ${healthIssues.filter((i) => i.severity === "warning").length} warnings)`;
   return [
     `pt profile: ${session.activeProfile ?? "(未激活)"}`,
     `pt loadedFrom: ${session.loadedFrom ?? "(none)"}`, // v10.x：可观测性（issue pt-context-persist-lost）
@@ -43,6 +51,7 @@ export function statusText(session: SessionState): string {
     `pt last built prompt: ${session.lastBuiltPrompt ? `${session.lastBuiltPrompt.length} chars` : "(未跑过 turn)"}`,
     // issue pt-status-no-injection-state：暴露 4 态自报状态
     `pt state: ${session.injectionState}${session.injectionError ? `: ${session.injectionError.slice(0, 40)}` : ""}`,
+    healthLine,
     `pt cwd: ${session.lastCwd}`,
   ].join(" | ");
 }
