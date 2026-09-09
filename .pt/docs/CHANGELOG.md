@@ -32,3 +32,14 @@
 - PtLogger per-session 持久化日志（NDJSON trace，5 维度）
 - ref-check 引用完整性校验 + `pt_check_refs` 工具
 - `pt_check_refs` 静默"未实例化"警告：Profile 有全局 domains 时不报（v11.x 设计：全局分发是合法用法）— 背景：ref-check refactor
+
+### 修复（v14.x）
+- **资产迁移可见性（Layer 2-5）** — resolves `pt-asset-migration-visibility`
+  - `scanProjectHealth()` 批量体检 5 类反模式（missing-modules / dangling-blueprint-ref / orphan-h2 / empty-segment / unknown-modname）
+  - session_start 末尾调 scan + notify 存量项目 schema 错误
+  - `/pt check [--profile X] [--fix]` 命令（biome 风格输出）+ `pt_check` LLM tool
+  - footer ANSI 颜色（状态染色）+ health suffix `⚠ N issues`（TUI / Web 兼容）
+  - `.pt/docs/migrations/v9.0-to-v9.1-modules.md` 迁移文档
+- `statusText` 暴露 `pt health:` 行（issue `pt-status-no-injection-state` 后续改进）
+- 4 态自报 + 空 segment 告警 + `injectionState` 暴露 — resolves `pt-status-no-injection-state`
+- turn inject 按 Profile scope 过滤 — resolves `pt-turn-inject-not-profile-scoped`
