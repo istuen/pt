@@ -42,6 +42,15 @@ function truncate(s: string, n: number): string {
   return `${arr.slice(0, n).join("")}...`;
 }
 
+/** 颜色模式。
+ *  - "auto"（默认）：根据 process.stdout.isTTY 自动判断（TUI 用颜色，web 不用）
+ *  - "always"：强制开启 ANSI（手动 debug / 调试 输出场景）
+ *  - "never"：  强制关闭 ANSI（CI / pipe / 重定向场景）
+ *
+ *  v14.x（issue pt-asset-migration-visibility Layer 2）：加 colorMode 让测试与 CLI 可覆盖默认 TTY 检测。
+ */
+export type ColorMode = "auto" | "always" | "never";
+
 /** 把 InjectionState × profile × error × healthIssueCount 渲染为 footer 文本。
  *
  *  状态颜色映射：
@@ -58,13 +67,15 @@ function truncate(s: string, n: number): string {
  *  TUI / Web 兼容：
  *   - TUI（isTTY=true）：状态染色 ANSI + ⚠ 后缀（颜色补充）
  *   - Web（isTTY=false）：纯文本 + ⚠ 前缀（无 ANSI 避免 [31m 字面量）
+ *   - colorMode='always'|'never'：覆盖自动检测（调试 / 测试用）
  *
  *  back-compat：healthIssueCount 默认 0，旧 call site 行为不变。 */
 export function renderInjectionFooter(
   state: InjectionState,
   profile: string | null,
   error: string | null,
-  healthIssueCount: number = 0
+  healthIssueCount: number = 0,
+  colorMode: ColorMode = "auto"
 ): string {
   if (profile === null) {
     return "pt: 无 context";
@@ -90,8 +101,9 @@ export function renderInjectionFooter(
 
   const baseText = `pt: ${profile}${stateSuffix}${healthSuffix}`;
 
-  // 3. 状态颜色（仅 useColor 启用时染色）
-  if (!useColor()) return baseText;
+  // 3. 颜色决策：colorMode 覆盖 TTY 默认检测
+  const colorEnabled = colorMode === "always" ? true : colorMode === "never" ? false : useColor();
+  if (!colorEnabled) return baseText;
 
   const colorByState: Record<InjectionState, string> = {
     injected: ANSI.green,

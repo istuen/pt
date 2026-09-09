@@ -125,5 +125,70 @@ describe("renderInjectionFooter", () => {
       expect(out).not.toMatch(/\x1b\[/);
       expect(out).toContain("⚠ 5 issues");
     });
+
+    // colorMode='always' 路径：强制启用 ANSI，绕过 TTY 检测
+    describe("colorMode='always'（强制 TUI 路径）", () => {
+      it("injected → green ANSI 包裹", () => {
+        const out = renderInjectionFooter("injected", "pt-dev", null, 0, "always");
+        expect(out.startsWith("\x1b[32m")).toBe(true);
+        expect(out.endsWith("\x1b[0m")).toBe(true);
+        expect(stripAnsi(out)).toBe("pt: pt-dev ok");
+      });
+
+      it("pending → yellow ANSI 包裹", () => {
+        const out = renderInjectionFooter("pending", "pt-dev", null, 0, "always");
+        expect(out.startsWith("\x1b[33m")).toBe(true);
+        expect(stripAnsi(out)).toBe("pt: pt-dev pending");
+      });
+
+      it("idle → dim gray ANSI 包裹", () => {
+        const out = renderInjectionFooter("idle", "pt-dev", null, 0, "always");
+        expect(out.startsWith("\x1b[90m")).toBe(true);
+        expect(stripAnsi(out)).toBe("pt: pt-dev idle");
+      });
+
+      it("failed → red ANSI 包裹 + error 文本", () => {
+        const out = renderInjectionFooter("failed", "pt-dev", "boom", 0, "always");
+        expect(out.startsWith("\x1b[31m")).toBe(true);
+        expect(stripAnsi(out)).toBe("pt: pt-dev failed: boom");
+      });
+
+      it("health issue 染色优先于 state 颜色：injected + 3 issues → red+bold 而非 green", () => {
+        const out = renderInjectionFooter("injected", "pt-dev", null, 3, "always");
+        expect(out.startsWith("\x1b[31m\x1b[1m")).toBe(true); // red + bold
+        expect(stripAnsi(out)).toBe("⚠ pt: pt-dev ok ⚠ 3 issues");
+      });
+
+      it("health issue 染色：failed + 1 issue → red+bold 而非 red only", () => {
+        const out = renderInjectionFooter("failed", "pt-dev", "boom", 1, "always");
+        expect(out.startsWith("\x1b[31m\x1b[1m")).toBe(true);
+        expect(stripAnsi(out)).toContain("failed: boom");
+        expect(stripAnsi(out)).toContain("⚠ 1 issue");
+      });
+    });
+
+    // colorMode='never' 路径：强制关闭 ANSI（即便 isTTY=true）
+    describe("colorMode='never'（强制 web 路径）", () => {
+      it("injected → 纯文本，无 ANSI", () => {
+        const out = renderInjectionFooter("injected", "pt-dev", null, 0, "never");
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI CSI 序列故意用 ESC 控制符
+        expect(out).not.toMatch(/\x1b\[/);
+        expect(out).toBe("pt: pt-dev ok");
+      });
+
+      it("health issue + never → 纯文本 + ⚠ 前缀", () => {
+        const out = renderInjectionFooter("injected", "pt-dev", null, 5, "never");
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI CSI 序列故意用 ESC 控制符
+        expect(out).not.toMatch(/\x1b\[/);
+        expect(out).toContain("⚠ 5 issues");
+      });
+    });
+
+    // colorMode='auto'（默认）行为兼容
+    it("colorMode='auto'（默认）→ 走 isTTY 检测路径", () => {
+      const outAuto = renderInjectionFooter("injected", "pt-dev", null, 0, "auto");
+      const outDefault = renderInjectionFooter("injected", "pt-dev", null, 0);
+      expect(outAuto).toBe(outDefault);
+    });
   });
 });
