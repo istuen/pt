@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { loadAndTranspile } from "../../src/transpile.js";
 import { renderTurnInject } from "../../src/render/turn-inject.js";
-import { findBlueprint, findProfile } from "../../src/schema.js";
+import { filterDomainsByProfile, findBlueprint, findProfile } from "../../src/schema.js";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
@@ -276,15 +276,18 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 12. /manual:xxx 触发 ==========
   describe("12. /manual:xxx 触发", () => {
-    it("/manual:pt-quality 触发返非 null", () => {
+    it("/manual:pt-quality 触发返非 null（pt-dev 引用 pt-quality）", () => {
       const r9 = loadedProfiles["pt-dev"];
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
       const ptDevBlueprint = findBlueprint(ptDevBundle.blueprints, ptDevProfile.blueprint)!;
+      // v13.x（issue pt-turn-inject-not-profile-scoped）：传 scoped domains + profile
+      const scoped = filterDomainsByProfile(ptDevBundle.domains, ptDevProfile);
       const result = renderTurnInject(
         r9.context,
         ptDevBlueprint,
-        ptDevBundle.domains,
+        scoped,
+        ptDevProfile,
         "/manual:pt-quality"
       );
       expect(result).not.toBeNull();
@@ -295,13 +298,35 @@ describe("Phase 9.9 v9 完整回归", () => {
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
       const ptDevBlueprint = findBlueprint(ptDevBundle.blueprints, ptDevProfile.blueprint)!;
+      const scoped = filterDomainsByProfile(ptDevBundle.domains, ptDevProfile);
       const result = renderTurnInject(
         r9.context,
         ptDevBlueprint,
-        ptDevBundle.domains,
+        scoped,
+        ptDevProfile,
         "/manual:pt-quality"
       );
       expect(result).toContain("modules-type-safety");
+    });
+
+    // v13.x（issue pt-turn-inject-not-profile-scoped）：反向用例——Profile scope 过滤生效
+    it("/manual:pt-quality 在 pt-design（未引用 pt-quality）下返 null", () => {
+      const r9 = loadedProfiles["pt-design"];
+      const ptDesignBundle = r9.bundles[0];
+      const ptDesignProfile = findProfile(ptDesignBundle.profiles, "pt-design")!;
+      const ptDesignBlueprint = findBlueprint(
+        ptDesignBundle.blueprints,
+        ptDesignProfile.blueprint
+      )!;
+      const scoped = filterDomainsByProfile(ptDesignBundle.domains, ptDesignProfile);
+      const result = renderTurnInject(
+        r9.context,
+        ptDesignBlueprint,
+        scoped,
+        ptDesignProfile,
+        "/manual:pt-quality"
+      );
+      expect(result).toBeNull();
     });
   });
 

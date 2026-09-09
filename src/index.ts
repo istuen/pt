@@ -101,7 +101,13 @@ function registerInjectionIfReady(
   const blueprint = sessionState.cachedBlueprint;
   if (!adapter || !context || !blueprint) return false;
 
-  adapter.registerInject(toAgentAPI(pi, ctx), context, blueprint, sessionState.cachedDomains);
+  adapter.registerInject(
+    toAgentAPI(pi, ctx),
+    context,
+    blueprint,
+    sessionState.cachedDomains,
+    sessionState.cachedProfile
+  );
   return true;
 }
 
@@ -136,7 +142,12 @@ async function transpileActive(
     // 单例字段 this.segment 不会被其他 session 覆盖。
     // Phase term-P4.1：Blueprint.agent 字段移除，暂硬编码 "pi"；待 OpenCodeAdapter 后改 transpile(profile, agent)
     s.activeAdapter = getAgentAdapter(pi, "pi");
-    s.activeAdapter.setAgentContext(result.agentContext, result.blueprint, result.domains);
+    s.activeAdapter.setAgentContext(
+      result.agentContext,
+      result.blueprint,
+      result.domains,
+      result.profile
+    );
 
     slog(sessionId, "info", "transpileActive:done", {
       profileName,

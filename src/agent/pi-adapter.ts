@@ -21,7 +21,15 @@ import { AGENT_PI, MOD_FLOWS, MOD_RULES } from "../constants.js";
 import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
 import { renderInjectionFooter } from "../injection-status.js";
 import { getSessionById } from "../session.js";
-import type { AgentAdapter, AgentAPI, AgentContext, Blueprint, Domain } from "../schema.js";
+import {
+  filterDomainsByProfile,
+  type AgentAdapter,
+  type AgentAPI,
+  type AgentContext,
+  type Blueprint,
+  type Domain,
+  type Profile,
+} from "../schema.js";
 import { renderTurnInject } from "../render/turn-inject.js";
 import { renderSessionInject } from "../render/session-inject.js";
 
@@ -49,13 +57,22 @@ export class PiAdapter implements AgentAdapter {
    *  v12.x：per-pi 实例字段——`registry.ts` 给每个 pi 一个新 PiAdapter，所以 `injectedApi`
    *  不会被其他 session 覆盖。 */
   private injectedApi: AgentAPI | null = null;
+  /** v13.x（issue pt-turn-inject-not-profile-scoped）：当前 Profile——turn 路径 scope 过滤用。 */
+  private profile: Profile | null = null;
 
   /** 设置编译产物（transpile 后调）。v12.x：per-pi 实例字段——本 session 的 segment
-   *  不会被其他 session 覆盖。 */
-  setAgentContext(ctx: AgentContext, blueprint: Blueprint, domains: Domain[]): void {
+   *  不会被其他 session 覆盖。
+   *  v13.x（issue pt-turn-inject-not-profile-scoped）：加 profile 参数——turn 路径 scope 过滤用。 */
+  setAgentContext(
+    ctx: AgentContext,
+    blueprint: Blueprint,
+    domains: Domain[],
+    profile: Profile
+  ): void {
     this.ctx = ctx;
     this.blueprint = blueprint;
     this.domains = domains;
+    this.profile = profile;
     this.segment = renderSessionInject(ctx, blueprint);
   }
 
@@ -65,6 +82,7 @@ export class PiAdapter implements AgentAdapter {
     this.ctx = null;
     this.blueprint = null;
     this.domains = [];
+    this.profile = null;
     this.segment = null;
   }
 
@@ -73,13 +91,15 @@ export class PiAdapter implements AgentAdapter {
     api: AgentAPI,
     ctx: AgentContext,
     blueprint: Blueprint,
-    domains: Domain[] = this.domains
+    domains: Domain[] = this.domains,
+    profile: Profile | null = this.profile
   ): void {
     // 先更新状态；同一 runtime 的后续 Profile 切换不能重新注册 handler，
     // 但 handler 会在事件发生时读取最新的 this.segment / this.ctx。
     this.ctx = ctx;
     this.blueprint = blueprint;
     this.domains = domains;
+    this.profile = profile;
     this.segment = renderSessionInject(ctx, blueprint);
 
     if (this.injectedApi === api) {
@@ -173,7 +193,10 @@ export class PiAdapter implements AgentAdapter {
         const event = args[0];
         if (!isInputEvent(event)) return { action: "continue" };
         // Phase term-P4.3：renderContextMessage → renderTurnInject
-        const result = renderTurnInject(this.ctx, this.blueprint, this.domains, event.text);
+        // v13.x（issue pt-turn-inject-not-profile-scoped）：按 Profile scope 过滤 domains + 传 profile
+        //   让 /manual:<domain> 在未引用该 domain 的 Profile 下返 null（与 /pt flows 列表一致）
+        const scoped = filterDomainsByProfile(this.domains, this.profile);
+        const result = renderTurnInject(this.ctx, this.blueprint, scoped, this.profile, event.text);
         const durationMs = Date.now() - t0;
         if (result === null) {
           api.log?.debug("agent:input passthrough", {
@@ -214,9 +237,10 @@ export class PiAdapter implements AgentAdapter {
       // Phase term-P4.3：inject 语义值 context_message → turn
       // Phase term-naming：字段名 target → inject
       if (group.inject !== "turn") continue;
-      // group.modules 是 modName 列表（"Flows"/"Rules"/"Checklists" P9.2 后）；domains 是 Profile 聚合组引用的 Domain 集
-      // 这里用全集 domains 简化——renderTurnInject 也走全集
-      for (const d of domains) {
+      // v13.x（issue pt-turn-inject-not-profile-scoped）：按 Profile scope 过滤 domains——
+      // adapter 内部统一过滤，调用方（commands.ts flowsText）无需预过滤。
+      const scoped = filterDomainsByProfile(domains, this.profile);
+      for (const d of scoped) {
         // Phase term-P9.2：FlowTemplate 在 ## Flows 段；Rule[] 在 ## Rules 段；Checklist[] 在 ## Checklists 段。
         const flowsContent = d.modules[MOD_FLOWS];
         if (isFlowTemplateArray(flowsContent)) {

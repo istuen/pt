@@ -17,14 +17,11 @@ describe("Profile 触发手册（listManuals）", () => {
     const b = r.bundles[0];
     expect(b).toBeDefined();
 
-    const profile = r.profile;
-    const filteredDomains = b.domains.filter((d) => {
-      if (profile.domains.includes(d.name)) return true;
-      return profile.groups.some((ip) => ip.domains.includes(d.name));
-    });
-
+    // v13.x（issue pt-turn-inject-not-profile-scoped）：adapter 持有 profile 后内部自过滤，
+    // 测试传全集 domains + setAgentContext 存 profile，不再测试内联预过滤
     const adapter = getAgentAdapter({} as never, "pi");
-    const flows = adapter.listManuals?.(r.agentContext, r.blueprint, filteredDomains) ?? [];
+    adapter.setAgentContext(r.agentContext, r.blueprint, b.domains, r.profile);
+    const flows = adapter.listManuals?.(r.agentContext, r.blueprint, b.domains) ?? [];
     // pt-design 当前 domains 不含 Rules/Flows/Checklists 段内容——返空是预期
     expect(flows).toEqual([]);
 
@@ -38,14 +35,10 @@ describe("Profile 触发手册（listManuals）", () => {
     const b = r.bundles[0];
     expect(b).toBeDefined();
 
-    const profile = r.profile;
-    const filteredDomains = b.domains.filter((d) => {
-      if (profile.domains.includes(d.name)) return true;
-      return profile.groups.some((ip) => ip.domains.includes(d.name));
-    });
-
+    // v13.x（issue pt-turn-inject-not-profile-scoped）：adapter 持有 profile 后内部自过滤
     const adapter = getAgentAdapter({} as never, "pi");
-    const flows = adapter.listManuals?.(r.agentContext, r.blueprint, filteredDomains) ?? [];
+    adapter.setAgentContext(r.agentContext, r.blueprint, b.domains, r.profile);
+    const flows = adapter.listManuals?.(r.agentContext, r.blueprint, b.domains) ?? [];
     // pt-dev 包含 dev-workflow（Flows）+ pt-quality（Rules）+ pt-collab（Checklists）—— 至少 3 个手册项
     expect(flows.length).toBeGreaterThanOrEqual(3);
   });
