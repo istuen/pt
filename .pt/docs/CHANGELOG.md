@@ -40,6 +40,11 @@
   - `/pt check [--profile X] [--fix]` 命令（biome 风格输出）+ `pt_check` LLM tool
   - footer ANSI 颜色（状态染色）+ health suffix `⚠ N issues`（TUI / Web 兼容）
   - `.pt/docs/migrations/v9.0-to-v9.1-modules.md` 迁移文档
+- **Profile tagline** — v14.x 增量
+  - `Profile.tagline?: string` 选填字段（frontmatter `tagline: <value>`）
+  - 展示路径：`/pt-profile` 选择器 `name — tagline` / `pt status` 显式展开 / footer `: <tagline>`（≤35 字符）
+  - back-compat：无 tagline 的 profile 行为不变
+  - 4 个 pt-* profile 资产补 tagline：pt-dev / pt-arch / pt-design / pt-devops
 - `statusText` 暴露 `pt health:` 行（issue `pt-status-no-injection-state` 后续改进）
 - 4 态自报 + 空 segment 告警 + `injectionState` 暴露 — resolves `pt-status-no-injection-state`
 - turn inject 按 Profile scope 过滤 — resolves `pt-turn-inject-not-profile-scoped`
