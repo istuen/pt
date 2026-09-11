@@ -1,6 +1,7 @@
 ---
 name: pt-dev
 blueprint: dev-knowledge
+tagline: Senior dev + QA + Reviewer (3 agents)
 domains: [user-info, agent-info, product-design, workflow/dev-workflow, workflow/issue-workflow, workflow/testing-workflow, pt-quality, pt-collab]
 ---
 

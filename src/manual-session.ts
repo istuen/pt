@@ -105,15 +105,19 @@ function renderActiveManualSuffix(session: SessionState): string {
 
 /** 刷新 footer 注入状态 + manual 后缀（合并写一次 setStatus）。
  *  v14.x（issue pt-asset-migration-visibility Layer 2）：assetHealthIssues.length 透传给
- *  renderInjectionFooter → footer 末尾追加 ⚠ N issues（染色）。 */
+ *  renderInjectionFooter → footer 末尾追加 ⚠ N issues（染色）。
+ *  v14.x（tagline）：从 cachedProfile.tagline 读，footer 拼 `: <tagline>`。 */
 function refreshInjectionFooter(ui: ExtensionUIContext, session: SessionState): void {
   const suffix = renderActiveManualSuffix(session);
   const healthCount = session.assetHealthIssues?.length ?? 0;
+  const tagline = session.cachedProfile?.tagline ?? null;
   const base = renderInjectionFooter(
     session.injectionState,
     session.activeProfile,
     session.injectionError,
-    healthCount
+    healthCount,
+    "auto",
+    tagline
   );
   ui.setStatus("pt", suffix ? `${base} ${suffix}` : base);
 }

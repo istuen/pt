@@ -1,6 +1,7 @@
 ---
 name: pt-devops
 blueprint: dev-knowledge
+tagline: Tech lead + release engineer
 domains: [user-info, agent-info, workflow/deployment, workflow/release-workflow, pt-quality, pt-collab]
 ---
 

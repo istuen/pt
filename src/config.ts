@@ -2,6 +2,8 @@
 // ExtensionAPI 无 getSettings，需自读 .pi/settings.json（用 CONFIG_DIR_NAME，不硬编码 .pi）。
 //
 // v9：用户面是 Profile（.pt/assets/profiles/*.profile.md），不是 Blueprint。
+//
+// v14.x（tagline）：加 listProfilesWithTagline() — /pt-profile 选择器展示 tagline 用。
 
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { readdir, readFile } from "node:fs/promises";
@@ -58,6 +60,71 @@ async function listProfileNamesIn(dir: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/** 从某个 profile 文件里粗读 tagline（只读 frontmatter，不走全 parse）。
+ *  用途：/pt-profile 选择器拼选项 — 不必全 parse profile (可能慢)。
+ *  返回 undefined 表示无 tagline 或读失败（缺省走纯名选项）。 */
+async function readTaglineFromFile(absFilePath: string): Promise<string | undefined> {
+  try {
+    const raw = await readFile(absFilePath, "utf8");
+    // 简易 frontmatter 解析：--- ... --- block + tagline: <value>
+    const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!m) return undefined;
+    const fm = m[1];
+    // tagline 值可能跨续行（含 # 注释）。取首个匹配后 trim
+    const tagMatch = fm.match(/^tagline\s*:\s*(.+?)\s*$/m);
+    if (!tagMatch) return undefined;
+    const v = tagMatch[1].trim();
+    // 去可选引号包裹（双 / 单引号）
+    const unquoted =
+      (v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))
+        ? v.slice(1, -1).trim()
+        : v;
+    return unquoted || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Profile 名 + tagline 列表（项目 + builtin 合并；同名项目覆盖）。
+ *  v14.x（tagline）：/pt-profile 选择器展示用——选型看到标签一眼分辨身份。
+ *  builtin 没 tagline 的 profile 返 undefined（选择器退化为纯名）。
+ */
+export interface ProfileMeta {
+  name: string;
+  tagline?: string;
+  source: "project" | "builtin";
+}
+
+export async function listProfilesWithTagline(cwd: string): Promise<ProfileMeta[]> {
+  const projectDir = join(cwd, PROFILES_DIR);
+  const builtinDir = join(BUILTIN_ASSETS_DIR, "profiles");
+  const projectNames = await listProfileNamesIn(projectDir);
+  const builtinNames = await listProfileNamesIn(builtinDir);
+  // 同名合并：项目覆盖内建
+  const seen = new Set<string>();
+  const merged: ProfileMeta[] = [];
+  for (const n of projectNames) {
+    if (seen.has(n)) continue;
+    seen.add(n);
+    const tagline = await readTaglineFromFile(join(projectDir, `${n}.profile.md`));
+    merged.push({ name: n, tagline, source: "project" });
+  }
+  for (const n of builtinNames) {
+    if (seen.has(n)) continue;
+    seen.add(n);
+    const tagline = await readTaglineFromFile(join(builtinDir, `${n}.profile.md`));
+    merged.push({ name: n, tagline, source: "builtin" });
+  }
+  merged.sort((a, b) => a.name.localeCompare(b.name));
+  return merged;
+}
+
+/** 把 ProfileMeta 列表转成选择器展示标签（`name — tagline`）。
+ *  tagline 缺省 → 纯名。空 tagline 也走纯名。 */
+export function formatProfileLabels(profiles: ProfileMeta[]): string[] {
+  return profiles.map((p) => (p.tagline ? `${p.name} — ${p.tagline}` : p.name));
 }
 
 /** 自动探测：只看项目级 Profile，不把内建 guide 计入用户项目选择。 */
