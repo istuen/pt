@@ -73,7 +73,7 @@ name: authoring
 - desc: 流程/手册类 Domain 写法：## Scene 下 ### 引用名 + - path: 路径 + - desc: 说明；## Flows 下 ### 流程名 + - intent: 目的 + - step: 步骤。适合操作流程/开发手册。（注：v9 已删 type 字段。）
 
 ### participant-domain-pattern
-- desc: 身份类 Domain 写法（v9.1+ 重命名）——User）段下 H3 角色项（user-profile / pt-goal / collab-mode / ...）；agent-info Domain 用 Agent 段下 H3 角色项（agent-role-architect / agent-role-senior-developer / ...）。**段名 = 命名空间**：`User` 限定 user-info、`Agent` 限定 agent-info。Profile 通过 `### Modules: [User]` 聚合 user-info 整段；通过 `### Modules: [Agent.agent-role-architect]` 精确选单角色——角色隔离的"开关"。
+- desc: 身份类 Domain 写法（v9.1+ 重命名）——user-info Domain 用 `## User` 段下 H3 角色项（user-profile / pt-goal / collab-mode / ...）；agent-info Domain 用 `## Agent` 段下 H3 角色项（agent-role-architect / agent-role-senior-developer / ...）。**段名 = 命名空间**：`User` 限定 user-info、`Agent` 限定 agent-info。Profile 通过 `### Modules: [User]` 聚合 user-info 整段；通过 `### Modules: [Agent.agent-role-architect]` 精确选单角色——角色隔离的"开关"。
 
 ### build-roadmap
 - desc: 从零构建 Pt 资产的顺序：（1）分析项目知识结构（参考 project-analysis 的 analyze-steps + section-as-namespace + role-isolation）→ 识别概念/流程/工具栈；（2）创建 Pt Domain 资产（每个知识单元一个 .md，H2 段名决定 schema）→ create-domain-procedure；（3）选 Blueprint（优先复用内建 dev-knowledge，聚合组需求不同才 create-blueprint-procedure——v9.1+ 通常省略，dedupByName 自动 fallback 到 builtin）→（4）创建 Pt Profile 组装 Domain 列表 + ### Modules 填 H3 粒度 → create-profile-procedure；（5）/pt-profile 验证产物 + 检查角色隔离。执行 procedure 时用 /pt manual <procedure-name> <args> 创建实例文档跟踪。
