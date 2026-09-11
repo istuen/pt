@@ -46,10 +46,14 @@ export function statusText(session: SessionState): string {
       : healthIssues.length === 0
         ? "pt health: ok"
         : `pt health: ${healthIssues.length} issue${healthIssues.length > 1 ? "s" : ""} (${healthIssues.filter((i) => i.severity === "error").length} errors, ${healthIssues.filter((i) => i.severity === "warning").length} warnings)`;
+  // v14.x（tagline）：statusText 显式展开 tagline（不受 footer 35 字符限制）
+  const tagline = session.cachedProfile?.tagline;
+  const taglineLine = tagline ? `pt tagline: ${tagline}` : "pt tagline: (none)";
   return [
     `pt profile: ${session.activeProfile ?? "(未激活)"}`,
     `pt loadedFrom: ${session.loadedFrom ?? "(none)"}`, // v10.x：可观测性（issue pt-context-persist-lost）
     `pt agent: ${session.activeAdapter?.name ?? "(none)"}`,
+    taglineLine,
     `pt domains: ${domainCount}, blueprints: ${blueprintCount}, profiles: ${profileCount}, flows: ${flowCount}`,
     `pt segment length: ${session.cachedSegment?.length ?? 0} chars`,
     `pt cache hit: ${session.lastCacheHit ? "yes" : "no"}`,

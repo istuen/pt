@@ -33,7 +33,9 @@ import { scanProjectHealth } from "./asset-health.js";
 import {
   detectDefaultProfile,
   detectSingleProfile,
+  formatProfileLabels,
   listProfiles,
+  listProfilesWithTagline,
   readProjectSetting,
 } from "./config.js";
 import { errMsg } from "./diagnostics.js";
@@ -439,8 +441,14 @@ export default function (pi: ExtensionAPI): void {
           ctx.ui.notify("/pt-profile（无参）在非交互模式不可用，请指定名称", "warning");
           return;
         }
-        const picked = await ctx.ui.select("选择 Profile", names);
-        if (!picked) return;
+        // v14.x（tagline）：选择器展示 `name — tagline`，返回 label → 反查 name 走 switchProfile
+        const profiles = await listProfilesWithTagline(ctx.cwd);
+        const labels = formatProfileLabels(profiles);
+        const pickedLabel = await ctx.ui.select("选择 Profile", labels);
+        if (!pickedLabel) return;
+        // 反查：精确匹配 profile 的 label 拿 name；fallback 到 split " — " 取首段（防格式漂移）
+        const matched = profiles.find((p) => formatProfileLabels([p])[0] === pickedLabel);
+        const picked = matched?.name ?? pickedLabel.split(" — ")[0] ?? pickedLabel;
         await switchProfile(pi, ctx, picked);
         return;
       }

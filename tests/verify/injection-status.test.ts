@@ -9,7 +9,11 @@
 //   - stripAnsi() 辅助断言：测颜色时跳过 ANSI 码
 
 import { describe, it, expect } from "vitest";
-import { renderInjectionFooter, stripAnsi } from "../../src/injection-status.js";
+import {
+  formatTaglineForFooter,
+  renderInjectionFooter,
+  stripAnsi,
+} from "../../src/injection-status.js";
 
 describe("renderInjectionFooter", () => {
   describe("profile = null", () => {
@@ -232,5 +236,108 @@ describe("renderInjectionFooter", () => {
       expect(out).toContain("⚠ 5 issues");
       expect(out).toContain("ysl-developer");
     });
+  });
+
+  // v14.x tagline — footer 拼接 `: <tagline>`
+  describe("v14.x tagline（footer 展示）", () => {
+    it("tagline 缺省 → 不添加（back-compat）", () => {
+      const out = renderInjectionFooter("injected", "pt-dev", null, 0);
+      expect(out).toBe("pt: pt-dev ok");
+      // 不含 tagline 模式 `: <tag-text> ok`（tagline 应在 profile 名 + 状态之间）
+      expect(out).not.toMatch(/^pt: pt-dev: [^ ]+ ok$/);
+    });
+
+    it("tagline 短 → footer 拼 `: <tagline>`", () => {
+      const out = renderInjectionFooter("injected", "pt-dev", null, 0, "auto", "Senior dev + QA");
+      expect(stripAnsi(out)).toBe("pt: pt-dev: Senior dev + QA ok");
+    });
+
+    it("tagline 跟 state/health suffix 顺序：profile: tagline state health", () => {
+      const out = renderInjectionFooter(
+        "injected",
+        "pt-dev",
+        null,
+        3,
+        "auto",
+        "Senior dev + QA + Reviewer (3 agents)"
+      );
+      const stripped = stripAnsi(out);
+      // 顺序断言
+      const iProfile = stripped.indexOf("pt: pt-dev");
+      const iTag = stripped.indexOf(": Senior dev");
+      const iState = stripped.indexOf(" ok");
+      const iHealth = stripped.indexOf("⚠ 3 issues");
+      expect(iProfile).toBeLessThan(iTag);
+      expect(iTag).toBeLessThan(iState);
+      expect(iState).toBeLessThan(iHealth);
+    });
+
+    it("tagline 超长 → 裁到 34 字符 + '…'（避免 footer 爆宽）", () => {
+      const long = "a".repeat(80);
+      const out = renderInjectionFooter("injected", "pt-dev", null, 0, "auto", long);
+      const stripped = stripAnsi(out);
+      // tagline 部分应是 ': <34 个 a> + …' = 1 + 1 + 34 + 1 = 37 字符
+      const tagPart = stripped.match(/: (a+…?)/)?.[1] ?? "";
+      expect(tagPart.length).toBeLessThanOrEqual(35);
+      expect(tagPart.endsWith("…")).toBe(true);
+    });
+
+    it("tagline=null 显式传 null → 等同缺省", () => {
+      const out = renderInjectionFooter("injected", "pt-dev", null, 0, "auto", null);
+      expect(out).toBe("pt: pt-dev ok");
+    });
+
+    it("tagline + failed state → error 仍拼在 tagline 后", () => {
+      const out = renderInjectionFooter("failed", "pt-dev", "boom", 0, "auto", "Senior dev");
+      expect(stripAnsi(out)).toBe("pt: pt-dev: Senior dev failed: boom");
+    });
+
+    it("tagline + health issue → red+bold 包裹完整（tagline 也染色）", () => {
+      const out = renderInjectionFooter("injected", "pt-dev", null, 3, "always", "Senior dev");
+      expect(out.startsWith("\x1b[31m\x1b[1m")).toBe(true);
+      expect(out.endsWith("\x1b[0m")).toBe(true);
+      expect(stripAnsi(out)).toContain("pt: pt-dev: Senior dev ok");
+      expect(stripAnsi(out)).toContain("⚠ 3 issues");
+    });
+
+    it("tagline + never → 纯文本 + tagline + ⚠", () => {
+      const out = renderInjectionFooter("idle", "pt-dev", null, 5, "never", "QA");
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI CSI 序列故意用 ESC 控制符
+      expect(out).not.toMatch(/\x1b\[/);
+      expect(out).toContain(": QA");
+      expect(out).toContain("⚠ 5 issues");
+    });
+  });
+});
+
+describe("formatTaglineForFooter", () => {
+  it("undefined → ''", () => {
+    expect(formatTaglineForFooter(undefined)).toBe("");
+  });
+
+  it("空字符串 → ''", () => {
+    expect(formatTaglineForFooter("")).toBe("");
+    expect(formatTaglineForFooter("   ")).toBe("");
+  });
+
+  it("正常长度 → ': <tagline>'", () => {
+    expect(formatTaglineForFooter("Senior dev")).toBe(": Senior dev");
+  });
+
+  it("超长 → ': <truncated>…'（总长度 ≤ maxLen）", () => {
+    const long = "a".repeat(80);
+    const result = formatTaglineForFooter(long, 35);
+    // ': ' + 34 'a' + '…' = 2 + 34 + 1 = 37 chars total
+    expect(result.length).toBe(37);
+    expect(result.startsWith(": ")).toBe(true);
+    expect(result.endsWith("…")).toBe(true);
+    // 不含完整 80 a（确认被截）
+    expect(result).not.toContain("a".repeat(50));
+  });
+
+  it("边界：长度恰好 = maxLen → 不裁", () => {
+    const exact = "x".repeat(35);
+    expect(formatTaglineForFooter(exact, 35)).toBe(`: ${exact}`);
+    expect(formatTaglineForFooter(exact, 35).endsWith("…")).toBe(false);
   });
 });

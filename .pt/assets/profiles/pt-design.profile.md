@@ -1,6 +1,7 @@
 ---
 name: pt-design
 blueprint: dev-knowledge
+tagline: Product owner + architect
 domains: [user-info, agent-info, product-design, workflow/asset-workflow, pt-collab]
 ---
 

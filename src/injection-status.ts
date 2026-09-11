@@ -33,13 +33,33 @@ function useColor(): boolean {
   return process.stdout?.isTTY === true;
 }
 
-/** 把字符串截断到 N 字符（用 Array.from 避免 surrogate pair 切坏 emoji）。 */
+/** 把字符串截断到 N 字符（用 Array.from 避免 surrogate pair 切坏 emoji）。
+ *  v14.x（tagline）：footer 超长 tagline 裁短用。 */
 function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   // 防止切到 surrogate pair 中间
   const arr = Array.from(s);
   if (arr.length <= n) return s;
   return `${arr.slice(0, n).join("")}...`;
+}
+
+/** v14.x（tagline）：对 footer tagline 作脱裁 + separator 拼装。
+ *  - 缺省 tagline → 返回 ''（外层拼接到 footer 不变）
+ *  - tagline.length ≤ maxLen → 原样
+ *  - tagline.length > maxLen → 裁到 maxLen - 1 + '…'
+ *  返回 `: <tagline>` 形式（带 separator），便于直拼。
+ *
+ *  maxLen 默认 35（与 health suffix 分享 footer 宽度预算）。
+ */
+export function formatTaglineForFooter(tagline: string | undefined, maxLen: number = 35): string {
+  if (!tagline) return "";
+  const trimmed = tagline.trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= maxLen) return `: ${trimmed}`;
+  // 超长：本地手动截 codepoints + 1-char ellipsis（`…`）— 避开 truncate() 的 `...` 3-char 形态
+  const arr = Array.from(trimmed);
+  if (arr.length <= maxLen) return `: ${trimmed}`;
+  return `: ${arr.slice(0, maxLen - 1).join("")}…`;
 }
 
 /** 颜色模式。
@@ -51,7 +71,7 @@ function truncate(s: string, n: number): string {
  */
 export type ColorMode = "auto" | "always" | "never";
 
-/** 把 InjectionState × profile × error × healthIssueCount 渲染为 footer 文本。
+/** 把 InjectionState × profile × error × healthIssueCount × tagline 渲染为 footer 文本。
  *
  *  状态颜色映射：
  *   - injected  → green
@@ -61,6 +81,11 @@ export type ColorMode = "auto" | "always" | "never";
  *
  *  Health suffix：healthIssueCount > 0 → 末尾追加 ` ⚠ N issue(s)`（emoji 前缀作主视觉信号，颜色补充）
  *
+ *  Tagline（v14.x）：profile 名后追加 `: <tagline>`（≤35 字符），超长裁短 + …：
+ *   - tagline 缺省 → 不追加（back-compat）
+ *   - tagline 存在且短 → `pt: pt-dev: Senior dev + QA + Reviewer (3 agents) ok`
+ *   - tagline 超长 → 裁到 34 + '…'
+ *
  *  profile=null → "pt: 无 context"（其它状态必先有 profile，统一降级）
  *  failed 时追加 ": <error 前 40 字>"
  *
@@ -69,13 +94,14 @@ export type ColorMode = "auto" | "always" | "never";
  *   - Web（isTTY=false）：纯文本 + ⚠ 前缀（无 ANSI 避免 [31m 字面量）
  *   - colorMode='always'|'never'：覆盖自动检测（调试 / 测试用）
  *
- *  back-compat：healthIssueCount 默认 0，旧 call site 行为不变。 */
+ *  back-compat：healthIssueCount + colorMode + tagline 均有默认值，旧 call site 行为不变。 */
 export function renderInjectionFooter(
   state: InjectionState,
   profile: string | null,
   error: string | null,
   healthIssueCount: number = 0,
-  colorMode: ColorMode = "auto"
+  colorMode: ColorMode = "auto",
+  tagline: string | null = null
 ): string {
   if (profile === null) {
     return "pt: 无 context";
@@ -99,9 +125,13 @@ export function renderInjectionFooter(
   const healthSuffix =
     healthIssueCount > 0 ? ` ⚠ ${healthIssueCount} issue${healthIssueCount > 1 ? "s" : ""}` : "";
 
-  const baseText = `pt: ${profile}${stateSuffix}${healthSuffix}`;
+  // 3. v14.x tagline：profile 名后拼 `: <tagline-truncated>`（≤35 字符）
+  //    无 tagline 时返空串 → 不影响 back-compat
+  const taglineSuffix = formatTaglineForFooter(tagline ?? undefined);
 
-  // 3. 颜色决策：colorMode 覆盖 TTY 默认检测
+  const baseText = `pt: ${profile}${taglineSuffix}${stateSuffix}${healthSuffix}`;
+
+  // 4. 颜色决策：colorMode 覆盖 TTY 默认检测
   const colorEnabled = colorMode === "always" ? true : colorMode === "never" ? false : useColor();
   if (!colorEnabled) return baseText;
 

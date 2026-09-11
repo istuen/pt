@@ -1,6 +1,7 @@
 ---
 name: pt-arch
 blueprint: dev-knowledge
+tagline: Architect + tech lead (design + pt-devops)
 domains: [user-info, agent-info, product-design, pt-collab]
 ---
 

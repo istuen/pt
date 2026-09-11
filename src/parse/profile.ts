@@ -84,6 +84,13 @@ export async function parseProfile(
 
   const domains = sArr(asset.frontmatter.domains); // YAML 全局 domains
 
+  // v14.x：tagline 选填，从 frontmatter 读（string 校验，非字符串静默忽略）
+  //   不做长度硬截——展示层（footer / 选择器）按需 truncate；资产可写长描述，
+  //   UI 表现由使用方决定（UI 是显示抽象，资产是数据抽象）。
+  const taglineRaw = asset.frontmatter.tagline;
+  const tagline =
+    typeof taglineRaw === "string" && taglineRaw.trim().length > 0 ? taglineRaw.trim() : undefined;
+
   // groups：每个 H2 = 聚合组实例化
   //   - ### Domains → 追加到本聚合组的 Domain 名列表（v9 既有）
   //   - ### Modules → 本插槽填的聚合模块列表（v9.1+），modName 解析为 ModName 对象
@@ -116,6 +123,7 @@ export async function parseProfile(
     blueprint,
     domains,
     groups,
+    tagline,
   };
 }
 

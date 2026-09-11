@@ -242,6 +242,11 @@ export interface Blueprint {
  *   - blueprint：引用哪个 Blueprint（结构复用）。
  *   - domains：YAML 全局 Domain 列表，自动分发到所有聚合组（有匹配 H2 段则贡献）。
  *   - groups：聚合组实例化（H2 = 聚合组名，与 Blueprint 同名），其下 ### Domains 是追加列表。
+ *   - tagline：身份一句话介绍（选填）。展示路径：
+ *       - /pt-profile 选择器选项中：`name — tagline`
+ *       - /pt status：pt tagline 行
+ *       - footer：`pt: <profile>: <tagline> <state>`
+ *     建议 ≤ 30 字符（footer 会截断）；超过 80 字符应拆成多行场景描述走 Domain。
  *
  * 项目级，不跨项目复用。
  */
@@ -253,6 +258,16 @@ export interface Profile {
   domains: string[];
   /** 聚合组实例化（与 Blueprint 的 BlueprintGroup 同名）。 */
   groups: ProfileGroup[];
+  /**
+   * v14.x：身份一句话介绍（选填）。例如：
+   *   tagline: Senior dev + QA + Reviewer (3 agents)
+   *   tagline: Product owner + Architect
+   *
+   * 解析：frontmatter `tagline: <string>` → schema 字段。
+   * 展示路径：/pt-profile 选择器、/pt status、footer 三处。
+   * back-compat：缺省 = undefined（旧 Profile 不填照样可加载）。
+   */
+  tagline?: string;
 }
 
 // ==================== 产物层：AgentContext ====================
