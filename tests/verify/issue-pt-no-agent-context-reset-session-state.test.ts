@@ -63,7 +63,7 @@ describe("resetSessionState (v13.x issue pt-no-agent-context-reset-session-state
   it("保留 session 标识 + 用户意图字段", () => {
     const s = makePopulatedSessionState();
     s.sessionId = "test-sid-123";
-    s.lastCwd = "/Users/issac/pro/pt";
+    s.lastCwd = process.cwd();
     s.activeProfile = "pt-dev";
     s.loadedFrom = "auto";
     s.activeManual = null;
@@ -72,7 +72,7 @@ describe("resetSessionState (v13.x issue pt-no-agent-context-reset-session-state
 
     // 不应清：session 生命周期相关字段
     expect(s.sessionId).toBe("test-sid-123");
-    expect(s.lastCwd).toBe("/Users/issac/pro/pt");
+    expect(s.lastCwd).toBe(process.cwd());
     expect(s.activeProfile).toBe("pt-dev");
     expect(s.loadedFrom).toBe("auto");
     expect(s.activeManual).toBeNull();

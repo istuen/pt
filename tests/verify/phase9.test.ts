@@ -343,7 +343,8 @@ describe("Phase 9.9 v9 完整回归", () => {
   });
 
   // ========== 14. pt-writing 跨项目 ==========
-  describe("14. pt-writing 跨项目", () => {
+  // CI skip: 需 /Users/issac/pro/pt-writing 本地项目存在；本地开发者手动跑
+  describe.skip("14. pt-writing 跨项目 (CI skip)", () => {
     it("pt-writing writing Profile 编译成功", async () => {
       const r = await loadAndTranspile("/Users/issac/pro/pt-writing", "writing");
       expect(r.segment.length).toBeGreaterThan(0);
