@@ -12,8 +12,14 @@
 //   - back-compat：settingsPacks=[] 时，dedupByNameN([project, global, builtin])
 //     退化等价于今天的 dedupByName(project, builtin)（project 前者赢，builtin 补充）。
 
-import type { AssetPack, Profile, SchemaBundle, SourceAdapter } from "../schema.js";
-import { findBlueprint, findProfile } from "../schema.js";
+import type {
+  AssetPack,
+  Blueprint,
+  Domain,
+  Profile,
+  SchemaBundle,
+  SourceAdapter,
+} from "../schema.js";
 import {
   loadBuiltinPack,
   loadGlobalPack,
@@ -21,6 +27,7 @@ import {
   loadSettingsPacks,
 } from "../asset-pack/loader.js";
 import { reportWarn } from "../diagnostics.js";
+import { parseRef } from "./ref-resolver.js";
 import { parseBlueprint } from "./blueprint.js";
 import { parseDomain } from "./domain.js";
 import { parseProfile } from "./profile.js";
@@ -39,66 +46,104 @@ export const mdAdapter: SourceAdapter = {
     const builtinPack = await loadBuiltinPack(adapterCtx);
     const packs: AssetPack[] = [projectPack, ...settingsPacks, globalPack, builtinPack];
 
-    // 2. 加载所有 pack 的资产（每个 pack 独立加载，不去重）
-    const packDomains = await Promise.all(packs.map((p) => p.loadDomains()));
-    const packBlueprints = await Promise.all(packs.map((p) => p.loadBlueprints()));
-    const packProfiles = await Promise.all(packs.map((p) => p.loadProfiles()));
+    // 2. v15.x PR3（§4.4.4）：构建 working set——不去重，每份带 pack 标签
+    const domainWS = new Map<string, { pack: AssetPack; asset: Domain }>();
+    const blueprintWS = new Map<string, { pack: AssetPack; asset: Blueprint }>();
+    const profileWS = new Map<string, { pack: AssetPack; asset: Profile }>();
+    const packProfiles: Profile[][] = [];
+    const allDomains: Domain[] = [];
+    const allBlueprints: Blueprint[] = [];
+    const allProfiles: Profile[] = [];
 
-    // 3. N 元 dedupByNameN（§3.3）：settings 数组倒序（§3.3.1 后者赢）
-    const domains = mergeAcrossPacks(packDomains);
-    const blueprints = mergeAcrossPacks(packBlueprints);
-    const profiles = mergeAcrossPacks(packProfiles);
-
-    // 4. 找激活的 Profile（按 profileName）
-    const active = findProfile(profiles, profileName);
-    // v15.x PR2（§8.3）：active profile 所属 pack——按 dedup 前顺序找（与 dedupByNameN 前者赢一致）
-    const activeProfilePack = active ? findProfilePack(packs, packProfiles, active.name) : "prj"; // fallback（active=null 时不应到达此分支）
-    if (!active) {
-      // fallback：取第一个 Profile
-      const fallback = profiles[0];
-      if (!fallback) {
-        throw new Error(`Pt: 未找到 Profile "${profileName}"（profiles/*.profile.md）`);
+    for (const pack of packs) {
+      const packDoms = await pack.loadDomains();
+      for (const d of packDoms) {
+        domainWS.set(`${pack.name}/${d.name}`, { pack, asset: d });
+        allDomains.push(d);
       }
-      // PR2：用第一个含 fallback profile 的 pack（与 dedupByNameN 一致）
-      const fallbackPack = findProfilePack(packs, packProfiles, fallback.name);
-      return {
-        domains,
-        blueprints,
-        profiles,
-        activeProfile: fallback.name,
-        packs,
-        activeProfilePack: fallbackPack,
-      };
+      const packBps = await pack.loadBlueprints();
+      for (const b of packBps) {
+        blueprintWS.set(`${pack.name}/${b.name}`, { pack, asset: b });
+        allBlueprints.push(b);
+      }
+      const packProfs = await pack.loadProfiles();
+      for (const p of packProfs) {
+        profileWS.set(`${pack.name}/${p.name}`, { pack, asset: p });
+        allProfiles.push(p);
+      }
+      packProfiles.push(packProfs);
     }
 
-    // 5. 校验 Profile 引用的 Blueprint 必须存在（明确的错误提示）
-    const bp = findBlueprint(blueprints, active.blueprint);
-    if (!bp && active.blueprint) {
-      // 把"可用 Blueprint 列表"塞进 details，让日志/UI 用户能看到怎么改
+    // 3. 找 active profile（PR3：支持 "foo" 和 "@pack/foo" 两种）
+    let active: Profile;
+    try {
+      active = findActiveProfile(packs, packProfiles, profileName);
+    } catch (e) {
+      // active 没找到时 fallback 到第一个 profile（与今天行为一致）
+      const fallback = allProfiles[0];
+      if (!fallback) {
+        throw e; // 真的没 profile——抛错
+      }
+      active = fallback;
+    }
+
+    // 4. 校验 active 引用的 Blueprint 存在（用 working set）
+    const { pack: bpPack, name: bpName } = parseRef(active.blueprint, active.sourcePack ?? "");
+    const bpEntry = blueprintWS.get(`${bpPack}/${bpName}`);
+    if (!bpEntry && active.blueprint) {
       reportWarn(
         adapterCtx,
         `Profile "${active.name}" 引用了未知 Blueprint "${active.blueprint}"`,
         {
           profileName: active.name,
           referencedBlueprint: active.blueprint,
-          availableBlueprints: blueprints.map((b) => b.name),
+          resolvedBlueprint: `@${bpPack}/${bpName}`,
+          availableBlueprints: [...blueprintWS.keys()],
         }
       );
     }
 
     return {
-      domains,
-      blueprints,
-      profiles,
+      domains: allDomains,
+      blueprints: allBlueprints,
+      profiles: allProfiles,
       activeProfile: active.name,
       packs,
-      activeProfilePack,
+      activeProfilePack: findProfilePack(packs, packProfiles, active.name),
+      workingSet: { domains: domainWS, blueprints: blueprintWS, profiles: profileWS },
     };
   },
 };
 
+/** v15.x PR3：找 active profile——支持 "foo" 和 "@pack/foo" 两种。
+ *  限定 ref 直接查目标 pack；不限定按 packs 顺序前者赢（project > settings 倒序 > global > builtin）。
+ *  PR3 阶段 settings=[]，倒序逻辑无影响。 */
+function findActiveProfile(
+  packs: AssetPack[],
+  packProfiles: Profile[][],
+  profileRef: string
+): Profile {
+  if (profileRef.startsWith("@")) {
+    const { pack, name } = parseRef(profileRef, ""); // 限定 ref 不需要 selfPack
+    const packIdx = packs.findIndex((p) => p.name === pack);
+    if (packIdx < 0) {
+      throw new Error(`active profile "@${pack}/${name}" references unknown pack "${pack}"`);
+    }
+    const found = packProfiles[packIdx]?.find((p) => p.name === name);
+    if (!found) {
+      throw new Error(`active profile "@${pack}/${name}" not found in pack "${pack}"`);
+    }
+    return found;
+  }
+  for (let i = 0; i < packs.length; i++) {
+    const found = packProfiles[i]?.find((p) => p.name === profileRef);
+    if (found) return found;
+  }
+  throw new Error(`active profile "${profileRef}" not found in any pack`);
+}
+
 /** v15.x PR2（§8.3）：找 profile 所属 pack——按 dedup 前顺序，
- *  第一个含该 profile name 的 pack 赢（与 dedupByNameN 前者赢语义一致）。
+ *  第一个含该 profile name 的 pack 赢（PR3 后 working set 取代 dedup，但 cache 文件名仍用 pack name）。
  *  fallback "prj"（不应到达——active profile 必来自某 pack）。 */
 function findProfilePack(
   packs: AssetPack[],
@@ -111,46 +156,6 @@ function findProfilePack(
     }
   }
   return "prj";
-}
-
-// ==================== N 元 dedup（§3.3） ====================
-
-/** N 元链式 dedupByName（§3.3）。
- *  语义：前者赢——按 packs 数组顺序，先出现的同 name asset 保留，后出现的被跳过。
- *  packs[0] = project（最高），中间 settings 数组已倒序（后者赢），
- *  倒数第二 = global，最后 = builtin。
- *  back-compat：settings=[] 时退化为 [project, global, builtin]，等价于今天的 2-arg 版本。
- *
- *  export 给 PR1 测试用——settings 倒序后者赢场景需要直接构造 packLists 验证。
- *  生产代码不推荐直接调——走 mergeAcrossPacks 处理 settings 倒序逻辑。 */
-export function dedupByNameN<T extends { name: string }>(packs: T[][]): T[] {
-  const seen = new Set<string>();
-  const result: T[] = [];
-  for (const pack of packs) {
-    for (const asset of pack) {
-      if (seen.has(asset.name)) continue;
-      seen.add(asset.name);
-      result.push(asset);
-    }
-  }
-  return result;
-}
-
-/** 把 4 类 pack 的资产按"项目 → settings（倒序）→ global → builtin"顺序合并。
- *  packLists 长度 = 3（settings=[] 时）或 3+N（PR4 接通 settings 时 N 个 settings pack）。
- *  PR4 接通后中间 N 个元素是 settings packs，按数组下标顺序是"先声明的优先"，
- *  但这里我们 reverse——后声明的 pack 优先（npm 风格，§3.3.1）。
- *  抽出来避免 domains/blueprints/profiles 三处重复。
- *
- *  export 给 PR1 测试用——settings 倒序后者赢场景需要直接构造 packLists 验证。 */
-export function mergeAcrossPacks<T extends { name: string }>(packLists: T[][]): T[] {
-  if (packLists.length === 0) return [];
-  // packLists[0] = project；最后两个 = global / builtin；中间 = settings 数组
-  const settingsLen = packLists.length - 3;
-  const settingsSlice = settingsLen > 0 ? packLists.slice(1, 1 + settingsLen).reverse() : [];
-  const global = packLists[1 + settingsLen];
-  const builtin = packLists[2 + settingsLen];
-  return dedupByNameN<T>([packLists[0], ...settingsSlice, global, builtin]);
 }
 
 // 保留 parseX 函数的导出（其他模块 / 测试可能 import）。PR1 阶段 MdFilePack 已复用，

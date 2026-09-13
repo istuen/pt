@@ -268,6 +268,11 @@ export interface Profile {
    * back-compat：缺省 = undefined（旧 Profile 不填照样可加载）。
    */
   tagline?: string;
+  /**
+   * v15.x PR3（§4.4.1）：MdFilePack 加载时打上——不限定 ref 自动绑定用。
+   * back-compat：未加载的新代码可能缺省（undefined）；parseRef 用 `?? ""` 容错后抛
+   * "unqualified ref ... but profile has no sourcePack" 错误——保留配置错误可见性。 */
+  sourcePack?: string;
 }
 
 // ==================== 产物层：AgentContext ====================
@@ -318,6 +323,12 @@ export interface SchemaBundle {
   /** v15.x PR2（§8.3）：激活 Profile 所属的 pack name（cache 文件名 <pack>__<profile> 用）。
    *  PR3 接通 @pack/name 后改为 Profile.sourcePack；PR2 用 pack name 字符串。 */
   activeProfilePack: string;
+  /** v15.x PR3（§4.4.4）：三类 asset 的 working set，dedup 下推到引用层。 */
+  workingSet: {
+    domains: Map<string, { pack: AssetPack; asset: Domain }>;
+    blueprints: Map<string, { pack: AssetPack; asset: Blueprint }>;
+    profiles: Map<string, { pack: AssetPack; asset: Profile }>;
+  };
 }
 
 // ==================== Source Adapter 接口（依赖反转后） ====================

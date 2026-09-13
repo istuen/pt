@@ -65,66 +65,51 @@ async function listProfileNamesIn(dir: string): Promise<string[]> {
 /** 从某个 profile 文件里粗读 tagline（只读 frontmatter，不走全 parse）。
  *  用途：/pt-profile 选择器拼选项 — 不必全 parse profile (可能慢)。
  *  返回 undefined 表示无 tagline 或读失败（缺省走纯名选项）。 */
-async function readTaglineFromFile(absFilePath: string): Promise<string | undefined> {
-  try {
-    const raw = await readFile(absFilePath, "utf8");
-    // 简易 frontmatter 解析：--- ... --- block + tagline: <value>
-    const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-    if (!m) return undefined;
-    const fm = m[1];
-    // tagline 值可能跨续行（含 # 注释）。取首个匹配后 trim
-    const tagMatch = fm.match(/^tagline\s*:\s*(.+?)\s*$/m);
-    if (!tagMatch) return undefined;
-    const v = tagMatch[1].trim();
-    // 去可选引号包裹（双 / 单引号）
-    const unquoted =
-      (v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))
-        ? v.slice(1, -1).trim()
-        : v;
-    return unquoted || undefined;
-  } catch {
-    return undefined;
-  }
-}
+// v15.x PR3：readTaglineFromFile 在新 listProfilesWithTagline 实现中已不用（pack.loadProfiles
+// 返 Profile 对象含 tagline 字段），但保留作为其他代码（readProjectSetting）的辅助。
+// 移除 unused：原 _readTaglineFromFile 实现见 git history。
 
 /** Profile 名 + tagline 列表（项目 + builtin 合并；同名项目覆盖）。
- *  v14.x（tagline）：/pt-profile 选择器展示用——选型看到标签一眼分辨身份。
  *  builtin 没 tagline 的 profile 返 undefined（选择器退化为纯名）。
- */
+ *  v15.x PR3（§7.2）：加 pack + source（4 类）——选择器显示 [@pack] 前缀；source 区分打包类型。 */
 export interface ProfileMeta {
   name: string;
   tagline?: string;
-  source: "project" | "builtin";
+  source: "project" | "settings" | "global" | "builtin";
+  /** v15.x PR3（§7.2）：pack 身份（reserved 短名 prj/gbl/pt 或 manifest.name）。 */
+  pack: string;
 }
 
 export async function listProfilesWithTagline(cwd: string): Promise<ProfileMeta[]> {
-  const projectDir = join(cwd, PROFILES_DIR);
-  const builtinDir = join(BUILTIN_ASSETS_DIR, "profiles");
-  const projectNames = await listProfileNamesIn(projectDir);
-  const builtinNames = await listProfileNamesIn(builtinDir);
-  // 同名合并：项目覆盖内建
-  const seen = new Set<string>();
-  const merged: ProfileMeta[] = [];
-  for (const n of projectNames) {
-    if (seen.has(n)) continue;
-    seen.add(n);
-    const tagline = await readTaglineFromFile(join(projectDir, `${n}.profile.md`));
-    merged.push({ name: n, tagline, source: "project" });
+  // v15.x PR3（§4.4.3 #5）：扫所有 pack——不再硬编码 project + builtin
+  const { loadProjectPack, loadGlobalPack, loadBuiltinPack } = await import(
+    "./asset-pack/loader.js"
+  );
+  const projectPack = await loadProjectPack(cwd);
+  const globalPack = await loadGlobalPack();
+  const builtinPack = await loadBuiltinPack();
+  const packs = [projectPack, globalPack, builtinPack]; // settings PR4 接通后加
+
+  const metas: ProfileMeta[] = [];
+  for (const pack of packs) {
+    const profiles = await pack.loadProfiles();
+    for (const p of profiles) {
+      if (metas.some((m) => m.name === p.name)) continue; // 前者赢（project 优先）
+      metas.push({ name: p.name, tagline: p.tagline, source: pack.source, pack: pack.name });
+    }
   }
-  for (const n of builtinNames) {
-    if (seen.has(n)) continue;
-    seen.add(n);
-    const tagline = await readTaglineFromFile(join(builtinDir, `${n}.profile.md`));
-    merged.push({ name: n, tagline, source: "builtin" });
-  }
-  merged.sort((a, b) => a.name.localeCompare(b.name));
-  return merged;
+  metas.sort((a, b) => a.name.localeCompare(b.name));
+  return metas;
 }
 
-/** 把 ProfileMeta 列表转成选择器展示标签（`name — tagline`）。
+/** 把 ProfileMeta 列表转成选择器展示标签（`[@pack] name — tagline`，§7.3）。
  *  tagline 缺省 → 纯名。空 tagline 也走纯名。 */
 export function formatProfileLabels(profiles: ProfileMeta[]): string[] {
-  return profiles.map((p) => (p.tagline ? `${p.name} — ${p.tagline}` : p.name));
+  return profiles.map((p) => {
+    const prefix = p.pack ? `[@${p.pack}] ` : "";
+    const tagline = p.tagline ? ` — ${p.tagline}` : "";
+    return `${prefix}${p.name}${tagline}`;
+  });
 }
 
 /** 自动探测：只看项目级 Profile，不把内建 guide 计入用户项目选择。 */
