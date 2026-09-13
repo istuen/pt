@@ -46,6 +46,10 @@ export function statusText(session: SessionState): string {
       : healthIssues.length === 0
         ? "pt health: ok"
         : `pt health: ${healthIssues.length} issue${healthIssues.length > 1 ? "s" : ""} (${healthIssues.filter((i) => i.severity === "error").length} errors, ${healthIssues.filter((i) => i.severity === "warning").length} warnings)`;
+  // v15.x PR1（§6.7.6）：暴露 session_start pack 校验结果——每个 pack ✅ / ⚠ DEGRADED + 原因。
+  // pack 健康区别于 healthLine 的 profile 配置体检：pack 健康是"加载层健康"，profile 健康是"资产内容健康"。
+  const packValidation = session.packValidation;
+  const packLine = formatPackHealthLine(packValidation);
   // v14.x（tagline）：statusText 显式展开 tagline（不受 footer 35 字符限制）
   const tagline = session.cachedProfile?.tagline;
   const taglineLine = tagline ? `pt tagline: ${tagline}` : "pt tagline: (none)";
@@ -61,8 +65,30 @@ export function statusText(session: SessionState): string {
     // issue pt-status-no-injection-state：暴露 4 态自报状态
     `pt state: ${session.injectionState}${session.injectionError ? `: ${session.injectionError.slice(0, 40)}` : ""}`,
     healthLine,
+    packLine,
     `pt cwd: ${session.lastCwd}`,
   ].join(" | ");
+}
+
+/** v15.x PR1（§6.7.6）— /pt status 暴露 pack 健康。
+ *  单行格式：`pt packs: N/M ok | [@prj] ✅ | [@gbl] ✅ | [@pt] ✅`
+ *  降级时附加原因：`[@prj] ⚠ DEGRADED — <errors[0].msg 截断 60 字符>`。
+ *  packValidation=null → `pt packs: (not validated)`（尚未 session_start）。
+ *  packValidation=[] → `pt packs: (none loaded)`（不应出现——session_start 总构造 3 个 pack）。 */
+function formatPackHealthLine(packValidation: SessionState["packValidation"]): string {
+  if (packValidation === null) return "pt packs: (not validated)";
+  if (packValidation.length === 0) return "pt packs: (none loaded)";
+  const items = packValidation.map((r) => {
+    if (r.ok) return `[@${r.pack}] ✅`;
+    const reason = r.errors[0]?.msg ?? "unknown";
+    return `[@${r.pack}] ⚠ DEGRADED — ${reason.length > 60 ? `${reason.slice(0, 57)}...` : reason}`;
+  });
+  const okCount = packValidation.filter((r) => r.ok).length;
+  const summary =
+    okCount === packValidation.length
+      ? `${okCount}/${packValidation.length} ok`
+      : `${okCount}/${packValidation.length} degraded`;
+  return `pt packs: ${summary} | ${items.join(" | ")}`;
 }
 
 /** /pt flows 内核：返回可用手册列表文本。无激活 Profile 返回提示串。

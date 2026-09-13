@@ -17,7 +17,15 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { SUFFIX_BLUEPRINT_YAML, SUFFIX_MD } from "../constants.js";
-import type { AssetPack, Blueprint, Domain, PackSource, Profile } from "../schema.js";
+import { errMsg, reportError } from "../diagnostics.js";
+import type {
+  AssetPack,
+  Blueprint,
+  Domain,
+  PackSource,
+  Profile,
+  SourceAdapterContext,
+} from "../schema.js";
 import { parseBlueprint } from "../parse/blueprint.js";
 import { parseDomain } from "../parse/domain.js";
 import { parseProfile } from "../parse/profile.js";
@@ -28,6 +36,10 @@ import { parseProfile } from "../parse/profile.js";
  *
  * PR1 简化：name 由构造传入（reserved 固定名或 basename），不读 manifest。
  *           PR2 接通 manifest 后改为从 manifest 读 name/version/description。
+ *
+ * PR1 补丁（S2 修复）：构造可选接 adapterCtx——loadXxx 内部 parse 失败时调
+ *           reportError，恢复 v10.x 旧 loadDir 行为的"错误可见性"。未传则 fallback
+ *           console.error（diagnostics.ts:reportError 三通道 fallback）。
  */
 export class MdFilePack implements AssetPack {
   readonly name: string;
@@ -35,37 +47,48 @@ export class MdFilePack implements AssetPack {
   readonly rootDir: string;
   readonly description: undefined; // PR1 固定；PR2 从 manifest 读
   readonly source: PackSource;
+  /** adapterCtx 可选——parse 失败时调 reportError 走 notify + log 通道。 */
+  private readonly adapterCtx: SourceAdapterContext | undefined;
 
-  constructor(rootDir: string, name: string, source: PackSource) {
+  constructor(
+    rootDir: string,
+    name: string,
+    source: PackSource,
+    adapterCtx?: SourceAdapterContext
+  ) {
     this.rootDir = rootDir;
     this.name = name;
     this.source = source;
+    this.adapterCtx = adapterCtx;
   }
 
   async loadDomains(): Promise<Domain[]> {
     const dir = join(this.rootDir, "domains");
-    return loadDomainsRecursive(dir);
+    return loadDomainsRecursive(dir, this.adapterCtx);
   }
 
   async loadBlueprints(): Promise<Blueprint[]> {
     const dir = join(this.rootDir, "blueprints");
-    return loadDir(dir, SUFFIX_BLUEPRINT_YAML, (f) => parseBlueprint(dir, f));
+    return loadDir(dir, SUFFIX_BLUEPRINT_YAML, (f) => parseBlueprint(dir, f), this.adapterCtx);
   }
 
   async loadProfiles(): Promise<Profile[]> {
     const dir = join(this.rootDir, "profiles");
-    return loadDir(dir, SUFFIX_MD, (f) => parseProfile(dir, f));
+    return loadDir(dir, SUFFIX_MD, (f) => parseProfile(dir, f, this.adapterCtx), this.adapterCtx);
   }
 }
 
 // ==================== 共享加载辅助（PR1 内部，未来抽到独立模块） ====================
 
 /** 顶层目录加载：只扫顶层文件（Blueprint/Profile 不递归——避免破坏现有结构）。
- *  parse 失败的文件返 null 后 filter 掉。目录不存在返空数组（与现有 loadDir 行为一致）。 */
+ *  parse 失败的文件：调 reportError 上抛 notify + log（恢复 v10.x 旧 loadDir 行为，
+ *  PR1 补丁 S2 修复），未传 adapterCtx 时 fallback console.error。
+ *  目录不存在返空数组（与现有 loadDir 行为一致）。 */
 async function loadDir<T>(
   dir: string,
   suffix: string,
-  parser: (f: string) => Promise<T>
+  parser: (f: string) => Promise<T>,
+  adapterCtx: SourceAdapterContext | undefined
 ): Promise<T[]> {
   let files: string[];
   try {
@@ -77,8 +100,8 @@ async function loadDir<T>(
     files.map(async (f): Promise<T | null> => {
       try {
         return await parser(f);
-      } catch {
-        // PR1 简化：不调 reportWarn/reportError，由 validatePack 层统一兜底（PR1.6）。
+      } catch (e) {
+        reportError(adapterCtx, `parse ${dir}/${f} failed: ${errMsg(e)}`, { file: f });
         return null;
       }
     })
@@ -89,8 +112,11 @@ async function loadDir<T>(
 /** 递归加载 domains/ 下所有 .md（多级目录支持）。
  *  Node.js 20+ readdir({ recursive: true }) 跨平台统一返回 POSIX '/' 分隔路径。
  *  Domain.name = POSIX 相对路径去 .md（支持 "workflow/dev-workflow" 等多级命名）。
- *  parse 失败的文件 filter 掉——不调 reportWarn（PR1.6 validatePack 兜底）。 */
-async function loadDomainsRecursive(dir: string): Promise<Domain[]> {
+ *  parse 失败的文件：调 reportError 上抛（PR1 补丁 S2）。 */
+async function loadDomainsRecursive(
+  dir: string,
+  adapterCtx: SourceAdapterContext | undefined
+): Promise<Domain[]> {
   let files: string[];
   try {
     files = (await readdir(dir, { recursive: true })).filter((f) => f.endsWith(SUFFIX_MD));
@@ -101,7 +127,8 @@ async function loadDomainsRecursive(dir: string): Promise<Domain[]> {
     files.map(async (relPath) => {
       try {
         return await parseDomain(dir, relPath);
-      } catch {
+      } catch (e) {
+        reportError(adapterCtx, `parse ${dir}/${relPath} failed: ${errMsg(e)}`, { file: relPath });
         return null;
       }
     })

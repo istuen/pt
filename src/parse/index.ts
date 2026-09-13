@@ -36,7 +36,7 @@ export const mdAdapter: SourceAdapter = {
     const projectPack = await loadProjectPack(cwd, adapterCtx);
     const settingsPacks = await loadSettingsPacks(cwd); // PR1 stub 返 []
     const globalPack = await loadGlobalPack(adapterCtx);
-    const builtinPack = await loadBuiltinPack();
+    const builtinPack = await loadBuiltinPack(adapterCtx);
     const packs: AssetPack[] = [projectPack, ...settingsPacks, globalPack, builtinPack];
 
     // 2. 加载所有 pack 的资产（每个 pack 独立加载，不去重）
@@ -95,8 +95,11 @@ export const mdAdapter: SourceAdapter = {
  *  语义：前者赢——按 packs 数组顺序，先出现的同 name asset 保留，后出现的被跳过。
  *  packs[0] = project（最高），中间 settings 数组已倒序（后者赢），
  *  倒数第二 = global，最后 = builtin。
- *  back-compat：settings=[] 时退化为 [project, global, builtin]，等价于今天的 2-arg 版本。 */
-function dedupByNameN<T extends { name: string }>(packs: T[][]): T[] {
+ *  back-compat：settings=[] 时退化为 [project, global, builtin]，等价于今天的 2-arg 版本。
+ *
+ *  export 给 PR1 测试用——settings 倒序后者赢场景需要直接构造 packLists 验证。
+ *  生产代码不推荐直接调——走 mergeAcrossPacks 处理 settings 倒序逻辑。 */
+export function dedupByNameN<T extends { name: string }>(packs: T[][]): T[] {
   const seen = new Set<string>();
   const result: T[] = [];
   for (const pack of packs) {
@@ -110,9 +113,13 @@ function dedupByNameN<T extends { name: string }>(packs: T[][]): T[] {
 }
 
 /** 把 4 类 pack 的资产按"项目 → settings（倒序）→ global → builtin"顺序合并。
- *  packLists 长度 = 4（settings=[] 时）或 4+N（PR4 接通 settings）。
- *  抽出来避免 domains/blueprints/profiles 三处重复。 */
-function mergeAcrossPacks<T extends { name: string }>(packLists: T[][]): T[] {
+ *  packLists 长度 = 3（settings=[] 时）或 3+N（PR4 接通 settings 时 N 个 settings pack）。
+ *  PR4 接通后中间 N 个元素是 settings packs，按数组下标顺序是"先声明的优先"，
+ *  但这里我们 reverse——后声明的 pack 优先（npm 风格，§3.3.1）。
+ *  抽出来避免 domains/blueprints/profiles 三处重复。
+ *
+ *  export 给 PR1 测试用——settings 倒序后者赢场景需要直接构造 packLists 验证。 */
+export function mergeAcrossPacks<T extends { name: string }>(packLists: T[][]): T[] {
   if (packLists.length === 0) return [];
   // packLists[0] = project；最后两个 = global / builtin；中间 = settings 数组
   const settingsLen = packLists.length - 3;
