@@ -30,6 +30,12 @@ export interface ValidationResult {
   errors: PackIssue[];
   /** 非致命（pack 可用但有隐患——目前未使用，预留扩展） */
   warnings: PackIssue[];
+  /** v15.x PR2（§6.7.6 展示用）：pack version。 */
+  version: string;
+  /** v15.x PR2（§6.7.6 展示用）：pack description（可选）。 */
+  description?: string;
+  /** v15.x PR2（§6.7.6 展示用）：pack rootDir。 */
+  rootDir: string;
 }
 
 /** 单条校验问题。code 机器可读，msg 人类可读，hint 修复建议。 */
@@ -61,7 +67,15 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
       msg: `pack 目录不存在: ${pack.rootDir}`,
       hint: "检查路径配置，或创建该目录（参考 /manual:pack-repair）",
     });
-    return { pack: pack.name, source: pack.source, ok: false, errors, warnings };
+    return {
+      pack: pack.name,
+      source: pack.source,
+      ok: false,
+      errors,
+      warnings,
+      version: pack.version,
+      rootDir: pack.rootDir,
+    };
   }
 
   // 层 1：pack 结构——至少一个 asset 子目录
@@ -74,15 +88,26 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
       msg: `pack "${pack.name}" 无任何 asset 子目录（domains/blueprints/profiles）`,
       hint: "至少创建一个 asset 子目录（参考 /manual:pack-repair）",
     });
-    return { pack: pack.name, source: pack.source, ok: false, errors, warnings };
+    return {
+      pack: pack.name,
+      source: pack.source,
+      ok: false,
+      errors,
+      warnings,
+      version: pack.version,
+      rootDir: pack.rootDir,
+    };
   }
 
-  // 层 2：asset 解析——loadXxx 不抛即过
-  // PR1 简化：只验证 loadXxx 不抛异常；详细 per-file 错误收集留 PR2（manifest 校验时一起做）。
+  // 层 2：asset 解析 + pack 内一致性（§6.7.2 补全）
   try {
-    await pack.loadDomains();
-    await pack.loadBlueprints();
-    await pack.loadProfiles();
+    const domains = await pack.loadDomains();
+    const blueprints = await pack.loadBlueprints();
+    const profiles = await pack.loadProfiles();
+    // v15.x PR2（§6.7.2 层 2）：同 Pack 内同 name asset 冲突检测
+    checkIntraPackConflicts("domain", domains, errors);
+    checkIntraPackConflicts("blueprint", blueprints, errors);
+    checkIntraPackConflicts("profile", profiles, errors);
   } catch (e) {
     errors.push({
       code: "load-failed",
@@ -91,7 +116,7 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
     });
   }
 
-  // pack 内一致性（同 name asset 冲突）—— PR2 manifest 校验时一起做
+  // pack 内一致性（同 name asset 冲突）—— v15.x PR2 在层 2 已做（checkIntraPackConflicts）
 
   return {
     pack: pack.name,
@@ -99,7 +124,32 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
     ok: errors.length === 0,
     errors,
     warnings,
+    version: pack.version,
+    description: pack.description,
+    rootDir: pack.rootDir,
   };
+}
+
+/** v15.x PR2（§6.7.2 层 2）：同 Pack 内同 name asset 冲突检测。
+ *  重复 name 报错——同 Pack 内 asset name 必须唯一。
+ *  不检测跨 Pack 冲突（那是 dedupByNameN 的职责，前者赢）。 */
+function checkIntraPackConflicts<T extends { name: string }>(
+  kind: string,
+  assets: T[],
+  errors: PackIssue[]
+): void {
+  const seen = new Map<string, number>();
+  for (const a of assets) {
+    const count = seen.get(a.name) ?? 0;
+    if (count > 0) {
+      errors.push({
+        code: "intra-pack-conflict",
+        msg: `pack 内 ${kind} "${a.name}" 重复（${count + 1} 次）`,
+        hint: `同 Pack 内 ${kind} name 必须唯一——重命名或删除重复文件`,
+      });
+    }
+    seen.set(a.name, count + 1);
+  }
 }
 
 /**

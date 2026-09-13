@@ -123,7 +123,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("5. v9 注入点 H2", () => {
     it("pt-dev Context 含 ## 会话背景 + ## 触发索引 + ## 参考手册，不含 ## Scene / ## Manual", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/prj__pt-dev.agent-context.md"),
         "utf8"
       );
       expect(/^## 会话背景/m.test(raw)).toBe(true);
@@ -138,7 +138,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("6. pt-quality 进参考手册不污染会话背景/触发索引", () => {
     it("pt-quality Manual 段出现在 pt-dev 参考手册", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/prj__pt-dev.agent-context.md"),
         "utf8"
       );
       const canKaoIdx = raw.indexOf("## 参考手册");
@@ -162,7 +162,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("pt-quality Manual 规范 checklist 不污染会话背景段", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/prj__pt-dev.agent-context.md"),
         "utf8"
       );
       const _canKaoIdx = raw.indexOf("## 参考手册");
@@ -180,7 +180,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("7. Trigger 独立索引段", () => {
     it("pt-quality-trigger 出现在触发索引段", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/prj__pt-dev.agent-context.md"),
         "utf8"
       );
       // Phase term-naming：Trigger 拉出作独立段（不再是会话背景的一部分）
@@ -197,7 +197,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("8. user-info Domain 进入会话背景", () => {
     it("user-info Domain 段出现在会话背景", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/prj__pt-dev.agent-context.md"),
         "utf8"
       );
       const huiHuaIdx = raw.indexOf("## 会话背景");
@@ -209,7 +209,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("user-info 含 user-profile/pt-goal/collab-mode + user-role-po/tl", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/prj__pt-dev.agent-context.md"),
         "utf8"
       );
       expect(raw).toContain("user-profile");

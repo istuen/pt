@@ -20,6 +20,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { compileAgentContext } from "./compile/agent-context.js";
+import type { AssetPack } from "./schema.js";
 import { PROFILES_DIR } from "./constants.js";
 import { KNOWN_SECTION_NAMES } from "./parse/profile.js";
 import type { Blueprint, Domain, Profile, SourceAdapterContext } from "./schema.js";
@@ -88,6 +89,8 @@ export async function scanProjectHealth(
   profiles: Profile[],
   blueprints: Blueprint[],
   domains: Domain[],
+  packs: AssetPack[], // v15.x PR2：compileAgentContext 需要 packs 进 sourceHash
+  profilePack: string, // v15.x PR2：scan 时用 default "prj"——不真正读 pack 信息
   adapterCtx?: SourceAdapterContext
 ): Promise<AssetHealthReport> {
   const issues: AssetHealthIssue[] = [];
@@ -148,7 +151,7 @@ export async function scanProjectHealth(
     const blueprint = blueprints.find((b) => b.name === profile.blueprint);
     if (!blueprint) continue;
     try {
-      const ctx = compileAgentContext(profile, blueprint, domains);
+      const ctx = compileAgentContext(profile, blueprint, domains, packs, profilePack);
       const totalLen = Object.values(ctx.modules).reduce((acc, s) => acc + s.length, 0);
       if (totalLen === 0) {
         issues.push({

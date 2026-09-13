@@ -79,9 +79,13 @@ function formatPackHealthLine(packValidation: SessionState["packValidation"]): s
   if (packValidation === null) return "pt packs: (not validated)";
   if (packValidation.length === 0) return "pt packs: (none loaded)";
   const items = packValidation.map((r) => {
-    if (r.ok) return `[@${r.pack}] ✅`;
+    const version = r.version ? ` v${r.version}` : "";
+    if (r.ok) {
+      const desc = r.description ? ` (${truncate(r.description, 40)})` : "";
+      return `[@${r.pack}]${version} ✅${desc}`;
+    }
     const reason = r.errors[0]?.msg ?? "unknown";
-    return `[@${r.pack}] ⚠ DEGRADED — ${reason.length > 60 ? `${reason.slice(0, 57)}...` : reason}`;
+    return `[@${r.pack}]${version} ⚠ DEGRADED — ${truncate(reason, 60)}`;
   });
   const okCount = packValidation.filter((r) => r.ok).length;
   const summary =
@@ -89,6 +93,11 @@ function formatPackHealthLine(packValidation: SessionState["packValidation"]): s
       ? `${okCount}/${packValidation.length} ok`
       : `${okCount}/${packValidation.length} degraded`;
   return `pt packs: ${summary} | ${items.join(" | ")}`;
+}
+
+/** v15.x PR2（§6.7.6）：description / error msg 截断辅助——单行 status 不被撑爆。 */
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 3)}...` : s;
 }
 
 /** /pt flows 内核：返回可用手册列表文本。无激活 Profile 返回提示串。
