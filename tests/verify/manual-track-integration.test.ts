@@ -109,8 +109,8 @@ describe("manual track 集成", () => {
     const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
-    // 用 /pt-context 强制加载 pt-dev（项目根有两个 profile，auto 不会 pick）
-    const switchCmd = m.commands.get("pt-context")!;
+    // 用 /pt-profile 强制加载 pt-dev（项目根有两个 profile，auto 不会 pick）
+    const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
     // 隔离 cwd：profile 已加载到全局 session（cachedBundles/cachedBlueprint 已设），
@@ -302,7 +302,7 @@ status: completed
     const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
-    const switchCmd = m.commands.get("pt-context")!;
+    const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
     // 隔离 cwd：profile 已加载到全局 session，切 cwd 让 /pt manual 命令写入到 tempDir（避免污染真实仓库）
@@ -337,8 +337,8 @@ status: completed
     s().injectionState = "injected";
 
     // 切换 profile
-    const switchCmd = m.commands.get("pt-context")!;
-    await switchCmd.handler("pt-chat", m.ctx);
+    const switchCmd = m.commands.get("pt-profile")!;
+    await switchCmd.handler("pt-design", m.ctx);
 
     // 切换后立即 pending
     expect(s().injectionState).toBe("pending");

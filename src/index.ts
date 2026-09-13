@@ -1,7 +1,7 @@
 // src/index.ts — Pi 扩展入口（v9）
 //
-// v9 用户面命令：--pt-context（flag）/ /pt-context（命令），对应"激活 Profile → 编译 Context"。
-//   "profile" 在 v9 是配置层概念（引用 Blueprint + 选 Domains），用户面命令强调产物是 Context。
+// v9 用户面命令：--pt-profile（flag）/ /pt-profile（命令），对应"激活 Profile → 编译 AgentContext"。
+//   "profile" 在 v9 是配置层概念（引用 Blueprint + 选 Domains），用户面命令强调产物是 AgentContext。
 //
 // 注入用 AgentAdapter（默认 Pi）封装 before_agent_start + input 事件。
 //
@@ -24,17 +24,40 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { FULL_DIR, MANUAL_DIR, PROFILES_DIR, RAW_DIR } from "./constants.js";
 import { toAgentAPI } from "./agent/api-bridge.js";
 import { getAgentAdapter } from "./agent/index.js";
-import { detectSingleProfile, listProfiles, readProjectSetting } from "./config.js";
+import { scanProjectHealth } from "./asset-health.js";
+import {
+  applyProjectPackDegrade,
+  getGlobalPackDir,
+  loadBuiltinPack,
+  loadGlobalPack,
+  loadProjectPack,
+  loadSettingsPacks,
+} from "./asset-pack/loader.js";
+import { shouldPromptGlobalPackGuide, validatePack } from "./asset-pack/validate.js";
+import {
+  detectDefaultProfile,
+  detectSingleProfile,
+  formatProfileLabels,
+  listProfiles,
+  listProfilesWithTagline,
+  readProjectSetting,
+} from "./config.js";
 import { errMsg } from "./diagnostics.js";
 import { readProfileFromSession, persistProfileToSession } from "./profile-persist.js";
 import { LOG_DIR, PtLogger } from "./log.js";
-import { type ProfileLoadSource, clearSessionById, getSessionById } from "./session.js";
-import { buildFullPrompt, buildManualDoc, flowsText, statusText } from "./commands.js";
+import {
+  type ProfileLoadSource,
+  clearSessionById,
+  getSessionById,
+  resetSessionState,
+} from "./session.js";
+import { buildFullPrompt, buildManualDoc, checkText, flowsText, statusText } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
 import type { AgentAPI } from "./schema.js";
 import {
@@ -87,11 +110,17 @@ function registerInjectionIfReady(
   if (!sessionId) return false;
   const sessionState = getSessionById(sessionId);
   const adapter = sessionState.activeAdapter;
-  const context = sessionState.cachedContext;
+  const context = sessionState.cachedAgentContext;
   const blueprint = sessionState.cachedBlueprint;
   if (!adapter || !context || !blueprint) return false;
 
-  adapter.registerInject(toAgentAPI(pi, ctx), context, blueprint, sessionState.cachedDomains);
+  adapter.registerInject(
+    toAgentAPI(pi, ctx),
+    context,
+    blueprint,
+    sessionState.cachedDomains,
+    sessionState.cachedProfile
+  );
   return true;
 }
 
@@ -105,6 +134,23 @@ async function transpileActive(
   notify: (msg: string, level: "warning" | "error") => void
 ): Promise<void> {
   const t0 = Date.now();
+
+  // v15.x PR1（§6.7.3）：project pack 降级时强制回 guide——必须前置覆盖，
+  // 否则用户请求的 profile 会先加载失败才降级（前置覆盖，不是失败后兜底）。
+  const sForDegrade = getSessionById(sessionId);
+  const originalProfile = profileName;
+  profileName = applyProjectPackDegrade(sForDegrade.projectPackDegraded, profileName);
+  if (profileName !== originalProfile) {
+    slog(sessionId, "warn", "transpileActive:project-pack-degraded", {
+      requested: originalProfile,
+      forced: profileName,
+    });
+    notify(
+      `Pt: project pack 降级中，强制使用 builtin guide（请求的 "${originalProfile}" 被覆盖）。修复后重启。`,
+      "warning"
+    );
+  }
+
   slog(sessionId, "info", "transpileActive:start", { profileName });
 
   try {
@@ -115,7 +161,7 @@ async function transpileActive(
     const s = getSessionById(sessionId);
     s.cachedSegment = result.segment;
     s.cachedBundles = result.bundles;
-    s.cachedContext = result.context;
+    s.cachedAgentContext = result.agentContext;
     s.cachedBlueprint = result.blueprint;
     s.cachedDomains = result.domains;
     s.cachedProfile = result.profile;
@@ -124,12 +170,18 @@ async function transpileActive(
 
     // v12.x：per-pi adapter——registry.ts 给每个 pi 一个新 PiAdapter 实例，
     // 单例字段 this.segment 不会被其他 session 覆盖。
-    s.activeAdapter = getAgentAdapter(pi, result.blueprint.agent);
-    s.activeAdapter.setContext(result.context, result.blueprint, result.domains);
+    // Phase term-P4.1：Blueprint.agent 字段移除，暂硬编码 "pi"；待 OpenCodeAdapter 后改 transpile(profile, agent)
+    s.activeAdapter = getAgentAdapter(pi, "pi");
+    s.activeAdapter.setAgentContext(
+      result.agentContext,
+      result.blueprint,
+      result.domains,
+      result.profile
+    );
 
     slog(sessionId, "info", "transpileActive:done", {
       profileName,
-      agent: result.blueprint.agent,
+      agent: "pi", // P4.1：硬编码，待 §11 多 Adapter 后改成参数化
       domainCount: result.domains.length,
       segmentLen: result.segment.length,
       cacheHit: result.cacheHit,
@@ -141,6 +193,9 @@ async function transpileActive(
       profileName,
       durationMs: Date.now() - t0,
     });
+    // v13.x（issue pt-no-agent-context-reset-session-state 修复）：
+    // throw 前重置编译产物字段，避免 stale state 让后续 /pt flows 返回旧 Profile 手册
+    resetSessionState(getSessionById(sessionId));
     throw e;
   }
 }
@@ -174,6 +229,13 @@ async function switchProfile(
     });
   } catch (e) {
     ctx.ui.notify(`切换失败：${errMsg(e)}`, "error");
+    // v13.x（issue pt-no-agent-context-reset-session-state 修复）：
+    // 重置编译产物 + injection 状态，避免 stale state 让后续 /pt flows 返回旧 Profile 手册
+    const s2 = getSessionById(sessionId);
+    resetSessionState(s2);
+    s2.injectionState = "failed";
+    s2.injectionError = errMsg(e);
+    refreshInjectionFooter(ctx.ui, s2);
     slog(sessionId, "error", "command:switchProfile failed", {
       profileName: name,
       err: errMsg(e),
@@ -183,8 +245,11 @@ async function switchProfile(
 
 export default function (pi: ExtensionAPI): void {
   // 启动时 flag（CLI 优先）
-  pi.registerFlag("pt-context", {
-    description: "启动时激活的 Profile 名（编译成 Context 注入 System Prompt）",
+  // Phase term-P2：pt-context → pt-profile（命令参数是 Profile 名，名该匹配操作目标）。
+  //   向后兼容：--pt-context（flag）和 pt.pt-context/au.pt-context（settings key）作为 fallback 保留——
+  //   用户升级 Pt 后旧配置仍能工作，新配置优先。
+  pi.registerFlag("pt-profile", {
+    description: "启动时激活的 Profile 名（编译成 AgentContext 注入 Session Inject）",
     type: "string",
   });
 
@@ -209,15 +274,94 @@ export default function (pi: ExtensionAPI): void {
     s.logger.info("session:start", { sessionId: s.sessionId, cwd: ctx.cwd });
 
     s.lastCwd = ctx.cwd;
+
+    // v15.x PR4（§6.7.1 + §6.7.5 + §7.5）：pack 校验 + settings pack 接通
+    // 两段独立 try/catch 兑底——任一异常都不能阻塞 session_start。
     try {
-      const flag = pi.getFlag("pt-context");
+      const projectPack = await loadProjectPack(ctx.cwd);
+      const settingsPacks = await loadSettingsPacks(ctx.cwd); // PR4 接通
+      const globalPack = await loadGlobalPack();
+      const builtinPack = await loadBuiltinPack();
+      // settings 包保持声明顺序（不 reverse）——校验顺序不影响结果（每个 pack 独立校验）
+      const packsForValidate = [projectPack, ...settingsPacks, globalPack, builtinPack];
+
+      const results = await Promise.all(packsForValidate.map(validatePack));
+      s.packValidation = results;
+
+      // project pack 降级（§6.7.3）—— 警告 + 强制回 guide
+      const projectResult = results.find((r) => r.source === "project");
+      if (projectResult && !projectResult.ok) {
+        s.projectPackDegraded = true;
+        const firstErr = projectResult.errors[0];
+        ctx.ui.notify(
+          `⚠ Pt: project pack 校验失败（${firstErr?.msg ?? "未知错误"}）。已降级到 builtin guide。`,
+          "warning"
+        );
+        ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+      }
+
+      // v15.x PR4（§6.7.5）：settings pack 校验失败预警——跳过该 pack，不阻断其他
+      for (const r of results) {
+        if (r.source === "settings" && !r.ok) {
+          const firstErr = r.errors[0];
+          ctx.ui.notify(
+            `⚠ Pt: settings pack [@${r.pack}] 校验失败（${firstErr?.msg ?? "未知"}）。已跳过该 pack。`,
+            "warning"
+          );
+          ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+        }
+      }
+
+      s.logger?.info("session:pack validation", {
+        projectOk: projectResult?.ok ?? false,
+        results: results.map((r) => ({
+          pack: r.pack,
+          source: r.source,
+          ok: r.ok,
+          errorCount: r.errors.length,
+        })),
+      });
+    } catch (e) {
+      // 校验异常仅 log，不阻塞 session_start（陷阱 3：不能阻塞）
+      s.logger?.warn("session:pack validation failed", { err: errMsg(e) });
+    }
+
+    // v15.x PR1（§7.5 + §7.5.1）：全局 Pack 初始化引导——一次性、非交互兼容
+    try {
+      const globalPackDir = getGlobalPackDir();
+      if (
+        shouldPromptGlobalPackGuide({
+          isTTY: process.stdout.isTTY === true,
+          globalPackExists: existsSync(globalPackDir),
+          isFirstRun: !s.globalPackGuideShown,
+          isCi: !!process.env.CI,
+          guideDisabled: !!process.env.PT_NO_GUIDE,
+        })
+      ) {
+        ctx.ui.notify(
+          `Pt: 全局 Pack 目录不存在: ${globalPackDir}\n  提示: 你可以把通用的 Domain/Blueprint/Profile 放这里跨项目共享\n  创建目录: mkdir -p ${globalPackDir}`,
+          "info"
+        );
+        s.globalPackGuideShown = true;
+        s.logger?.info("session:global pack guide shown", { globalPackDir });
+      }
+    } catch (e) {
+      s.logger?.warn("session:global pack guide failed", { err: errMsg(e) });
+    }
+
+    try {
+      // Phase term-P2：flag/settings 链主读新名（pt-profile），旧名（pt-context）作 fallback 兼容。
+      const flag = pi.getFlag("pt-profile") ?? pi.getFlag("pt-context");
       const flagVal = typeof flag === "string" && flag.trim() ? flag.trim() : undefined;
 
       const fromSettings =
-        (await readProjectSetting<string>(ctx.cwd, "pt.pt-context")) ??
+        (await readProjectSetting<string>(ctx.cwd, "pt.pt-profile")) ??
+        (await readProjectSetting<string>(ctx.cwd, "au.pt-profile")) ??
+        (await readProjectSetting<string>(ctx.cwd, "pt.pt-context")) ?? // 向后兼容：旧 settings key
         (await readProjectSetting<string>(ctx.cwd, "au.pt-context"));
       const fromSession = readProfileFromSession(ctx.sessionManager); // v10.x
       const auto = await detectSingleProfile(ctx.cwd);
+      const defaultProfile = auto ?? (await detectDefaultProfile(ctx.cwd));
 
       // 显式分支记录来源（便于 /pt status 展示 + trace）
       let picked: string | undefined;
@@ -234,6 +378,9 @@ export default function (pi: ExtensionAPI): void {
       } else if (auto) {
         picked = auto;
         pickedFrom = "auto";
+      } else if (defaultProfile) {
+        picked = defaultProfile;
+        pickedFrom = "default";
       } else {
         picked = undefined;
         pickedFrom = null;
@@ -244,7 +391,7 @@ export default function (pi: ExtensionAPI): void {
         s.injectionError = null;
         refreshInjectionFooter(ctx.ui, s);
         ctx.ui.notify(
-          "Pt：未找到 Profile。用 /pt-context <name> 选择，或在 .pi/settings.json 设 pt.pt-context。",
+          "Pt：未找到 Profile。用 /pt-profile <name> 选择，或在 .pi/settings.json 设 pt.pt-profile。",
           "info"
         );
         s.loadedFrom = null;
@@ -276,16 +423,49 @@ export default function (pi: ExtensionAPI): void {
         injected,
       });
 
+      // v14.x（issue pt-asset-migration-visibility Layer 2）：
+      //   session_start 末尾批量体检项目所有 profile——主动告知存量项目 schema 错误，
+      //   避免"切换才暴露"。失败降级（不阻塞 session 启动）——scan 内部已 try/catch。
+      const bundles = s.cachedBundles ?? [];
+      const healthBundle = bundles[0];
+      if (healthBundle) {
+        const report = await scanProjectHealth(
+          ctx.cwd,
+          healthBundle.profiles,
+          healthBundle.blueprints,
+          healthBundle.domains,
+          healthBundle.packs,
+          healthBundle.activeProfilePack,
+          { log: s.logger?.toWriter() }
+        );
+        s.assetHealthIssues = report.issues;
+        if (report.errors > 0 || report.warnings > 0) {
+          const summary =
+            report.issues.length === 1
+              ? `[pt] 项目有 1 个配置问题：${report.issues[0]?.msg ?? ""}（运行 /pt check 查看详情）`
+              : `[pt] 项目有 ${report.errors} errors + ${report.warnings} warnings（运行 /pt check 查看详情）`;
+          ctx.ui.notify(summary, "warning");
+          // 体检结果变化了，刷新 footer 染色
+          refreshInjectionFooter(ctx.ui, s);
+        }
+        s.logger?.info("session:health scan done", {
+          issueCount: report.issues.length,
+          errors: report.errors,
+          warnings: report.warnings,
+        });
+      }
+
       // v11.x：profile 加载后试恢复 manual（独立于 profile 链）
       await tryRestoreManual(ctx, s);
     } catch (e) {
       ctx.ui.notify(`Pt 加载失败：${errMsg(e)}`, "error");
+      // v13.x（issue pt-no-agent-context-reset-session-state 修复）：
+      // 统一调 resetSessionState 清编译产物 + loadedFrom；保留 activeProfile（便于用户重试）
+      resetSessionState(s);
+      s.loadedFrom = null;
       s.injectionState = "failed";
       s.injectionError = errMsg(e);
       refreshInjectionFooter(ctx.ui, s);
-      s.cachedSegment = null;
-      s.cachedBundles = null;
-      s.loadedFrom = null;
       s.logger?.error("session:start failed", { err: errMsg(e) });
       // v11.x：profile 失败但 manual 仍可能独立恢复（手动追踪不依赖 profile）
       await tryRestoreManual(ctx, s);
@@ -338,10 +518,11 @@ export default function (pi: ExtensionAPI): void {
     });
   });
 
-  // ========== /pt-context 命令：即时切换 ==========
-  pi.registerCommand("pt-context", {
+  // ========== /pt-profile 命令：即时切换 ==========
+  // Phase term-P2：/pt-context → /pt-profile（命令参数是 Profile 名，名该匹配操作目标）。
+  pi.registerCommand("pt-profile", {
     description:
-      "切换当前 Profile（编译成 Context 注入 System Prompt），即时重转译（无参则弹出选择器）",
+      "切换当前 Profile（编译成 AgentContext 注入 Session Inject），即时重转译（无参则弹出选择器）",
     getArgumentCompletions: async (prefix) => {
       const sessionId = getSessionIdFromCtx({
         sessionManager: undefined,
@@ -361,11 +542,17 @@ export default function (pi: ExtensionAPI): void {
           return;
         }
         if (!ctx.hasUI) {
-          ctx.ui.notify("/pt-context（无参）在非交互模式不可用，请指定名称", "warning");
+          ctx.ui.notify("/pt-profile（无参）在非交互模式不可用，请指定名称", "warning");
           return;
         }
-        const picked = await ctx.ui.select("选择 Profile", names);
-        if (!picked) return;
+        // v14.x（tagline）：选择器展示 `name — tagline`，返回 label → 反查 name 走 switchProfile
+        const profiles = await listProfilesWithTagline(ctx.cwd);
+        const labels = formatProfileLabels(profiles);
+        const pickedLabel = await ctx.ui.select("选择 Profile", labels);
+        if (!pickedLabel) return;
+        // 反查：精确匹配 profile 的 label 拿 name；fallback 到 split " — " 取首段（防格式漂移）
+        const matched = profiles.find((p) => formatProfileLabels([p])[0] === pickedLabel);
+        const picked = matched?.name ?? pickedLabel.split(" — ")[0] ?? pickedLabel;
         await switchProfile(pi, ctx, picked);
         return;
       }
@@ -487,7 +674,7 @@ export default function (pi: ExtensionAPI): void {
         const full = buildFullPrompt(ctx.getSystemPrompt(), s.cachedSegment, s.lastBuiltPrompt);
         if (!s.cachedSegment) {
           ctx.ui.notify(
-            "警告：无 cachedSegment（未加载 Profile）。用 /pt-context <name> 选择",
+            "警告：无 cachedSegment（未加载 Profile）。用 /pt-profile <name> 选择",
             "warning"
           );
         }
@@ -525,12 +712,54 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
-      ctx.ui.notify("用法: /pt [status|flows|raw|full|manual|logs|logs:clear|sessions]", "warning");
+      if (sub === "check") {
+        // v14.x（issue pt-asset-migration-visibility Layer 3）：
+        //   /pt check [--profile X] [--fix]
+        //   从 session.assetHealthIssues 格式化（session_start 已扫；不重复扫描）
+        //   支持三种写法：/pt check my-profile | /pt check --profile my-profile | /pt check --profile=my-profile
+        const checkParts = subArgs
+          .trim()
+          .split(/\s+/)
+          .filter((s) => s.length > 0);
+        let profileName: string | undefined;
+        let fix = false;
+        for (let i = 0; i < checkParts.length; i++) {
+          const p = checkParts[i];
+          if (p === undefined) continue;
+          if (p === "--fix") {
+            fix = true;
+            continue;
+          }
+          if (p === "--profile" || p === "-p") {
+            const next = checkParts[i + 1];
+            if (next && !next.startsWith("--")) {
+              profileName = next;
+              i++;
+            }
+            continue;
+          }
+          if (p.startsWith("--profile=")) {
+            profileName = p.slice("--profile=".length);
+            continue;
+          }
+          if (!profileName) {
+            profileName = p; // 简写：/pt check my-profile
+          }
+        }
+        const r = checkText(s, { profileName, fix });
+        ctx.ui.notify(r.output, r.errors > 0 ? "warning" : "info");
+        return;
+      }
+
+      ctx.ui.notify(
+        "用法: /pt [status|flows|raw|full|manual|check|logs|logs:clear|sessions]",
+        "warning"
+      );
     },
   });
 
   // ========== tool 壳：LLM 可调（与 command 共享纯函数内核，.pt/docs/designs/pt-command-tool-dual-registration.md） ==========
-  // 只读查询 + 手册实例化做 tool；pt-context（改 system prompt）不做 tool（见设计文档 §2.4）
+  // 只读查询 + 手册实例化做 tool；pt-profile（改 system prompt）不做 tool（见设计文档 §2.4）
 
   pi.registerTool({
     name: "pt_status",
@@ -688,6 +917,52 @@ export default function (pi: ExtensionAPI): void {
       return {
         content: [{ type: "text", text: formatRefCheckResult(result) }],
         details: result,
+      };
+    },
+  });
+
+  // v14.x（issue pt-asset-migration-visibility Layer 3）：pt_check tool
+  //   LLM 可主动体检项目配置——尤其在接手陌生项目 / 改资产前调用
+  pi.registerTool({
+    name: "pt_check",
+    label: "Pt Check",
+    description:
+      "Scan project assets for known misconfigurations (missing ### Modules, dangling blueprint refs, orphan H2, empty segments, unknown modnames). Read-only.",
+    promptSnippet: "Scan Pt project for configuration issues",
+    promptGuidelines: [
+      "Use pt_check when you suspect a project has stale Pt assets (e.g., after upgrading Pt, before committing Profile changes).",
+      "Pair with pt_status to see health count, then pt_check for the detailed list.",
+    ],
+    parameters: Type.Object({
+      profile: Type.Optional(
+        Type.String({
+          description: "Limit scan to a single Profile name (e.g. 'ysl-developer').",
+        })
+      ),
+      fix: Type.Optional(
+        Type.Boolean({
+          description:
+            "Reserved for v2. Currently always false; check output shows `fix:` hints but does not modify files.",
+        })
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const sessionId = getSessionIdFromCtx(ctx);
+      const s = sessionId ? getSessionById(sessionId) : null;
+      if (!s) {
+        return {
+          content: [{ type: "text", text: "no session" }],
+          details: { error: "no session" },
+        };
+      }
+      const r = checkText(s, { profileName: params.profile, fix: params.fix ?? false });
+      return {
+        content: [{ type: "text", text: r.output }],
+        details: {
+          issueCount: r.issueCount,
+          errors: r.errors,
+          warnings: r.warnings,
+        },
       };
     },
   });

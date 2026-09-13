@@ -16,7 +16,7 @@ import { readFile } from "node:fs/promises";
  *  - "domain"    : Content Domain（v7/v9 内容层）
  *  - "blueprint" : Blueprint（v7 配置层 / v9 结构层）
  *  - "profile"   : Profile（v9 配置层，新增）
- *  - "term" / "workflow" / "stack" / "glossary" : Domain type 标签（frontmatter.type）
+ *  - "term" / "workflow" / "glossary" : Domain type 标签（frontmatter.type，P9 删 stack 死类型后残留的历史枚举值）
  *  - "scene" / "manual" : v6 Struct kind 兼容（v7 资产迁移期残留）
  *
  *  v9 删除了 "channel"（Channel 留作未来 Connector，本版本不实现）——不再出现在 kind 联合中。
@@ -27,7 +27,6 @@ export type AssetKind =
   | "profile"
   | "term"
   | "workflow"
-  | "stack"
   | "glossary"
   | "scene"
   | "manual"
@@ -73,16 +72,10 @@ export async function readAsset(path: string): Promise<Asset> {
   const fileName = path.split("/").pop() ?? "";
   const name = fileName.replace(/\.[^.]+$/, "");
 
-  // kind 推断优先级：frontmatter.kind → frontmatter.type → frontmatter.entity → frontmatter 特征字段 → H2 推断
-  // v9：用 frontmatter 字段区分 Profile（blueprint）/ Blueprint（agent）/ Domain（type），
-  //     不再依赖 H2 注入点名（注入点名是自定义的语义名）
-  let kind: AssetKind | undefined;
-  const kindFromFm = inferKindFromFrontmatter(fm);
-  if (kindFromFm) {
-    kind = kindFromFm;
-  } else {
-    kind = inferKind(body);
-  }
+  // Phase term-P9.3：type 字段已删——kind 推断逻辑仅保留为兼容（无 caller 实际使用）。
+  //   资产加载走目录路由（src/parse/index.ts loadAllDomains / loadAllBlueprints / loadAllProfiles），
+  //   不依赖 readAsset 的 kind 字段。
+  const kind: AssetKind = "domain"; // 默认值——保留 AssetKind 联合类型以备未来扩展
 
   const sectionsArr = splitSections(body);
   const sections: Record<string, Section> = {};
@@ -251,11 +244,11 @@ export function sArr(v: unknown): string[] {
 }
 
 /** 从一个 H2 段里取某个字段的标量值（兼容裸值 / 顶层 list `- key: value` / H3 项 fields.key）。
- *  用途：Channel 注入点 H2 下读 target/mode，Blueprint ## Compilation 下读 cache-dir/split。 */
+ *  用途：Blueprint 聚合组 H2 下读 inject/mode，Profile 聚合组 H2 下读 ### Domains 追加列表。 */
 export function extractFieldValue(section: Section | undefined, key: string): string {
   if (!section) return "";
 
-  // 1. 顶层 list 行：`- target: system_prompt`
+  // 1. 顶层 list 行：`- inject: session`
   for (const item of section.items) {
     const v = item.fields[key];
     if (v !== undefined) {
@@ -286,8 +279,8 @@ export function extractDomainsList(section: Section | undefined): string[] {
 }
 
 /** 从一个 H2 段下取指定 H3 名下的所有裸名列表项（`- name`）。
- *  用途：Channel `## 会话知识` → `### Modules` 列 Domain H2 段名；
- *        Blueprint `## 会话知识` → `### Domains` 列参与本注入点的 Domain 名。
+ *  用途：Blueprint `## 会话背景` → `### Modules` 列 Domain Schema Name；
+ *        Profile `## 会话背景` → `### Domains` 列参与本聚合组的 Domain 名。
  *
  *  行为：扫描 section.raw，找到 `### <h3Name>` 行后收集紧随其后的 `- name` 行
  *        （无 `key: value`），遇下一个 H3 或段尾终止。
@@ -330,37 +323,9 @@ export function extractBareListUnderH3(section: Section | undefined, h3Name: str
   return out;
 }
 
-/** frontmatter 没 entity/type/kind/blueprint/agent 时，按 H2 段名推断 asset kind。
- *  v9 推断：Blueprint 用 Compilation 段识别，Channel 已删除，Domain 走通用 term 形态。 */
-function inferKind(body: string): AssetKind {
-  if (/^##\s+Compilation\b/m.test(body)) return "blueprint";
-  if (/^##\s+Slots\b/m.test(body)) return "workflow";
-  if (/^##\s+Tools\b/m.test(body)) return "stack";
-  return "domain";
-}
-
-/** 从 frontmatter 推断 asset kind（type guard：返 undefined 表示 frontmatter 不包含足够信息）。 */
-function inferKindFromFrontmatter(fm: Record<string, unknown>): AssetKind | undefined {
-  const validKinds: ReadonlyArray<AssetKind> = [
-    "domain",
-    "blueprint",
-    "profile",
-    "term",
-    "workflow",
-    "stack",
-    "glossary",
-    "scene",
-    "manual",
-    "channel",
-  ];
-  const candidates = ["kind", "type", "entity"] as const;
-  for (const key of candidates) {
-    const v = fm[key];
-    if (typeof v === "string" && (validKinds as readonly string[]).includes(v)) {
-      return v as AssetKind;
-    }
-  }
-  if (typeof fm.blueprint === "string") return "profile";
-  if (typeof fm.agent === "string") return "blueprint";
-  return undefined;
-}
+// Phase term-P9.5：删除 inferKind / inferKindFromFrontmatter 死代码。
+//   Type 字段删除（P9.3）+ Blueprint 转 YAML（P4.5）后，asset kind 推断链路（frontmatter
+//   type/agent + H2 Slots/Tools/Compilation 识别）全部失去作用——资产加载按目录路由
+//   （src/parse/index.ts loadAllDomains/Blueprints/Profiles），不依赖 readAsset 的 kind 字段。
+//   AssetKind 联合类型保留（供未来扩展），具体推断函数清理。
+//   Channel 已删除，Domain 走通用 term 形态。 */

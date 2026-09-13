@@ -1,8 +1,8 @@
 // src/parse/domain-renderers.ts — Domain H2 段解析注册表（pt-quality #3）
 //
-// Phase 10：parse 扩展用注册表，不用 switch-case（与 compile 的 moduleRenderers 一致）。
-//   - 双层注册表：Record<H2段名, Record<type, fn>>
-//   - 加新 (h2Name × type) 组合 = 调 registerDomainSectionRenderer 加一行 + 函数
+// Phase term-P9.3：注册表从二维（h2Name × type）降为一维（h2Name）。
+//   - Type 字段已删除——H2 段名 = schema 选择器（一个 H2 段一个 schema）
+//   - 加新 H2 段名 = 调 registerDomainSectionRenderer 加一行 + parser 函数
 //
 // 替换 parse/domain.ts 中的 switch-case 主逻辑。switch-case 仅留兜底 default fallback。
 
@@ -12,91 +12,71 @@ import type { FlowStep } from "../schema.js";
 /** 单个 H2 段内容解析器。 */
 export type DomainSectionParser = (items: Item[], sectionRaw: string) => unknown;
 
-/** 注册表：H2段名 × Domain type → parser。 */
-const domainSectionRenderers: Record<string, Record<string, DomainSectionParser>> = {
-  // H2="Scene"
-  Scene: {
-    term: (items) =>
-      items.map((it) => {
-        const desc = s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "";
-        // v9.2 扩展：保留作者写在 Scene 段的附加信息（fields / purpose / rule）
-        // 之前这些字段在 parse 阶段被静默丢弃，扩展后进入 IR 让 compile 渲染
-        const fields = sArr(it.fields.fields);
-        const note = s(it.fields.purpose) || s(it.fields.rule);
-        const term: { name: string; desc: string; fields?: string[]; note?: string } = {
+/** 注册表：H2段名 → parser。Phase term-P9.3：删 type 维度。 */
+const domainSectionRenderers: Record<string, DomainSectionParser> = {
+  // H2="Scene"（Phase term-P9.1：统一为 Term[]）
+  Scene: (items) =>
+    items.map((it) => {
+      const desc = s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "";
+      const path = s(it.fields.path);
+      const fields = sArr(it.fields.fields);
+      const note = s(it.fields.purpose) || s(it.fields.rule);
+      const term: { name: string; desc?: string; fields?: string[]; note?: string; path?: string } =
+        {
           name: it.name,
-          desc,
         };
-        if (fields.length > 0) term.fields = fields;
-        if (note) term.note = note;
-        return term;
-      }),
-    workflow: (items) => ({
-      externals: items.map((it) => ({
-        name: it.name,
-        path: s(it.fields.path) || "",
-        desc: s(it.fields.desc) || s(it.fields.description) || s(it.fields.role) || "",
-      })),
+      if (desc) term.desc = desc;
+      if (path) term.path = path;
+      if (fields.length > 0) term.fields = fields;
+      if (note) term.note = note;
+      return term;
     }),
-    stack: (items) =>
-      items.map((it) => {
-        const role = s(it.fields.role);
-        const ops = sArr(it.fields.operations);
-        const ref: { name: string; role?: string; operations?: string[] } = { name: it.name };
-        if (role) ref.role = role;
-        if (ops.length > 0) ref.operations = ops;
-        return ref;
-      }),
-  },
-  // H2="Manual"
-  Manual: {
-    term: (items) =>
-      items.map((it) => {
-        const itemsArr = sArr(it.fields.items);
-        const check =
-          s(it.fields.check) ||
-          s(it.fields.desc) ||
-          s(it.fields.value) ||
-          s(it.fields.description) ||
-          "";
-        if (itemsArr.length > 0) {
-          return { name: it.name, slot: "global", type: "ban", check, items: itemsArr };
-        }
-        return { name: it.name, slot: "global", type: "invariant", check };
-      }),
-    workflow: (items, sectionRaw) =>
-      items.map((item) => {
-        const tpl: Record<string, unknown> = {
-          name: item.name,
-          argumentHint: s(item.fields["argument-hint"]) || undefined,
-          intent: s(item.fields.intent),
-          steps: collectSteps(item.name, sectionRaw),
-          externals: [],
-        };
-        const vars = sArr(item.fields.vars);
-        if (vars.length > 0) tpl._vars = vars;
-        return tpl;
-      }),
-    stack: () => [],
-  },
+  // H2="Rules"（Phase term-P9.2：从 Manual.term 拆出）—— Rule[]
+  Rules: (items) =>
+    items.map((it) => {
+      const itemsArr = sArr(it.fields.items);
+      const check =
+        s(it.fields.check) ||
+        s(it.fields.desc) ||
+        s(it.fields.value) ||
+        s(it.fields.description) ||
+        "";
+      if (itemsArr.length > 0) {
+        return { name: it.name, slot: "global", type: "ban", check, items: itemsArr };
+      }
+      return { name: it.name, slot: "global", type: "invariant", check };
+    }),
+  // H2="Flows"（Phase term-P9.2：从 Manual.workflow 拆出）—— FlowTemplate[]
+  Flows: (items, sectionRaw) =>
+    items.map((item) => {
+      const tpl: Record<string, unknown> = {
+        name: item.name,
+        argumentHint: s(item.fields["argument-hint"]) || undefined,
+        intent: s(item.fields.intent),
+        steps: collectSteps(item.name, sectionRaw),
+        externals: [],
+      };
+      const vars = sArr(item.fields.vars);
+      if (vars.length > 0) tpl._vars = vars;
+      return tpl;
+    }),
+  // H2="Checklists"（Phase term-P9.2：新增）—— Checklist[]
+  Checklists: (items) =>
+    items.map((it) => ({
+      name: it.name,
+      items: sArr(it.fields.items),
+    })),
 };
 
-/** 加新 (h2Name × type) 组合 = 调 registerDomainSectionRenderer 加一行注册 + 一个 parser 函数。 */
-export function registerDomainSectionRenderer(
-  h2Name: string,
-  type: string,
-  parser: DomainSectionParser
-): void {
-  if (!domainSectionRenderers[h2Name]) domainSectionRenderers[h2Name] = {};
-  domainSectionRenderers[h2Name][type] = parser;
+/** 加新 H2 段名 = 调 registerDomainSectionRenderer 加一行注册 + 一个 parser 函数。
+ *  Phase term-P9.3：删 type 参数。 */
+export function registerDomainSectionRenderer(h2Name: string, parser: DomainSectionParser): void {
+  domainSectionRenderers[h2Name] = parser;
 }
 
-/** 取 (h2Name × type) 的 parser。未注册返 undefined（调用方走 fallback）。 */
-export function getDomainSectionParser(
-  h2Name: string,
-  type: string
-): DomainSectionParser | undefined {
-  return domainSectionRenderers[h2Name]?.[type];
+/** 取 H2段名 的 parser。未注册返 undefined（调用方走 fallback）。Phase term-P9.3：删 type 参数。 */
+export function getDomainSectionParser(h2Name: string): DomainSectionParser | undefined {
+  return domainSectionRenderers[h2Name];
 }
 
 // ==================== shared 辅助 ====================

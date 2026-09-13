@@ -1,10 +1,12 @@
 # dependencies
 node_modules/
 
-# pt 运行时产物（缓存/日志/工作文档）不入 git；assets/ + docs/ 入 git
-.pt/cache/
-.pt/logs/
-.pt/manuals/
+# pt 整体已迁出至 istuen/pt-internal 私有仓（see https://github.com/istuen/pt-internal）
+# 内层仓自己管 .pt/assets/ + .pt/docs/ 的版本；cache/logs/manuals 在内层仓 .gitignore 中排除
+.pt/
+
+# pi 用户级运行时目录（skills / sessions / settings 等）不入 git
+.pi/
 
 # TypeScript compiled output (pi runs .ts directly via tsx)
 *.js
@@ -23,3 +25,6 @@ dist/
 
 # logs
 *.log
+
+# zread 工具本地 wiki 缓存（第三方工具数据）
+.zread/

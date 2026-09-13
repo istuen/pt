@@ -6,7 +6,7 @@
 // 与 schema.ts 的区别：schema.ts 定义契约（Term/Rule/FlowTemplate 等结构），
 // type-guards.ts 定义运行时收窄（"这个 unknown 是不是 Term[]?"）。
 
-import type { ExternalRef, FlowTemplate, Rule, Term, ToolRef } from "../schema.js";
+import type { Checklist, ExternalRef, FlowTemplate, Rule, Term } from "../schema.js";
 
 // ==================== 通用守卫 ====================
 
@@ -89,6 +89,24 @@ export function isTriggerItemArray(
   return Array.isArray(x) && x.every(isTriggerItemLike);
 }
 
+// ==================== Checklist[] 守卫（Phase term-P9.2） ====================
+
+/** Phase term-P9.2：校验 Checklist 最小形状（{ name: string, items: string[] }）。 */
+function isChecklistLike(x: unknown): x is Checklist {
+  if (!x || typeof x !== "object") return false;
+  const c = x as { name?: unknown; items?: unknown };
+  return (
+    typeof c.name === "string" &&
+    Array.isArray(c.items) &&
+    c.items.every((i) => typeof i === "string")
+  );
+}
+
+/** unknown 是否为 Checklist[]。 */
+export function isChecklistArray(x: unknown): x is Checklist[] {
+  return Array.isArray(x) && x.every(isChecklistLike);
+}
+
 // ==================== ExternalRef[] 守卫 ====================
 
 function isExternalRefLike(x: unknown): x is ExternalRef {
@@ -99,28 +117,6 @@ function isExternalRefLike(x: unknown): x is ExternalRef {
 
 export function isExternalRefArray(x: unknown): x is ExternalRef[] {
   return Array.isArray(x) && x.every(isExternalRefLike);
-}
-
-// ==================== ToolRef[] 守卫 ====================
-
-function isToolRefLike(x: unknown): x is ToolRef {
-  if (!x || typeof x !== "object") return false;
-  const t = x as { name?: unknown };
-  return typeof t.name === "string";
-}
-
-export function isToolRefArray(x: unknown): x is ToolRef[] {
-  return Array.isArray(x) && x.every(isToolRefLike);
-}
-
-// ==================== workflow Scene 对象守卫 ====================
-
-/** workflow-Domain 的 ## Scene 段：{ externals?: ExternalRef[] }。 */
-export function isWorkflowScene(x: unknown): x is { externals?: ExternalRef[] } {
-  if (!x || typeof x !== "object") return false;
-  const s = x as { externals?: unknown };
-  if (s.externals === undefined) return true;
-  return isExternalRefArray(s.externals);
 }
 
 // ==================== 通用 fallback 守卫（带 name 字段的项） ====================
