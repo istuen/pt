@@ -48,3 +48,28 @@
 - `statusText` 暴露 `pt health:` 行（issue `pt-status-no-injection-state` 后续改进）
 - 4 态自报 + 空 segment 告警 + `injectionState` 暴露 — resolves `pt-status-no-injection-state`
 - turn inject 按 Profile scope 过滤 — resolves `pt-turn-inject-not-profile-scoped`
+
+### v15.x：资产包化（Pack 抽象 + 跨项目共享）
+
+**新功能**：
+- **Pack 抽象**：资产来源统一为 `AssetPack` 接口，4 类 Pack 按优先级加载（project > settings > global > builtin）
+- **全局 Pack**：`~/.pt/assets/` 用户跨项目共用资产，首次启动引导创建
+- **settings 声明 Pack**：`.pi/settings.json` 的 `pt.asset-packs[]` 加载第三方 / 团队 Pack（只 path 字段，name 从 manifest 读）；`pt.project-pack-dir` 可配 project pack 路径
+- **Pack manifest**：`pt-asset-pack.yaml` 定义 Pack 身份（name / version / description），name 是单一事实源
+- **`@pack/name` 限定语法**：Profile / Domain / Blueprint 引用可限定 Pack（`@prj` / `@gbl` / `@pt` reserved + `@<pack-name>/<asset>` 第三方）
+- **`use` Profile 单继承**：Profile 可 `use` 另一 Profile 作为基础，增量覆盖（blueprint 覆盖 / domains 追加 / groups 替换）+ 循环检测 + 菱形处理
+- **跨 Pack mixin 合并**：同 name asset 跨 Pack 合并（mergeSectionContent）——Scenario D/E 同名 asset 内容 union
+- **Pack 校验与降级**：`validatePack` 两层校验（结构 + 解析）+ project pack 失效降级到 builtin guide + settings pack 失效预警跳过
+- **builtin `pack-repair` domain**：project pack 校验失败时 `/manual:pack-repair` 触发修复引导
+
+**改进**：
+- cache 文件名加 pack 前缀（`<pack>__<profile>.agent-context.md`）+ sourceHash 含 pack 身份
+- `/pt status` 展示 pack 健康（4 类 Pack 校验结果）
+- `/pt-profile` 选择器展示 `[@pack]` 前缀 + tagline
+
+**back-compat**：
+- 不写 `pt.asset-packs` / `pt.project-pack-dir` / `use` 行为等价 v14.x
+- 不限定引用（`foo`）自动解析为 `@prj/foo`（与今天前者赢补充一致）
+- phase9 44 集成测试全过
+
+**设计源**：`.pt/docs/designs/pt-asset-pack.md`（v15.x 完整设计）
