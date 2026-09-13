@@ -37,6 +37,7 @@ import {
   loadBuiltinPack,
   loadGlobalPack,
   loadProjectPack,
+  loadSettingsPacks,
 } from "./asset-pack/loader.js";
 import { shouldPromptGlobalPackGuide, validatePack } from "./asset-pack/validate.js";
 import {
@@ -274,14 +275,15 @@ export default function (pi: ExtensionAPI): void {
 
     s.lastCwd = ctx.cwd;
 
-    // v15.x PR1（§6.7.1 + §7.5）：pack 校验 + 全局 Pack 引导
+    // v15.x PR4（§6.7.1 + §6.7.5 + §7.5）：pack 校验 + settings pack 接通
     // 两段独立 try/catch 兑底——任一异常都不能阻塞 session_start。
-    // PR1 阶段 loadSettingsPacks() 返空，不验证；PR4 接通 settings 加载后加进 packs。
     try {
       const projectPack = await loadProjectPack(ctx.cwd);
+      const settingsPacks = await loadSettingsPacks(ctx.cwd); // PR4 接通
       const globalPack = await loadGlobalPack();
       const builtinPack = await loadBuiltinPack();
-      const packsForValidate = [projectPack, globalPack, builtinPack];
+      // settings 包保持声明顺序（不 reverse）——校验顺序不影响结果（每个 pack 独立校验）
+      const packsForValidate = [projectPack, ...settingsPacks, globalPack, builtinPack];
 
       const results = await Promise.all(packsForValidate.map(validatePack));
       s.packValidation = results;
@@ -296,6 +298,18 @@ export default function (pi: ExtensionAPI): void {
           "warning"
         );
         ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+      }
+
+      // v15.x PR4（§6.7.5）：settings pack 校验失败预警——跳过该 pack，不阻断其他
+      for (const r of results) {
+        if (r.source === "settings" && !r.ok) {
+          const firstErr = r.errors[0];
+          ctx.ui.notify(
+            `⚠ Pt: settings pack [@${r.pack}] 校验失败（${firstErr?.msg ?? "未知"}）。已跳过该 pack。`,
+            "warning"
+          );
+          ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+        }
       }
 
       s.logger?.info("session:pack validation", {

@@ -19,6 +19,7 @@ import type {
   Profile,
   SchemaBundle,
   SourceAdapter,
+  SourceAdapterContext,
 } from "../schema.js";
 import {
   loadBuiltinPack,
@@ -41,10 +42,22 @@ export const mdAdapter: SourceAdapter = {
   async load(cwd, profileName, adapterCtx): Promise<SchemaBundle> {
     // 1. 构造 4 类 pack（§3.1 顺序：project → settings → global → builtin）
     const projectPack = await loadProjectPack(cwd, adapterCtx);
-    const settingsPacks = await loadSettingsPacks(cwd); // PR1 stub 返 []
+    const settingsPacks = await loadSettingsPacks(cwd); // PR4 接通：读 .pi/settings.json pt.asset-packs
     const globalPack = await loadGlobalPack(adapterCtx);
     const builtinPack = await loadBuiltinPack(adapterCtx);
-    const packs: AssetPack[] = [projectPack, ...settingsPacks, globalPack, builtinPack];
+
+    // v15.x PR4（§3.3.1）：settings 倒序——后者赢（npm 风格）
+    // packs 顺序 = [project, ...settings.reverse(), global, builtin]
+    // findActiveProfile 不限定 ref 按此顺序前者赢 → project > 后声明 settings > 先声明 settings > global > builtin
+    const packs: AssetPack[] = [
+      projectPack,
+      ...settingsPacks.slice().reverse(),
+      globalPack,
+      builtinPack,
+    ];
+
+    // v15.x PR4（§3.4）：pack name 全局唯一性校验——settings pack 之间同名报错
+    checkPackNameConflicts(packs, adapterCtx);
 
     // 2. v15.x PR3（§4.4.4）：构建 working set——不去重，每份带 pack 标签
     const domainWS = new Map<string, { pack: AssetPack; asset: Domain }>();
@@ -117,7 +130,7 @@ export const mdAdapter: SourceAdapter = {
 
 /** v15.x PR3：找 active profile——支持 "foo" 和 "@pack/foo" 两种。
  *  限定 ref 直接查目标 pack；不限定按 packs 顺序前者赢（project > settings 倒序 > global > builtin）。
- *  PR3 阶段 settings=[]，倒序逻辑无影响。 */
+ *  v15.x PR4：settings 倒序逻辑由 mdAdapter.load 构造 packs 时已处理，findActiveProfile 不变。 */
 function findActiveProfile(
   packs: AssetPack[],
   packProfiles: Profile[][],
@@ -156,6 +169,35 @@ function findProfilePack(
     }
   }
   return "prj";
+}
+
+/** v15.x PR4（§3.4）：pack name 全局唯一性校验。
+ *  settings pack 之间 manifest.name 冲突 → warn 提示去重（不静默覆盖）。
+ *  project/settings 覆盖 global/builtin = 合理优先级，静默（§3.4 表）。
+ *
+ *  实现：扫所有 pack，按 name 分组——同 name 的 pack 如有任一是 settings 来源则 warn。
+ *  reserved 名（prj/gbl/pt）只 1 份，不会冲突。settings pack manifest.name 不能是 reserved 名
+ *  （PR2 manifest 校验已挡），所以不会与 reserved 重名。 */
+function checkPackNameConflicts(packs: AssetPack[], adapterCtx?: SourceAdapterContext): void {
+  const seen = new Map<string, AssetPack[]>();
+  for (const pack of packs) {
+    const arr = seen.get(pack.name) ?? [];
+    arr.push(pack);
+    seen.set(pack.name, arr);
+  }
+  for (const [name, group] of seen) {
+    if (group.length <= 1) continue;
+    // 同 name 多份——如有 settings 来源则 warn（§3.4）
+    const hasSettings = group.some((p) => p.source === "settings");
+    if (hasSettings) {
+      const paths = group.map((p) => p.rootDir).join('" and "');
+      reportWarn(
+        adapterCtx,
+        `pack "${name}" loaded from both "${paths}" — remove one from pt.asset-packs（§3.4 pack 身份冲突）`,
+        { packName: name, paths: group.map((p) => p.rootDir) }
+      );
+    }
+  }
 }
 
 // 保留 parseX 函数的导出（其他模块 / 测试可能 import）。PR1 阶段 MdFilePack 已复用，
