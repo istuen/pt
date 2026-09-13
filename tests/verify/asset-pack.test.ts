@@ -962,3 +962,156 @@ describe("PR4 mdAdapter.load settings 倒序后者赢（§3.3.1）", () => {
     expect(bundle.workingSet.domains.get("team-b/user-info")).toBeDefined();
   });
 });
+
+// ==================== M1：PR4 checkPackNameConflicts（§3.4）===================
+
+describe("M1 PR4 checkPackNameConflicts（§3.4 pack name 冲突报错）", () => {
+  let tmpCwd: string;
+  beforeEach(() => {
+    tmpCwd = mkdtempSync(join(tmpdir(), "pt-pr4-conflict-"));
+  });
+  afterEach(() => {
+    rmSync(tmpCwd, { recursive: true, force: true });
+  });
+
+  it("两个 settings pack manifest.name 相同 → adapterCtx.notify 收 warn", async () => {
+    // 构造两个 settings pack，都带 manifest name="dupe"（违反 §3.4）
+    const dirA = join(tmpCwd, "dupe-a");
+    const dirB = join(tmpCwd, "dupe-b");
+    mkdirSync(join(dirA, "domains"), { recursive: true });
+    mkdirSync(join(dirB, "domains"), { recursive: true });
+    writeFileSync(join(dirA, "pt-asset-pack.yaml"), "name: dupe\n", "utf8");
+    writeFileSync(join(dirB, "pt-asset-pack.yaml"), "name: dupe\n", "utf8");
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "asset-packs": [{ path: dirA }, { path: dirB }] } }),
+      "utf8"
+    );
+
+    const { mdAdapter } = await import("../../src/parse/index.js");
+    const notifs: Array<{ msg: string; level: string }> = [];
+    // 即使 settings 重复——加载不阻断（仅 warn，§3.4）
+    const bundle = await mdAdapter.load(tmpCwd, "guide", {
+      assetDir: ".",
+      notify: (msg, level) => notifs.push({ msg, level }),
+    });
+    expect(bundle.workingSet.domains.size).toBeGreaterThanOrEqual(0);
+    // 冲突 warn 触发——针对 settings 来源同名
+    const conflictWarn = notifs.find(
+      (n) => n.level === "warning" && n.msg.includes('"dupe"') && n.msg.includes("§3.4")
+    );
+    expect(conflictWarn, `expected conflict warn, got: ${JSON.stringify(notifs)}`).toBeDefined();
+  });
+
+  it("project/settings 覆盖 global/builtin 不报——合理优先级静默（§3.4）", async () => {
+    // 不写 settings + project 无同名 asset → 不触发冲突 warn
+    const { mdAdapter } = await import("../../src/parse/index.js");
+    const notifs: Array<{ msg: string; level: string }> = [];
+    const bundle = await mdAdapter.load(tmpCwd, "guide", {
+      assetDir: ".",
+      notify: (msg, level) => notifs.push({ msg, level }),
+    });
+    expect(bundle.packs.map((p) => p.name)).toEqual(["prj", "gbl", "pt"]);
+    // 任何 "§3.4" 冲突 warn 都不应触发
+    const conflictWarn = notifs.find((n) => n.level === "warning" && n.msg.includes("§3.4"));
+    expect(conflictWarn).toBeUndefined();
+  });
+});
+
+// ==================== M2：PR4 session_start settings pack 校验预警（§6.7.5）===================
+
+describe("M2 PR4 session_start settings pack 校验预警（§6.7.5）", () => {
+  let tmpCwd: string;
+  beforeEach(() => {
+    tmpCwd = mkdtempSync(join(tmpdir(), "pt-pr4-validate-"));
+  });
+  afterEach(() => {
+    rmSync(tmpCwd, { recursive: true, force: true });
+  });
+
+  it("settings pack path 无效 → validatePack 报 dir-not-found，其他 pack 正常加载", async () => {
+    // 构造 1 个有效 settings pack + 1 个无效（path 不存在）
+    const validDir = join(tmpCwd, "valid-pack");
+    mkdirSync(join(validDir, "domains"), { recursive: true });
+    writeFileSync(join(validDir, "pt-asset-pack.yaml"), "name: valid-pack\n", "utf8");
+    const invalidPath = "/nonexistent/never/created/this/path";
+
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({
+        pt: { "asset-packs": [{ path: validDir }, { path: invalidPath }] },
+      }),
+      "utf8"
+    );
+
+    // 直接调 validatePack（不通过 session_start，验证 validatePack 本身行为）
+    const { loadSettingsPacks } = await import("../../src/asset-pack/loader.js");
+    const { validatePack } = await import("../../src/asset-pack/validate.js");
+    const packs = await loadSettingsPacks(tmpCwd);
+    expect(packs).toHaveLength(2);
+
+    const results = await Promise.all(packs.map(validatePack));
+
+    // valid pack → ok
+    const validResult = results.find((r) => r.pack === "valid-pack");
+    expect(validResult?.ok).toBe(true);
+
+    // invalid pack → ok=false + errors[0].code="dir-not-found"
+    const invalidResult = results.find((r) => r.rootDir === invalidPath);
+    expect(invalidResult?.ok).toBe(false);
+    expect(invalidResult?.errors[0]?.code).toBe("dir-not-found");
+    expect(invalidResult?.source).toBe("settings"); // 确认是 settings 来源
+  });
+
+  it("session_start settings pack 校验失败触发 ui.notify 预警（§6.7.5 集成）", async () => {
+    // 构造 settings pack path 不存在 + 真实集成调用 session_start
+    const invalidPath = "/nonexistent/never/created/this/path";
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "asset-packs": [{ path: invalidPath }] } }),
+      "utf8"
+    );
+
+    // 模拟 pi ExtensionAPI + 调 session_start handler
+    const installExtension = (await import("../../src/index.js")).default;
+    const events = new Map<string, Array<(...args: unknown[]) => unknown>>();
+    const notifs: Array<{ msg: string; level: string }> = [];
+    const pi = {
+      registerFlag: () => undefined,
+      registerCommand: () => undefined,
+      registerTool: () => undefined,
+      on: (event: string, handler: (...args: unknown[]) => unknown) => {
+        events.set(event, [...(events.get(event) ?? []), handler]);
+      },
+      getFlag: () => undefined,
+      appendEntry: () => undefined,
+    };
+    const ctx = {
+      cwd: tmpCwd,
+      sessionManager: { getEntries: () => [], getSessionId: () => "test-session-m2" },
+      hasUI: true,
+      ui: {
+        notify: (msg: string, level: "info" | "warning" | "error") => notifs.push({ msg, level }),
+        setStatus: () => undefined,
+        setWidget: () => undefined,
+      },
+      getSystemPrompt: () => "BASE",
+    };
+    installExtension(pi as never);
+    const sessionStart = events.get("session_start")?.[0];
+    expect(sessionStart).toBeDefined();
+    await sessionStart({ type: "session_start" }, ctx);
+
+    // §6.7.5 预警触发：settings pack 校验失败 → notify("⚠ Pt: settings pack ...", "warning")
+    const settingsWarn = notifs.find(
+      (n) => n.level === "warning" && n.msg.includes("settings pack") && n.msg.includes("已跳过")
+    );
+    expect(
+      settingsWarn,
+      `expected settings pack warn, got: ${JSON.stringify(notifs)}`
+    ).toBeDefined();
+  });
+});
