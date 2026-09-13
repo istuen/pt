@@ -11,10 +11,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Clone internal dev assets (.pt/)
+        run: |
+          git clone https://x-access-token:${{ secrets.ISTUEN_PAT }}@github.com/istuen/pt-internal.git .pt
+          git -C .pt config user.name "istuen"
+          git -C .pt config user.email "istuen@users.noreply.github.com"
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
+
       - run: npm ci
       - run: npm run typecheck
       - run: npm run verify
