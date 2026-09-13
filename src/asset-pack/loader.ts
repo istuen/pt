@@ -94,10 +94,6 @@ export async function loadBuiltinPack(adapterCtx?: SourceAdapterContext): Promis
  *  - 返回顺序 = settings 声明顺序（mdAdapter.load 负责 .reverse() 实现后者赢） */
 export async function loadSettingsPacks(cwd: string): Promise<AssetPack[]> {
   const entries = await readProjectSetting<Array<{ path?: unknown }>>(cwd, "pt.asset-packs");
-  if (process.env.PT_DEBUG_SETTINGS) {
-    console.error("[PT_DEBUG] loadSettingsPacks cwd:", cwd);
-    console.error("[PT_DEBUG] entries:", JSON.stringify(entries));
-  }
   if (!Array.isArray(entries) || entries.length === 0) {
     return [];
   }
