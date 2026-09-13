@@ -35,14 +35,16 @@ export function getGlobalPackDir(adapterCtx?: SourceAdapterContext): string {
  *
  * 不预加载——目录不存在时 loadDomains() 等返空数组，与"空 Pack"等价。
  * 这样调用方可以无差别调 loadXxx，不用关心目录是否存在。
+ *
+ * adapterCtx 透传给 MdFilePack：parse 失败时调 reportError 上抛（PR1 补丁 S2）。
  */
 export async function tryLoadPack(
   rootDir: string,
   reservedName: string,
-  source: PackSource
+  source: PackSource,
+  adapterCtx?: SourceAdapterContext
 ): Promise<AssetPack> {
-  const pack = new MdFilePack(rootDir, reservedName, source);
-  return pack;
+  return new MdFilePack(rootDir, reservedName, source, adapterCtx);
 }
 
 /** 构造 project pack（§6.5：路径可配，默认 .pt/assets）。
@@ -53,17 +55,17 @@ export async function loadProjectPack(
   adapterCtx?: SourceAdapterContext
 ): Promise<AssetPack> {
   const dir = adapterCtx?.assetDir ? resolve(cwd, adapterCtx.assetDir) : resolve(cwd, ASSETS_DIR);
-  return tryLoadPack(dir, "prj", "project");
+  return tryLoadPack(dir, "prj", "project", adapterCtx);
 }
 
 /** 构造 global pack（§6.4）。 */
 export async function loadGlobalPack(adapterCtx?: SourceAdapterContext): Promise<AssetPack> {
-  return tryLoadPack(getGlobalPackDir(adapterCtx), "gbl", "global");
+  return tryLoadPack(getGlobalPackDir(adapterCtx), "gbl", "global", adapterCtx);
 }
 
 /** 构造 builtin pack（src/builtin/assets/，随 npm 包发布）。 */
-export async function loadBuiltinPack(): Promise<AssetPack> {
-  return tryLoadPack(BUILTIN_ASSETS_DIR, "pt", "builtin");
+export async function loadBuiltinPack(adapterCtx?: SourceAdapterContext): Promise<AssetPack> {
+  return tryLoadPack(BUILTIN_ASSETS_DIR, "pt", "builtin", adapterCtx);
 }
 
 /**
