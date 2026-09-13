@@ -25,3 +25,6 @@ dist/
 
 # logs
 *.log
+
+# zread 工具本地 wiki 缓存（第三方工具数据）
+.zread/
