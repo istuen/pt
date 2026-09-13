@@ -685,3 +685,64 @@ describe("dispatchGroup 场景 D/E mixin（PR3b §4.5.2 集成）", () => {
     expect(out).toContain("from pt override");
   });
 });
+
+// v15.x PR5 M1（§5.5.1 S7）：非 use 越权 warn——Profile 有 blueprint 没有的 group
+//  - 不阻断（compileAgentContext 不抛错，产物返空 modules）
+//  - 含 hint 区分 use 场景 (error) vs 非 use 场景 (warn)
+describe("compileAgentContext 非 use 越权 warn（PR5 §5.5.1 S7）", () => {
+  it("Profile H2 group 不在 Blueprint 插槽 → warn 不阻断 + hint 区分", async () => {
+    const mod = await import("../../src/compile/agent-context.js");
+    // blueprint 只含 "会话背景"；profile 含两个 group（"会话背景"合法 + "越权插槽"越权）
+    const profile = makeProfile({
+      name: "over-scoped",
+      groups: [
+        { name: "会话背景", domains: ["d1"], modules: [makeMod("Scene")] },
+        { name: "越权插槽", domains: ["d1"], modules: [makeMod("Scene")] },
+      ],
+    });
+    const blueprint = makeBlueprint({
+      groups: [{ name: "会话背景", inject: "session" }],
+    });
+    const domain = makeDomain();
+    // 收集 warn：reportWarn 走 adapterCtx.log.warn（见 src/diagnostics.ts 三通道 fallback）
+    const messages: string[] = [];
+    const detailsAll: unknown[] = [];
+    const ctx = {
+      assetDir: "/test",
+      log: {
+        warn: (msg: string, details?: unknown) => {
+          messages.push(msg);
+          detailsAll.push(details);
+        },
+      },
+    };
+    // 不抛错 = 不阻断
+    const out = mod.compileAgentContext(
+      profile,
+      blueprint,
+      [domain],
+      [makePack("prj", "/test")],
+      "prj",
+      {
+        domains: new Map([["prj/d1", { pack: makePack("prj", "/test"), asset: domain }]]),
+        blueprints: new Map([
+          ["prj/test-blueprint", { pack: makePack("prj", "/test"), asset: blueprint }],
+        ]),
+        profiles: new Map(),
+      },
+      ctx
+    );
+    // 产物返有效 modules（合法 group 照常编译，越权 group 被忽略——modules 只含合法 group）
+    expect(out.modules.会话背景).toBeDefined();
+    expect(out.modules.越权插槽).toBeUndefined();
+    // 1 条 warn（含 hint 区分 use/error vs load/warn）
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("越权插槽");
+    expect(messages[0]).toContain("不在 Blueprint 插槽中");
+    expect(detailsAll[0]).toBeDefined();
+    const detailsStr = JSON.stringify(detailsAll[0]);
+    expect(detailsStr).toContain("hint");
+    expect(detailsStr).toMatch(/use 场景.*error/);
+    expect(detailsStr).toMatch(/非 use 场景.*warn/);
+  });
+});
