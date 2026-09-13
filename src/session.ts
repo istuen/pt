@@ -25,6 +25,7 @@
 //   - `cachedManualProgress` 从 module-level let 搬到 SessionState 字段。
 
 import type { AssetHealthIssue } from "./asset-health.js";
+import type { ValidationResult } from "./asset-pack/validate.js";
 import type {
   AgentAdapter,
   AgentContext,
@@ -87,6 +88,12 @@ export interface SessionState {
    *  session_start 批量体检结果——footer 追加 ⚠ N issues + /pt status 暴露。
    *  null = 未扫描（用户加载内置 profile 后才扫描过项目 profile）。 */
   assetHealthIssues: AssetHealthIssue[] | null;
+  /** v15.x PR1（§6.7.1）：session_start 一次性 pack 校验结果——/pt status 展示用。 */
+  packValidation: ValidationResult[] | null;
+  /** v15.x PR1（§6.7.3）：project pack 校验失败时标 true，transpileActive 强制回 guide。 */
+  projectPackDegraded: boolean;
+  /** v15.x PR1（§7.5）：全局 Pack 初始化引导一次性提示标记。 */
+  globalPackGuideShown: boolean;
 }
 
 /** 默认空 SessionState。 */
@@ -111,6 +118,9 @@ export function createSessionState(): SessionState {
     activeManual: null,
     cachedManualProgress: null,
     assetHealthIssues: null,
+    packValidation: null,
+    projectPackDegraded: false,
+    globalPackGuideShown: false,
   };
 }
 

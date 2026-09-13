@@ -1,0 +1,122 @@
+// src/asset-pack/validate.ts — Pack 校验（v15.x PR1）
+//
+// 设计源：.pt/docs/designs/pt-asset-pack.md §6.7.2（两层校验）/ §6.7.7（不抛异常）
+//
+// 关键纪律：validatePack 永远返结果对象，不抛异常——失败不阻断加载链。
+// 错误收集到 errors[] / warnings[]，返 ok: boolean。
+//
+// 层 1（pack 结构）：rootDir 存在 + 至少一个 asset 子目录
+// 层 2（asset 解析）：loadDomains/loadBlueprints/loadProfiles 不抛即过
+//
+// PR1 简化：
+//   - 不做 manifest 校验（PR2）
+//   - 不做 pack 内同 name asset 冲突检测（PR2 与 manifest 校验一起做）
+//   - 不做 settings pack 之间冲突报错（PR4 接通 settings 加载时一起做）
+
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { errMsg } from "../diagnostics.js";
+import type { AssetPack } from "../schema.js";
+
+/** 校验结果（§6.7.7）。validatePack 永远返结果对象，不抛异常。 */
+export interface ValidationResult {
+  /** Pack 名（来源 pack.name） */
+  pack: string;
+  /** Pack 来源类型 */
+  source: AssetPack["source"];
+  /** 整体是否可用 */
+  ok: boolean;
+  /** 致命问题（pack 不可用） */
+  errors: PackIssue[];
+  /** 非致命（pack 可用但有隐患——目前未使用，预留扩展） */
+  warnings: PackIssue[];
+}
+
+/** 单条校验问题。code 机器可读，msg 人类可读，hint 修复建议。 */
+export interface PackIssue {
+  /** 机器可读错误码（如 "dir-not-found"） */
+  code: string;
+  /** 人类可读 */
+  msg: string;
+  /** 修复建议（可选） */
+  hint?: string;
+}
+
+/**
+ * 两层校验（§6.7.2）：
+ *   层 1 pack 结构：rootDir 存在 + 至少一个 asset 子目录
+ *   层 2 asset 解析：loadDomains/loadBlueprints/loadProfiles 不抛即过
+ *     （parse 失败的文件已在 MdFilePack 内部 filter 掉，不阻断 pack 加载）
+ *
+ * 永远返结果对象，不抛异常（§6.7.7）——失败不阻断加载链。
+ */
+export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
+  const errors: PackIssue[] = [];
+  const warnings: PackIssue[] = [];
+
+  // 层 1：pack 结构——目录存在
+  if (!existsSync(pack.rootDir)) {
+    errors.push({
+      code: "dir-not-found",
+      msg: `pack 目录不存在: ${pack.rootDir}`,
+      hint: "检查路径配置，或创建该目录（参考 /manual:pack-repair）",
+    });
+    return { pack: pack.name, source: pack.source, ok: false, errors, warnings };
+  }
+
+  // 层 1：pack 结构——至少一个 asset 子目录
+  const hasDomains = existsSync(join(pack.rootDir, "domains"));
+  const hasBlueprints = existsSync(join(pack.rootDir, "blueprints"));
+  const hasProfiles = existsSync(join(pack.rootDir, "profiles"));
+  if (!hasDomains && !hasBlueprints && !hasProfiles) {
+    errors.push({
+      code: "no-asset-subdir",
+      msg: `pack "${pack.name}" 无任何 asset 子目录（domains/blueprints/profiles）`,
+      hint: "至少创建一个 asset 子目录（参考 /manual:pack-repair）",
+    });
+    return { pack: pack.name, source: pack.source, ok: false, errors, warnings };
+  }
+
+  // 层 2：asset 解析——loadXxx 不抛即过
+  // PR1 简化：只验证 loadXxx 不抛异常；详细 per-file 错误收集留 PR2（manifest 校验时一起做）。
+  try {
+    await pack.loadDomains();
+    await pack.loadBlueprints();
+    await pack.loadProfiles();
+  } catch (e) {
+    errors.push({
+      code: "load-failed",
+      msg: `pack "${pack.name}" 加载失败: ${errMsg(e)}`,
+      hint: "检查资产文件格式（参考 /manual:pack-repair）",
+    });
+  }
+
+  // pack 内一致性（同 name asset 冲突）—— PR2 manifest 校验时一起做
+
+  return {
+    pack: pack.name,
+    source: pack.source,
+    ok: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+/**
+ * v15.x PR1（§7.5 + §7.5.1）：判断是否该弹全局 Pack 初始化引导。
+ * pure helper——抽出来让 session_start handler 简洁，也便于单元测试。
+ *
+ * 约束：TTY + 目录不存在 + 首次（每个 session 只提示一次）+ 非 CI + 非 PT_NO_GUIDE 禁用。
+ * 调用方负责检查 isFirstRun（读 session state.globalPackGuideShown）和传 env。
+ */
+export function shouldPromptGlobalPackGuide(args: {
+  isTTY: boolean;
+  globalPackExists: boolean;
+  isFirstRun: boolean;
+  isCi: boolean;
+  guideDisabled: boolean;
+}): boolean {
+  return (
+    args.isTTY && !args.globalPackExists && args.isFirstRun && !args.isCi && !args.guideDisabled
+  );
+}
