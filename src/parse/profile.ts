@@ -91,6 +91,11 @@ export async function parseProfile(
   const tagline =
     typeof taglineRaw === "string" && taglineRaw.trim().length > 0 ? taglineRaw.trim() : undefined;
 
+  // v15.x PR5（§5.1）：use 单继承字段——选填 string，解析阶段只读不展开
+  //   引用解析在 expandProfile（src/compile/resolve-use.ts）做——分离关注点
+  const useRaw = asset.frontmatter.use;
+  const use = typeof useRaw === "string" && useRaw.trim().length > 0 ? useRaw.trim() : undefined;
+
   // groups：每个 H2 = 聚合组实例化
   //   - ### Domains → 追加到本聚合组的 Domain 名列表（v9 既有）
   //   - ### Modules → 本插槽填的聚合模块列表（v9.1+），modName 解析为 ModName 对象
@@ -124,6 +129,7 @@ export async function parseProfile(
     domains,
     groups,
     tagline,
+    use,
   };
 }
 

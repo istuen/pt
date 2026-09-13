@@ -118,10 +118,17 @@ export function compileAgentContext(
   const bpNames = new Set(blueprint.groups.map((g) => g.name));
   for (const pg of profile.groups) {
     if (!bpNames.has(pg.name)) {
+      // v15.x PR5（§5.5.1 S7）：非 use 场景越权 warn——profile 有 blueprint 没有的 group
+      //  use 场景的越权已在 expandProfile 报 error（§5.5.1）；此处是普通 Profile 加载 warn
+      //  back-compat：之前不检测，现加 warn 不破坏行为（只提示，不阻断）
       reportWarn(
         ctx,
         `Profile「${profile.name}」的 H2「${pg.name}」不在 Blueprint 插槽中（越权，被忽略）`,
-        { profile: profile.name, group: pg.name }
+        {
+          profile: profile.name,
+          group: pg.name,
+          hint: "use 场景此为 error（PR5 expandProfile 报 BlueprintGroupOutOfScope）；非 use 场景此为 warn（group 被忽略，不阻断）",
+        }
       );
     }
   }
