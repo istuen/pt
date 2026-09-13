@@ -96,11 +96,26 @@ Pt Domain ──→ Blueprint ──→ Pt Profile ──→ Agent Context
 
 ### Pt Domain — 领域知识
 
-领域知识，一个 `.md` 文件。用 H2 段切分内容——`## Scene`（概念/背景）、`## Rules`（规则/约束）、`## Flows`（流程模板）、`## Checklists`（验收清单）等。H2 段名决定内容去向，是开放的（加新段名走 generic fallback，不改代码）。放 `.pt/assets/domains/`。
+领域知识，一个 `.md` 文件。用 MD 语法组成：**H2 做 Module**（内容段，如 `## Scene`、`## Flows`）、**H3 做语义**（项名，如 `### 角色分工`）、**列表项做描述**（`- desc: ...`）。可写业务领域的设计语义、工作流说明、外部系统操作指导。Module 允许自定义，通过 Profile 引用即可。放 `.pt/assets/domains/`。
+
+例子：
+```markdown
+---
+name: user-info
+---
+# user-info
+
+## User
+### who-am-i
+- desc: 我是这个项目的开发者
+
+### preferences
+- desc: 偏好类型安全、模块化设计
+```
 
 ### Blueprint — 转换结构
 
-转换结构，一个 `.blueprint.yaml` 文件。定义有哪些聚合组（`groups`），每个组聚合哪些 Domain 的 H2 段，注入到哪（`inject: session` 会话级 / `inject: turn` 轮次级）。跨项目复用。放 `.pt/assets/blueprints/`。
+转换结构，一个 `.blueprint.yaml` 文件。定义 Profile 可以把哪些 Domain 注入到 Agent——声明有哪些聚合组（`groups`），每个组聚合哪些 Module，注入到哪（`inject: session` 会话级 / `inject: turn` 轮次级）。跨项目复用。放 `.pt/assets/blueprints/`。
 
 ```yaml
 name: dev-knowledge
@@ -118,18 +133,20 @@ groups:
 
 ### Pt Profile — 身份配置
 
-身份配置，一个 `.profile.md` 文件。选一个 Blueprint + 列要用的 Domain，组合出具体场景的 Agent 身份。项目级，不跨项目复用。放 `.pt/assets/profiles/`。
+Profile 是 Pt 最核心的功能，承接用户与 Agent 之间的会话配置。切换 Profile 会影响：会话背景、主题、用户与 Agent 的身份信息、参考信息等——让 Agent 专注当前推理范围。一个 `.profile.md` 文件，选一个 Blueprint + 列要用的 Domain。项目级，不跨项目复用。放 `.pt/assets/profiles/`。
+
+例子：
+```markdown
+---
+name: my-dev
+blueprint: dev-knowledge
+domains: [user-info, authoring, usage]
+---
+```
 
 ### Agent Context — 编译后上下文
 
-编译后的上下文，分两面：
-
-| 面 | 注入 | 时效 | 作用 |
-|---|---|---|---|
-| **Session Context** | Session Inject | 每轮注入 | Agent 的人格/背景/索引 |
-| **Turn Context** | Turn Inject | 按需触发 | 需要时查阅的详细手册 |
-
-带 hash 缓存（`.pt/cache/agent-contexts/`），资产变了自动重编译。
+Profile 编译后的产物，分两面——**Session Context**（每轮注入：会话背景、身份信息、触发索引）和 **Turn Context**（按需触发：推理时查阅的参考手册）。带 hash 缓存（`.pt/cache/agent-contexts/`），资产变了自动重编译。
 
 **一句话串起来**：写 Domain → 用 Blueprint 定转换结构 → 用 Profile 组装身份 → 编译出 Agent Context 两面注入。
 
