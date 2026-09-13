@@ -107,12 +107,13 @@ export const mdAdapter: SourceAdapter = {
     // 行为：
     //   - 不限定 ref + 跨 pack fallback 命中 → 静默（compile 阶段会复用同一 fallback）
     //   - 限定 ref 找不到 / 不限定 ref fallback 全部 miss → warn（compile 阶段会 throw）
-    const bpResolved = resolveBlueprint(active, blueprintWS, packs.map((p) => p.name));
+    const bpResolved = resolveBlueprint(
+      active,
+      blueprintWS,
+      packs.map((p) => p.name)
+    );
     if (!bpResolved && active.blueprint) {
-      const { pack: bpPack, name: bpName } = parseRef(
-        active.blueprint,
-        active.sourcePack ?? ""
-      );
+      const { pack: bpPack, name: bpName } = parseRef(active.blueprint, active.sourcePack ?? "");
       reportWarn(
         adapterCtx,
         `Profile "${active.name}" 引用了未知 Blueprint "${active.blueprint}"`,

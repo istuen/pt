@@ -319,12 +319,18 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
 
   it("限定 @prj/foo + prj 缺 + pt 有 → 返 undefined（限定不 fallback）", () => {
     const ws = new Map([["pt/foo", { pack: pt, asset: makeBlueprint("foo") }]]);
-    expect(resolveBlueprint({ blueprint: "@prj/foo", sourcePack: "prj" }, ws, packNames)).toBeUndefined();
+    expect(
+      resolveBlueprint({ blueprint: "@prj/foo", sourcePack: "prj" }, ws, packNames)
+    ).toBeUndefined();
   });
 
   it("不限定 foo + selfPack=prj 但 prj 缺 → fallback 到 pt 命中（核心场景：fix warn false-positive）", () => {
     const ws = new Map([["pt/dev-knowledge", { pack: pt, asset: makeBlueprint("dev-knowledge") }]]);
-    const result = resolveBlueprint({ blueprint: "dev-knowledge", sourcePack: "prj" }, ws, packNames);
+    const result = resolveBlueprint(
+      { blueprint: "dev-knowledge", sourcePack: "prj" },
+      ws,
+      packNames
+    );
     expect(result?.pack.name).toBe("pt");
     expect(result?.asset.name).toBe("dev-knowledge");
   });
@@ -336,14 +342,16 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
       ["prj/foo", { pack: prj, asset: prjBp }],
       ["pt/foo", { pack: pt, asset: ptBp }],
     ]);
-    expect(resolveBlueprint({ blueprint: "foo", sourcePack: "prj" }, ws, packNames)?.pack.name).toBe(
-      "prj"
-    );
+    expect(
+      resolveBlueprint({ blueprint: "foo", sourcePack: "prj" }, ws, packNames)?.pack.name
+    ).toBe("prj");
   });
 
   it("不限定 foo + 所有 pack 都缺 → 返 undefined（compile 阶段会 throw）", () => {
     const ws = new Map<string, { pack: AssetPack; asset: Blueprint }>();
-    expect(resolveBlueprint({ blueprint: "missing", sourcePack: "prj" }, ws, packNames)).toBeUndefined();
+    expect(
+      resolveBlueprint({ blueprint: "missing", sourcePack: "prj" }, ws, packNames)
+    ).toBeUndefined();
   });
 
   it("空 blueprint → 返 undefined（无 profile.blueprint 字段时）", () => {
@@ -359,8 +367,8 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
       ["gbl/foo", { pack: gbl, asset: gblBp }],
       ["pt/foo", { pack: pt, asset: ptBp }],
     ]);
-    expect(resolveBlueprint({ blueprint: "foo", sourcePack: "prj" }, ws, packNames)?.pack.name).toBe(
-      "gbl"
-    );
+    expect(
+      resolveBlueprint({ blueprint: "foo", sourcePack: "prj" }, ws, packNames)?.pack.name
+    ).toBe("gbl");
   });
 });
