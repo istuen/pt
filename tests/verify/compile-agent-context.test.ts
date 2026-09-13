@@ -7,7 +7,7 @@
 // Phase term-P1：compile-context.test.ts → compile-agent-context.test.ts
 //   同步改名 compileContext → compileAgentContext（IR 改名）。
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { compileAgentContext, computeSourceHash } from "../../src/compile/agent-context.js";
 import type { Blueprint, Domain, Profile } from "../../src/schema.js";
 
@@ -59,6 +59,11 @@ function compileCtx(p: Profile, bp: Blueprint, ds: Domain[]) {
 }
 function hashCtx(p: Profile, bp: Blueprint, ds: Domain[]) {
   return computeSourceHash(p, bp, ds, []);
+}
+
+// v15.x PR3b（§4.5.2）：测试用 factory——直接构造 refDomains + bpGroup + profileGroup
+function makeMod(section: string, item?: string): { section: string; item?: string } {
+  return item ? { section, item } : { section };
 }
 
 // v15.x PR2（§8.1）：构造测试 AssetPack（mock 简化版本）
@@ -441,5 +446,242 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
     // User 段聚合：只 user-info 的 User 段（agent-info 没有 User 段）
     expect(ctx.modules.会话背景).toContain("user-profile");
     expect(ctx.modules.会话背景).not.toContain("agent-role-architect");
+  });
+});
+
+// ==================== PR3b §4.5.2：mergeSectionContent + dispatchGroup mixin ====================
+
+describe("mergeSectionContent（PR3b §4.5.2）", () => {
+  // v15.x PR3b：直接 import mergeSectionContent（export 供测试可见性）
+  let mergeSectionContent: typeof import("../../src/compile/agent-context.js").mergeSectionContent;
+  beforeAll(async () => {
+    const mod = await import("../../src/compile/agent-context.js");
+    mergeSectionContent = mod.mergeSectionContent;
+  });
+
+  it("单份 Term[] → 原样返回（back-compat 零开销）", () => {
+    const d = makeDomain({
+      name: "foo",
+      modules: { Scene: [{ name: "t1", desc: "single" }] },
+    });
+    const out = mergeSectionContent([d], "Scene");
+    expect(out).toEqual([{ name: "t1", desc: "single" }]);
+  });
+
+  it("两份 Term[] 不同 name → union by name（两 name 都保留）", () => {
+    const d1 = makeDomain({
+      name: "foo",
+      modules: { Scene: [{ name: "t1", desc: "from prj" }] },
+    });
+    const d2 = makeDomain({
+      name: "foo",
+      modules: { Scene: [{ name: "t2", desc: "from pt" }] },
+    });
+    const out = mergeSectionContent([d1, d2], "Scene") as Array<{ name: string }>;
+    expect(out).toHaveLength(2);
+    expect(out.map((t) => t.name).sort()).toEqual(["t1", "t2"]);
+  });
+
+  it("两份 Term[] 同 name → 后写覆盖前写（场景 E mixin）", () => {
+    const d1 = makeDomain({
+      name: "foo",
+      modules: { Scene: [{ name: "shared", desc: "from prj" }] },
+    });
+    const d2 = makeDomain({
+      name: "foo",
+      modules: { Scene: [{ name: "shared", desc: "from pt" }] },
+    });
+    const out = mergeSectionContent([d1, d2], "Scene") as Array<{
+      name: string;
+      desc: string;
+    }>;
+    expect(out).toHaveLength(1);
+    expect(out[0]?.desc).toBe("from pt"); // 后写覆盖前写
+  });
+
+  it("两份 Rule[] → union by name", () => {
+    const d1 = makeDomain({
+      name: "foo",
+      modules: {
+        Rules: [{ name: "rule1", slot: "global", type: "invariant", check: "from prj" }],
+      },
+    });
+    const d2 = makeDomain({
+      name: "foo",
+      modules: {
+        Rules: [
+          { name: "rule1", slot: "global", type: "invariant", check: "from pt" },
+          { name: "rule2", slot: "global", type: "invariant", check: "extra" },
+        ],
+      },
+    });
+    const out = mergeSectionContent([d1, d2], "Rules") as Array<{ name: string }>;
+    expect(out.map((r) => r.name).sort()).toEqual(["rule1", "rule2"]);
+  });
+
+  it("两份 FlowTemplate[] → union by name", () => {
+    const d1 = makeDomain({
+      name: "foo",
+      modules: {
+        Flows: [{ name: "flow-a", intent: "from prj", steps: [], externals: [] }],
+      },
+    });
+    const d2 = makeDomain({
+      name: "foo",
+      modules: {
+        Flows: [{ name: "flow-b", intent: "from pt", steps: [], externals: [] }],
+      },
+    });
+    const out = mergeSectionContent([d1, d2], "Flows") as Array<{ name: string }>;
+    expect(out.map((f) => f.name).sort()).toEqual(["flow-a", "flow-b"]);
+  });
+
+  it("两份 Checklist[] → union by name", () => {
+    const d1 = makeDomain({
+      name: "foo",
+      modules: {
+        Checklists: [{ name: "cl-a", items: ["x"] }],
+      },
+    });
+    const d2 = makeDomain({
+      name: "foo",
+      modules: {
+        Checklists: [{ name: "cl-b", items: ["y"] }],
+      },
+    });
+    const out = mergeSectionContent([d1, d2], "Checklists") as Array<{ name: string }>;
+    expect(out.map((c) => c.name).sort()).toEqual(["cl-a", "cl-b"]);
+  });
+
+  it("两份 Trigger 项[] → union by name", () => {
+    const d1 = makeDomain({
+      name: "foo",
+      modules: {
+        Trigger: [{ name: "t1", desc: "from prj" }],
+      },
+    });
+    const d2 = makeDomain({
+      name: "foo",
+      modules: {
+        Trigger: [{ name: "t2", desc: "from pt" }],
+      },
+    });
+    const out = mergeSectionContent([d1, d2], "Trigger") as Array<{ name: string }>;
+    expect(out.map((t) => t.name).sort()).toEqual(["t1", "t2"]);
+  });
+
+  it("所有 domain 都无该 section → undefined", () => {
+    const d1 = makeDomain({ name: "foo", modules: { Scene: [{ name: "t1" }] } });
+    expect(mergeSectionContent([d1], "Rules")).toBeUndefined();
+  });
+
+  it("未知 schema → 保守取首份（不 union）", () => {
+    const d1 = makeDomain({
+      name: "foo",
+      modules: { Custom: "this is a string, not array" },
+    });
+    const d2 = makeDomain({
+      name: "foo",
+      modules: { Custom: "this is another string" },
+    });
+    // 类型不匹配 type guards（全是 string）→ fallback 取首份
+    expect(mergeSectionContent([d1, d2], "Custom")).toBe("this is a string, not array");
+  });
+});
+
+describe("dispatchGroup 场景 D/E mixin（PR3b §4.5.2 集成）", () => {
+  let dispatchGroup: typeof import("../../src/compile/agent-context.js").dispatchGroup;
+  beforeAll(async () => {
+    const mod = await import("../../src/compile/agent-context.js");
+    dispatchGroup = mod.dispatchGroup;
+  });
+
+  function buildGroups(section: string) {
+    return {
+      bpGroup: { name: "g", inject: "session" as const, mode: "hybrid" as const },
+      profileGroup: {
+        name: "g",
+        domains: [] as string[],
+        modules: [makeMod(section)],
+      },
+    };
+  }
+
+  it("场景 D：两份同 name 同内容 → ### foo 标题出现一次 + term 出现一次", () => {
+    const d1 = makeDomain({
+      name: "foo",
+      modules: { Scene: [{ name: "term-a", desc: "same content" }] },
+    });
+    const d2 = makeDomain({
+      name: "foo",
+      modules: { Scene: [{ name: "term-a", desc: "same content" }] },
+    });
+    const { bpGroup, profileGroup } = buildGroups("Scene");
+    const out = dispatchGroup(profileGroup, bpGroup, [d1, d2]);
+    // ### foo 出现 1 次（不渲染两次）
+    expect(out.match(/### foo/g)?.length).toBe(1);
+    // term-a 出现 1 次（同 name union 后保留一份）
+    expect(out.match(/term-a/g)?.length).toBe(1);
+  });
+
+  it("场景 E：两份同 name 不同内容 → 内容 union（后写覆盖前写）", () => {
+    const d1 = makeDomain({
+      name: "foo",
+      modules: { Scene: [{ name: "term-a", desc: "from prj" }] },
+    });
+    const d2 = makeDomain({
+      name: "foo",
+      modules: {
+        Scene: [
+          { name: "term-b", desc: "from pt" },
+          { name: "term-a", desc: "from pt override" },
+        ],
+      },
+    });
+    const { bpGroup, profileGroup } = buildGroups("Scene");
+    const out = dispatchGroup(profileGroup, bpGroup, [d1, d2]);
+    expect(out.match(/### foo/g)?.length).toBe(1);
+    expect(out).toContain("term-b: from pt");
+    expect(out).toContain("term-a: from pt override"); // 后写覆盖前写
+    expect(out).not.toContain("from prj"); // 旧版覆盖
+  });
+
+  it("单份场景 back-compat：输出与今天格式完全一致", () => {
+    const d = makeDomain({
+      name: "foo",
+      modules: { Scene: [{ name: "term-a", desc: "single domain" }] },
+    });
+    const { bpGroup, profileGroup } = buildGroups("Scene");
+    const out = dispatchGroup(profileGroup, bpGroup, [d]);
+    expect(out).toContain("### foo");
+    expect(out).toContain("- term-a: single domain");
+    expect(out.match(/### foo/g)?.length).toBe(1);
+  });
+
+  it("段.项粒度 + 两份 → union 后按 item 找（renderItemModule mixin）", () => {
+    const d1 = makeDomain({
+      name: "user-info",
+      modules: { User: [{ name: "user-profile", desc: "from prj" }] },
+    });
+    const d2 = makeDomain({
+      name: "user-info",
+      modules: {
+        User: [
+          { name: "user-profile", desc: "from pt override" },
+          { name: "pt-goal", desc: "extra" },
+        ],
+      },
+    });
+    const bpGroup = { name: "g", inject: "session" as const, mode: "hybrid" as const };
+    const profileGroup = {
+      name: "g",
+      domains: [] as string[],
+      modules: [makeMod("User", "user-profile")], // 段.项粒度
+    };
+    const out = dispatchGroup(profileGroup, bpGroup, [d1, d2]);
+    // d0 = d1（首个有 User 段的 domain）→ ### d1.name
+    expect(out).toContain("### user-info.user-profile");
+    // union 后选 user-profile，fp 不同但 name 相同 → d2 版本胜
+    expect(out).toContain("from pt override");
   });
 });

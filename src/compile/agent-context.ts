@@ -179,6 +179,58 @@ function resolveDomains(
     .filter((d) => mods.some((m) => d.modules[m.section] !== undefined));
 }
 
+// ==================== §4.5.2：mergeSectionContent + mergeByName（PR3b） ====================
+
+/** v15.x PR3b（§4.5.2）：合并多份同 name asset 的同 H2 段内容（按 schema 分发 mixin）。
+ *
+ * 场景 D/E（不同 pack 同 name）→ resolveAndDedupRefs 保留多份 → dispatchGroup 遍历多份。
+ * 本函数在调 renderer 前合并内容，让多份 asset 的同 H2 段 union 后渲染一次（§4.5.2 期望）。
+ *
+ * 按 schema 分发：
+ *  - Term[]（Scene/User/Agent/Participant）：Map by Term.name，后写覆盖前写
+ *  - Trigger 项[]：Map by name，后写覆盖前写
+ *  - Rule[] / FlowTemplate[] / Checklist[]：Map by name，后写覆盖前写
+ *  - 未知段（fallback）：保守取首份——避免未知 schema 误合并
+ *
+ * 单份 content（parts.length === 1）→ 原样返回（back-compat 零开销）。
+ * 所有 domain 都无该 section → undefined。 */
+export function mergeSectionContent(domains: Domain[], section: string): unknown {
+  const parts: unknown[] = [];
+  for (const d of domains) {
+    const content = d.modules[section];
+    if (content !== undefined) parts.push(content);
+  }
+  if (parts.length === 0) return undefined;
+  if (parts.length === 1) return parts[0]; // 单份直接返——back-compat
+
+  // 按 schema 分发 union（用现有 type guards，不引新 guard）
+  // 内部断言 unknown[][]——type guard 已 narrow 元素形态（Rule / Term / 等）
+  const partsAsArrays = parts as unknown[][];
+  if (isTermArray(parts[0])) return mergeByName(partsAsArrays);
+  if (isTriggerItemArray(parts[0])) return mergeByName(partsAsArrays);
+  if (isRuleArray(parts[0])) return mergeByName(partsAsArrays);
+  if (isFlowTemplateArray(parts[0])) return mergeByName(partsAsArrays);
+  if (isChecklistArray(parts[0])) return mergeByName(partsAsArrays);
+  if (isNamedItemArray(parts[0])) return mergeByName(partsAsArrays);
+  // 未知 schema：保守策略——只取第一份（不 union，避免误合并）
+  return parts[0];
+}
+
+/** 按 name 字段 union，后写覆盖前写（Map.set 语义）。
+ *  保留原顺序（Map.values 按首次插入）——dispatchGroup 遍历顺序 = 原列表首次出现顺序。
+ *  接受 unknown[][]——调用方 type guard 担保元素形态（Rule / Term / 等）。 */
+function mergeByName(parts: unknown[][]): unknown[] {
+  const map = new Map<string, unknown>();
+  for (const arr of parts) {
+    for (const item of arr) {
+      if (item && typeof item === "object" && "name" in item && typeof item.name === "string") {
+        map.set(item.name, item);
+      }
+    }
+  }
+  return [...map.values()];
+}
+
 // ==================== modName 驱动聚合（v9 核心） ====================
 
 /**
@@ -192,7 +244,7 @@ function resolveDomains(
  *  ProfileGroup.modules。Blueprint 退化为插槽契约（声明有哪些插槽 + inject + mode），
  *  Profile 通过 H2 `### Modules` 填聚合标题列表。
  */
-function dispatchGroup(
+export function dispatchGroup(
   profileGroup: ProfileGroup | undefined,
   bpGroup: BlueprintGroup,
   refDomains: Domain[]
@@ -203,18 +255,20 @@ function dispatchGroup(
   // v9.1+（modules-to-profile-complete）：mod 是 { section, item? } 结构
   //  - 段粒度：mod.item 未定义 → 整段渲染
   //  - 段.项粒度：mod.item 已定义 → 单 H3 项渲染
+  // v15.x PR3b（§4.5.2）：场景 D/E（多份同 name asset）→ 调 renderer 前先 mergeSectionContent
+  // 合并 H2 段内容（按 schema union by name）；d0 = 首个有该 section 的 domain 做 ### 标题。
+  // 单份场景 back-compat：mergeSectionContent 原样返 content + d0 = 那份 domain。
   const mods = profileGroup?.modules ?? [];
   for (const mod of mods) {
-    const modParts: string[] = [];
-    for (const d of refDomains) {
-      const content = d.modules[mod.section];
-      if (content === undefined) continue;
-      const rendered = mod.item
-        ? renderItemModule(d, content, mod)
-        : (moduleRenderers[mod.section] ?? renderGenericModule)(d, content, bpGroup.mode);
-      if (rendered) modParts.push(rendered);
-    }
-    if (modParts.length > 0) parts.push(modParts.join("\n\n"));
+    const mergedContent = mergeSectionContent(refDomains, mod.section);
+    if (mergedContent === undefined) continue;
+    const d0 = refDomains.find((d) => d.modules[mod.section] !== undefined);
+    if (!d0) continue; // 防御——mergeSectionContent 已挡，这里兑底
+
+    const rendered = mod.item
+      ? renderItemModule(d0, mergedContent, mod)
+      : (moduleRenderers[mod.section] ?? renderGenericModule)(d0, mergedContent, bpGroup.mode);
+    if (rendered) parts.push(rendered);
   }
 
   return parts.join("\n\n").trimEnd();
