@@ -28,7 +28,7 @@ import { compileAgentContext } from "./compile/agent-context.js";
 import { saveAgentContext, loadAgentContext } from "./render/cache.js";
 import { renderSessionInject } from "./render/session-inject.js";
 import { findProfile } from "./schema.js";
-import { parseRef } from "./parse/ref-resolver.js";
+import { parseRef, resolveBlueprint } from "./parse/ref-resolver.js";
 import {
   expandProfile,
   UseTargetNotFound,
@@ -142,19 +142,11 @@ export async function loadAndTranspile(
     }
     throw e;
   }
-  const blueprintEntry = (() => {
-    const { pack, name } = parseRef(profile.blueprint, profile.sourcePack ?? "");
-    const entry = bundle.workingSet.blueprints.get(`${pack}/${name}`);
-    // v15.x PR3（§4.6 back-compat）：不限定 ref fallback——与今天前者赢补充一致
-    if (!entry && !profile.blueprint.startsWith("@")) {
-      for (const fallbackPack of bundle.packs.map((p) => p.name)) {
-        if (fallbackPack === pack) continue;
-        const fallback = bundle.workingSet.blueprints.get(`${fallbackPack}/${name}`);
-        if (fallback) return fallback;
-      }
-    }
-    return entry;
-  })();
+  const blueprintEntry = resolveBlueprint(
+    profile,
+    bundle.workingSet.blueprints,
+    bundle.packs.map((p) => p.name)
+  );
   const blueprint = blueprintEntry?.asset;
   if (!blueprint) {
     const resolved = (() => {

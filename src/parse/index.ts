@@ -28,7 +28,7 @@ import {
   loadSettingsPacks,
 } from "../asset-pack/loader.js";
 import { reportWarn } from "../diagnostics.js";
-import { parseRef } from "./ref-resolver.js";
+import { parseRef, resolveBlueprint } from "./ref-resolver.js";
 import { parseBlueprint } from "./blueprint.js";
 import { parseDomain } from "./domain.js";
 import { parseProfile } from "./profile.js";
@@ -101,9 +101,18 @@ export const mdAdapter: SourceAdapter = {
     }
 
     // 4. 校验 active 引用的 Blueprint 存在（用 working set）
-    const { pack: bpPack, name: bpName } = parseRef(active.blueprint, active.sourcePack ?? "");
-    const bpEntry = blueprintWS.get(`${bpPack}/${bpName}`);
-    if (!bpEntry && active.blueprint) {
+    // v15.x PR6（fix pt-parse-blueprint-warn-misleading）：改用 resolveBlueprint helper
+    // 与 compile 阶段（transpile.ts:145）共用 fallback 逻辑——避免 parse 层单方面
+    // 报 "unknown Blueprint" warn 但 compile 层能 fallback 成功的 false positive。
+    // 行为：
+    //   - 不限定 ref + 跨 pack fallback 命中 → 静默（compile 阶段会复用同一 fallback）
+    //   - 限定 ref 找不到 / 不限定 ref fallback 全部 miss → warn（compile 阶段会 throw）
+    const bpResolved = resolveBlueprint(active, blueprintWS, packs.map((p) => p.name));
+    if (!bpResolved && active.blueprint) {
+      const { pack: bpPack, name: bpName } = parseRef(
+        active.blueprint,
+        active.sourcePack ?? ""
+      );
       reportWarn(
         adapterCtx,
         `Profile "${active.name}" 引用了未知 Blueprint "${active.blueprint}"`,

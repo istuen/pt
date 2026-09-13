@@ -14,7 +14,7 @@
 // - fingerprint 用 rootDir + content：保证"同 pack 同内容同 fp" + "不同 pack 偶然同内容不同 fp"
 
 import { createHash } from "node:crypto";
-import type { AssetPack, Profile } from "../schema.js";
+import type { AssetPack, Blueprint, Profile } from "../schema.js";
 
 // ==================== §4.2：parseRef ====================
 
@@ -63,6 +63,37 @@ export function isQualifiedRef(raw: string): boolean {
 /** 保留名归一（project → prj 等）。非保留名原样返回。 */
 export function normalizePackName(raw: string): string {
   return RESERVED_PACK_NAMES.get(raw) ?? raw;
+}
+
+// ==================== §4.6：resolveBlueprint ====================
+
+/** v15.x PR6（fix pt-parse-blueprint-warn-misleading）：跨 pack Blueprint 解析。
+ *  - 限定 ref（@pack/name）：只在目标 pack 查；查不到返 undefined（精确语义）
+ *  - 不限定 ref（foo）：先在 self.sourcePack 查；查不到按 packNames 顺序 fallback
+ *  - 与 transpile 阶段（§4.6 back-compat）行为等价——parse 阶段不再单独报
+ *    "unknown Blueprint" warn（false positive），统一交给 compile 阶段 throw。
+ *
+ *  设计：parse 和 compile 共用同一份 fallback 逻辑，避免行为漂移。
+ *  packNames 顺序 = [project, ...settings.reverse(), global, builtin]，前者赢。
+ *  fallback 时跳过 selfPack（已查过），按声明顺序查后续 pack。 */
+export function resolveBlueprint(
+  profile: { blueprint: string; sourcePack?: string },
+  blueprintWS: Map<string, { pack: AssetPack; asset: Blueprint }>,
+  packNames: readonly string[]
+): { pack: AssetPack; asset: Blueprint } | undefined {
+  if (!profile.blueprint) return undefined;
+  const { pack, name } = parseRef(profile.blueprint, profile.sourcePack ?? "");
+  const direct = blueprintWS.get(`${pack}/${name}`);
+  if (direct) return direct;
+  // 不限定 ref + direct miss → fallback 查找其他 pack
+  if (!profile.blueprint.startsWith("@")) {
+    for (const fb of packNames) {
+      if (fb === pack) continue;
+      const entry = blueprintWS.get(`${fb}/${name}`);
+      if (entry) return entry;
+    }
+  }
+  return undefined;
 }
 
 // ==================== §4.4.2：fingerprint ====================
