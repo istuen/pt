@@ -124,7 +124,17 @@ export class MdFilePack implements AssetPack {
 
   async loadProfiles(): Promise<Profile[]> {
     const dir = join(this.rootDir, "profiles");
-    return loadDir(dir, SUFFIX_MD, (f) => parseProfile(dir, f, this.adapterCtx), this.adapterCtx);
+    const profiles = await loadDir(
+      dir,
+      SUFFIX_MD,
+      (f) => parseProfile(dir, f, this.adapterCtx),
+      this.adapterCtx
+    );
+    // v15.x PR3（§4.4.1）：MdFilePack 加载时给每个 Profile 打上 sourcePack——parseRef 不限定 ref 自动绑定用。
+    for (const p of profiles) {
+      p.sourcePack = this.name;
+    }
+    return profiles;
   }
 }
 

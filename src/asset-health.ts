@@ -151,7 +151,40 @@ export async function scanProjectHealth(
     const blueprint = blueprints.find((b) => b.name === profile.blueprint);
     if (!blueprint) continue;
     try {
-      const ctx = compileAgentContext(profile, blueprint, domains, packs, profilePack);
+      // v15.x PR3：scanProjectHealth 内部构造 working set（从 profiles/blueprints/domains + packs）
+      // scan 默认把 domain/blueprint 归到 prj pack，模拟项目 pack 加载行为。
+      // packs 为空时（如测试场景）用 profilePack 作 fallback key，配 mock AssetPack
+      const effectivePackName = profilePack || "prj";
+      const targetPack = packs.find((p) => p.source === "project") ??
+        packs[0] ?? {
+          name: effectivePackName,
+          version: "0.0.0",
+          rootDir: "/test",
+          source: "project" as const,
+          loadDomains: () => Promise.resolve([]),
+          loadBlueprints: () => Promise.resolve([]),
+          loadProfiles: () => Promise.resolve([]),
+        };
+      const domainWS = new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
+      for (const d of domains) {
+        domainWS.set(`${targetPack.name}/${d.name}`, { pack: targetPack, asset: d });
+      }
+      const blueprintWS = new Map<
+        string,
+        { pack: typeof targetPack; asset: (typeof blueprints)[0] }
+      >();
+      for (const b of blueprints) {
+        blueprintWS.set(`${targetPack.name}/${b.name}`, { pack: targetPack, asset: b });
+      }
+      // scan 临时给 profile 打 sourcePack（如未设）——不修改原 profile（仅本调用范围）
+      const profileForCompile = profile.sourcePack
+        ? profile
+        : { ...profile, sourcePack: effectivePackName };
+      const ctx = compileAgentContext(profileForCompile, blueprint, domains, packs, profilePack, {
+        domains: domainWS,
+        blueprints: blueprintWS,
+        profiles: new Map(),
+      });
       const totalLen = Object.values(ctx.modules).reduce((acc, s) => acc + s.length, 0);
       if (totalLen === 0) {
         issues.push({

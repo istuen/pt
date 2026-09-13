@@ -18,6 +18,8 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
     domains: ["d1"],
     // v9.1+（modules-to-profile-complete）：modules 元素从 string 改为 ModName 对象
     groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
+    // v15.x PR3：测试 profile 默认 sourcePack="prj"（不限定 ref 绑定需要）
+    sourcePack: "prj",
     ...overrides,
   };
 }
@@ -40,9 +42,20 @@ function makeDomain(overrides?: Partial<Domain>): Domain {
   };
 }
 
-// v15.x PR2：compileAgentContext/computeSourceHash 加 packs 参数——测试用空数组 + "prj" 占位
+// v15.x PR2 + PR3：compileAgentContext/computeSourceHash 加 packs + workingSet 参数
+// 测试用 ds 构造 domain workingSet——profile.domains 解析时能查 "prj/<name>"
 function compileCtx(p: Profile, bp: Blueprint, ds: Domain[]) {
-  return compileAgentContext(p, bp, ds, [], "prj");
+  const domainWS = new Map<string, { pack: AssetPack; asset: Domain }>();
+  for (const d of ds) {
+    domainWS.set(`prj/${d.name}`, { pack: makePack("prj", "/test"), asset: d });
+  }
+  const blueprintWS = new Map<string, { pack: AssetPack; asset: Blueprint }>();
+  blueprintWS.set(`prj/${bp.name}`, { pack: makePack("prj", "/test"), asset: bp });
+  return compileAgentContext(p, bp, ds, [makePack("prj", "/test")], "prj", {
+    domains: domainWS,
+    blueprints: blueprintWS,
+    profiles: new Map(),
+  });
 }
 function hashCtx(p: Profile, bp: Blueprint, ds: Domain[]) {
   return computeSourceHash(p, bp, ds, []);
@@ -132,12 +145,14 @@ describe("computeSourceHash", () => {
       blueprint: "b",
       domains: [],
       groups: [],
+      sourcePack: "prj",
     };
     const p2: Profile = {
       groups: [],
       domains: [],
       blueprint: "b",
       name: "p",
+      sourcePack: "prj",
     };
     expect(hashCtx(p1, makeBlueprint(), [])).toBe(hashCtx(p2, makeBlueprint(), []));
   });
@@ -301,6 +316,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
           modules: [{ section: "User", item: "user-profile" }],
         },
       ],
+      sourcePack: "prj",
     };
     const ds: Domain[] = [
       makeDomain({

@@ -12,12 +12,11 @@
 // 重点回归：switch-injection（transpileActive 改降级）/ phase9（集成 4 类加载链）
 //           / asset-health（validatePack 与 asset-health 同层不冲突）。
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mdAdapter } from "../../src/parse/index.js";
-import { dedupByNameN, mergeAcrossPacks } from "../../src/parse/index.js";
 import { MdFilePack } from "../../src/asset-pack/md-file-pack.js";
 import {
   applyProjectPackDegrade,
@@ -114,15 +113,13 @@ describe("tryLoadPack reserved name 不读 basename", () => {
   });
 });
 
-// ==================== dedupByNameN ====================
+// ==================== working set + mdAdapter.load 行为 ====================
 
-describe("dedupByNameN（通过 mdAdapter.load 行为间接验证）", () => {
-  let assetRoot: string;
-  beforeEach(async () => {
-    // 临时项目资产根——含一个名为 "user-info" 的 domain（与 builtin 同名）
-    assetRoot = await mkAssetRoot("dedup");
+describe("mdAdapter.load working set + 前者赢 fallback", () => {
+  it("workingSet.domains 含 prj/ + pt/ 双份 user-info（项目 vs builtin）", async () => {
+    const root = await mkAssetRoot("ws-dup");
     await writeFile(
-      join(assetRoot, "domains/user-info.md"),
+      join(root, "domains/user-info.md"),
       `---
 name: user-info
 ---
@@ -133,32 +130,37 @@ name: user-info
 - desc: 项目版 user-info
 `
     );
-  });
-  afterEach(async () => {
-    await rm(assetRoot, { recursive: true, force: true });
+    try {
+      const bundle = await mdAdapter.load(root, "guide", { assetDir: "." });
+      // working set 三类 Map
+      expect(bundle.workingSet.domains.size).toBeGreaterThan(0);
+      expect(bundle.workingSet.blueprints.size).toBeGreaterThan(0);
+      expect(bundle.workingSet.profiles.size).toBeGreaterThan(0);
+      // user-info 在 project + builtin 各一份
+      const projectUserInfo = bundle.workingSet.domains.get("prj/user-info");
+      const builtinUserInfo = bundle.workingSet.domains.get("pt/user-info");
+      expect(projectUserInfo).toBeDefined();
+      expect(builtinUserInfo).toBeDefined();
+      // 验证前者赢（项目版）— 项目版 desc 含"项目版"
+      const projectUserModule = projectUserInfo?.asset.modules.User as Array<{
+        name: string;
+        desc?: string;
+      }>;
+      expect(projectUserModule?.[0]?.desc).toContain("项目版");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
-  it("前者赢——项目同名 domain 覆盖 builtin", async () => {
-    const bundle = await mdAdapter.load(assetRoot, "guide", { assetDir: "." });
-    // 项目版 user-info.name 应是 "user-info"（frontmatter 已给），优先于 builtin
-    const userInfo = bundle.domains.find((d) => d.name === "user-info");
-    expect(userInfo).toBeDefined();
-    // 验证是项目版（desc 文案）
-    const userModule = userInfo?.modules.User as Array<{ name: string; desc?: string }>;
-    expect(userModule?.[0]?.desc).toContain("项目版");
-  });
-
-  it("settingsPacks=[] 时 dedupByNameN 退化等价今天的 dedupByName(project, builtin)", async () => {
-    // back-compat 校验：settingsPacks=[] 时项目 + global + builtin 三层。
-    // 项目失效目录（无 user-info）应见到 builtin 的 user-info。
-    const emptyRoot = await mkAssetRoot("dedup-empty");
+  it("项目无 user-info → working set 仍能从 builtin 取（fallback 走 prj→pt）", async () => {
+    const emptyRoot = await mkAssetRoot("ws-empty");
     try {
       const bundle = await mdAdapter.load(emptyRoot, "guide", { assetDir: "." });
-      const userInfo = bundle.domains.find((d) => d.name === "user-info");
-      // 项目包无同名 → 看到 builtin 版
-      expect(userInfo).toBeDefined();
-      const userModule = userInfo?.modules.User as Array<{ name: string; desc?: string }>;
-      expect(userModule?.[0]?.desc).toContain("这个项目的开发者");
+      // 项目无 user-info，但 builtin 有
+      const projectEntry = bundle.workingSet.domains.get("prj/user-info");
+      const builtinEntry = bundle.workingSet.domains.get("pt/user-info");
+      expect(projectEntry).toBeUndefined();
+      expect(builtinEntry).toBeDefined();
     } finally {
       await rm(emptyRoot, { recursive: true, force: true });
     }
@@ -323,83 +325,6 @@ describe("loadProjectPack", () => {
     // 验证 cwd + assetDir 拼接正确
     const pack = await loadProjectPack("/tmp", { assetDir: "custom/assets" });
     expect(pack.rootDir).toBe(join("/tmp", "custom/assets"));
-  });
-});
-
-// ==================== S3 + §3.3.1：dedupByNameN + mergeAcrossPacks 语义 ====================
-
-describe("dedupByNameN + mergeAcrossPacks（§3.3 / §3.3.1）", () => {
-  it("dedupByNameN 前者赢——先出现的同 name asset 保留", () => {
-    const result = dedupByNameN([
-      [{ name: "foo", tag: "first" }],
-      [{ name: "foo", tag: "second" }],
-      [{ name: "foo", tag: "third" }],
-    ]);
-    expect(result).toHaveLength(1);
-    expect(result[0]?.tag).toBe("first");
-  });
-
-  it("dedupByNameN 不重名则全部保留", () => {
-    const result = dedupByNameN([
-      [{ name: "a", tag: "A" }],
-      [{ name: "b", tag: "B" }],
-      [{ name: "c", tag: "C" }],
-    ]);
-    expect(result.map((x) => x.name)).toEqual(["a", "b", "c"]);
-  });
-
-  it("dedupByNameN 空输入返空", () => {
-    expect(dedupByNameN([])).toEqual([]);
-    expect(dedupByNameN([[], [], []])).toEqual([]);
-  });
-
-  it("mergeAcrossPacks settings=[A, B] 同名 → B 赢（§3.3.1 后者赢）", () => {
-    // packLists 结构：[project, settings[0], settings[1], global, builtin]
-    // 长度 5 → settingsLen = 5 - 3 = 2；中间两个是 settings packs
-    // project 不含同名 foo——专门验证 settings 之间的后者赢语义
-    const result = mergeAcrossPacks([
-      [{ name: "bar", tag: "project" }], // project——不含 foo，不重名
-      [{ name: "foo", tag: "settings-A" }], // settings 数组下标 0 = A
-      [{ name: "foo", tag: "settings-B" }], // settings 数组下标 1 = B
-      [], // global
-      [], // builtin
-    ]);
-    expect(result).toHaveLength(2);
-    expect(result.map((x) => x.name)).toEqual(["bar", "foo"]);
-    // settings 倒序后 B 在前 → dedupByNameN 前者赢 → B 胜
-    expect(result[1]?.tag).toBe("settings-B");
-  });
-
-  it("mergeAcrossPacks settings=[A, B] + project 同名 → project 仍赢（前者赢）", () => {
-    // project vs settings 同名——project 永远最高，前者赢
-    const result = mergeAcrossPacks([
-      [{ name: "foo", tag: "project" }],
-      [{ name: "foo", tag: "settings-A" }],
-      [{ name: "foo", tag: "settings-B" }],
-      [{ name: "foo", tag: "global" }],
-      [{ name: "foo", tag: "builtin" }],
-    ]);
-    expect(result).toHaveLength(1);
-    expect(result[0]?.tag).toBe("project");
-  });
-
-  it("mergeAcrossPacks settings=[] 时退化为 [project, global, builtin]", () => {
-    const result = mergeAcrossPacks([
-      [{ name: "foo", tag: "project" }],
-      [], // global
-      [], // builtin
-    ]);
-    expect(result).toHaveLength(1);
-    expect(result[0]?.tag).toBe("project");
-  });
-
-  it("mergeAcrossPacks settings=[] 且 project 无 foo → global / builtin 补充", () => {
-    const result = mergeAcrossPacks([
-      [{ name: "bar", tag: "project" }],
-      [{ name: "foo", tag: "global" }],
-      [{ name: "baz", tag: "builtin" }],
-    ]);
-    expect(result.map((x) => x.name)).toEqual(["bar", "foo", "baz"]);
   });
 });
 

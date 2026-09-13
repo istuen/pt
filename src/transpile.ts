@@ -27,7 +27,8 @@ import { mdAdapter } from "./parse/index.js";
 import { compileAgentContext } from "./compile/agent-context.js";
 import { saveAgentContext, loadAgentContext } from "./render/cache.js";
 import { renderSessionInject } from "./render/session-inject.js";
-import { findBlueprint, findProfile } from "./schema.js";
+import { findProfile } from "./schema.js";
+import { parseRef } from "./parse/ref-resolver.js";
 import type {
   AgentContext,
   Blueprint,
@@ -101,24 +102,43 @@ export async function loadAndTranspile(
       `transpile: profile "${bundle.activeProfile}" not found in bundle (available: ${bundle.profiles.map((p) => p.name).join(", ") || "<none>"})`
     );
   }
-  const blueprint = findBlueprint(bundle.blueprints, profile.blueprint);
+  const blueprintEntry = (() => {
+    const { pack, name } = parseRef(profile.blueprint, profile.sourcePack ?? "");
+    const entry = bundle.workingSet.blueprints.get(`${pack}/${name}`);
+    // v15.x PR3（§4.6 back-compat）：不限定 ref fallback——与今天前者赢补充一致
+    if (!entry && !profile.blueprint.startsWith("@")) {
+      for (const fallbackPack of bundle.packs.map((p) => p.name)) {
+        if (fallbackPack === pack) continue;
+        const fallback = bundle.workingSet.blueprints.get(`${fallbackPack}/${name}`);
+        if (fallback) return fallback;
+      }
+    }
+    return entry;
+  })();
+  const blueprint = blueprintEntry?.asset;
   if (!blueprint) {
+    const resolved = (() => {
+      const { pack, name } = parseRef(profile.blueprint, profile.sourcePack ?? "");
+      return `${pack}/${name}`;
+    })();
     reportWarn(adapterCtx, `Profile "${profile.name}" 引用未知 Blueprint "${profile.blueprint}"`, {
       profileName: profile.name,
       referencedBlueprint: profile.blueprint,
-      availableBlueprints: bundle.blueprints.map((b) => b.name),
+      resolvedBlueprint: `@${resolved}`,
+      availableBlueprints: [...bundle.workingSet.blueprints.keys()],
     });
     throw new Error(
       `transpile: blueprint "${profile.blueprint}" not found for profile "${profile.name}"`
     );
   }
-  // v15.x PR2（§8.1 + §8.3）：compileAgentContext 加 packs + profilePack 参数
+  // v15.x PR2（§8.1 + §8.3）+ PR3（§4.4.3 #2）：compileAgentContext 加 packs + profilePack + workingSet
   const ctx = compileAgentContext(
     profile,
     blueprint,
     bundle.domains,
     bundle.packs,
-    bundle.activeProfilePack
+    bundle.activeProfilePack,
+    bundle.workingSet
   );
   adapterCtx?.log?.debug("transpile:compile done", {
     profileName: profile.name,

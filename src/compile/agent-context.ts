@@ -33,6 +33,7 @@ import {
   MOD_USER,
 } from "../constants.js";
 import { reportWarn } from "../diagnostics.js";
+import { resolveAndDedupRefs } from "../parse/ref-resolver.js";
 import type {
   AgentContext,
   AssetPack,
@@ -42,6 +43,7 @@ import type {
   ModName,
   Profile,
   ProfileGroup,
+  SchemaBundle,
   SourceAdapterContext,
   StructureLayout,
   Term,
@@ -76,12 +78,11 @@ export function compileAgentContext(
   domains: Domain[],
   packs: AssetPack[],
   profilePack: string,
+  workingSet: SchemaBundle["workingSet"],
   ctx?: SourceAdapterContext
 ): AgentContext {
-  // 1. 按 Domain 名建立索引
-  const domainByName = new Map(domains.map((d) => [d.name, d]));
-
-  // 2. 按 Blueprint 的聚合组遍历
+  const loadedPackNames = packs.map((p) => p.name);
+  // 1. 按 Blueprint 的聚合组遍历
   const modules: Record<string, string> = {};
   for (const bpGroup of blueprint.groups) {
     // 找 Profile 对应的聚合组实例化（同名）
@@ -105,8 +106,8 @@ export function compileAgentContext(
       );
     }
 
-    // v9.1：按 ProfileGroup.modules 过滤（Blueprint 不再带 modules）
-    const refDomains = resolveDomains(profile, profileGroup, bpGroup, domainByName);
+    // v15.x PR3（§4.4.3 #2）：resolveDomains 改用 resolveAndDedupRefs + workingSet
+    const refDomains = resolveDomains(profile, profileGroup, bpGroup, workingSet, loadedPackNames);
 
     // 按 modName 驱动聚合（来源 = profileGroup.modules）
     modules[bpGroup.name] = dispatchGroup(profileGroup, bpGroup, refDomains);
@@ -150,24 +151,31 @@ function resolveDomains(
   profile: Profile,
   profileGroup: ProfileGroup | undefined,
   _bpGroup: BlueprintGroup,
-  domainByName: Map<string, Domain>
+  workingSet: SchemaBundle["workingSet"],
+  loadedPackNames: string[]
 ): Domain[] {
-  // 合并：全局 domains + 聚合组追加（去重，保序）
-  const allNames = [...profile.domains];
+  // 合并：全局 domains + 聚合组追加（保序，resolveAndDedupRefs 内做 fp dedup）
+  const allRefs = [...profile.domains];
   if (profileGroup) {
     for (const dn of profileGroup.domains) {
-      if (!allNames.includes(dn)) allNames.push(dn);
+      if (!allRefs.includes(dn)) allRefs.push(dn);
     }
   }
 
-  // v9.1：从 ProfileGroup.modules 读过滤白名单（Blueprint.modules 已删除）
-  // v9.1+（modules-to-profile-complete）：mods 是 ModName[]（段粒度 / 段.项粒度）
-  const mods = profileGroup?.modules ?? [];
+  // v15.x PR3（§4.4.2）：resolveAndDedupRefs 解析 + fp dedup
+  // skipOnMissing=true：missing ref 静默跳过（与 dedupByNameN 旧行为一致）——空段由 empty-segment 检测单独报。
+  const resolved = resolveAndDedupRefs<Domain>(
+    allRefs,
+    profile,
+    workingSet.domains,
+    loadedPackNames,
+    { skipOnMissing: true }
+  );
 
-  // 过滤：Domain 有该聚合组 modules 列出的任一 H2 段才贡献
-  return allNames
-    .map((n) => domainByName.get(n))
-    .filter((d): d is Domain => !!d)
+  // v9.1：从 ProfileGroup.modules 读过滤白名单（Blueprint.modules 已删除）
+  const mods = profileGroup?.modules ?? [];
+  return resolved
+    .map((r) => r.asset)
     .filter((d) => mods.some((m) => d.modules[m.section] !== undefined));
 }
 

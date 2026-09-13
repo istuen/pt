@@ -146,7 +146,8 @@ describe("scanProjectHealth", () => {
     it("正常 profile → 不报 empty-segment", async () => {
       const cwd = await makeCwd();
       const r = await scan(cwd, [makeProfile()], [makeBlueprint()], [makeDomain()]);
-      expect(r.issues.filter((i) => i.msg.includes("全聚合组空字符串"))).toHaveLength(0);
+      const empty = r.issues.filter((i) => i.msg.includes("全聚合组空字符串"));
+      expect(empty, `unexpected: ${empty.map((e) => e.msg).join("; ")}`).toHaveLength(0);
     });
 
     it("compile 抛错（dangling blueprint 已先报）→ 跳过 empty-segment", async () => {
