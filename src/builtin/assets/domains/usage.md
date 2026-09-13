@@ -29,6 +29,18 @@ name: usage
 ### pt-tools-llm
 - desc: pt_status / pt_flows / pt_manual 三个 LLM tool（pi.registerTool）。与 /pt 命令族共享纯函数内核——人类打 /pt status，LLM 调 pt_status，结果一致。/pt-profile 不做 tool（切换 Profile 改 Session Context 不该让 LLM 触发，见 .pt/docs/designs/pt-command-tool-dual-registration.md §2.4）。
 
+### global-pack
+- desc: v15.x 全局 Pack（~/.pt/assets/，寻址 @gbl）——用户跨项目共用资产放这里，Pt 自动加载（优先级低于 project/settings，高于 builtin）。首次启动如目录不存在会提示创建（TTY + 非 CI + 无 PT_NO_GUIDE 时）。复用方式：把通用 Domain/Blueprint/Profile 放 ~/.pt/assets/{domains,blueprints,profiles}/
+
+### settings-pack
+- desc: v15.x settings 声明 Pack——在 .pi/settings.json 的 pt.asset-packs[] 声明第三方 / 团队 Pack（只 path 字段，name 从 manifest 读）。路径支持 ~（home dir）/ 绝对 / 相对 cwd。多个 settings pack 按声明顺序后者赢（npm 风格）。pt.project-pack-dir 可改 project pack 路径（默认 .pt/assets，支持项目外路径）
+
+### use-profile
+- desc: v15.x Profile use 单继承——use: @pack/name 引用另一 Profile 作为基础增量覆盖。blueprint 覆盖 / tagline 覆盖 / domains 追加去重 / groups 同名替换。循环检测报错含链；菱形不误报。不写 use = 独立 Profile。示例：use: @pt-internal/pt-dev + blueprint: @team-stdlib/minimal + domains: [my-domain]
+
+### frontmatter-parser-limit
+- desc: Profile / Domain 的 frontmatter 是简易 parser（src/parse/shared.ts:parseFrontmatter）——支持单行 key: value，不支持复杂 YAML 结构（多行字符串 / 嵌套 / 注释）。复杂结构走 Blueprint 的 .blueprint.yaml（用 yaml 库完整解析）。v15.x use 字段保持单行 string 形态以兼容（M7）——如 `use: @pt-internal/pt-dev`，不写多行
+
 ## Flows
 
 ### list-profiles

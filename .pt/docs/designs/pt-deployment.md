@@ -87,6 +87,19 @@ resolveAsset(name, kind)
 
 脚本干三件事：复制（按白名单）→ `npm run verify`（验内建 fallback + 覆盖语义）→ 报告 diff。发版前跑一次。
 
+### 2.4 Pack 抽象与全局 Pack（v15.x）
+
+v15.x 引入 **Pack 抽象**——资产来源统一为 `AssetPack` 接口（§2.1 决策"单包 + 内建 fallback"不变，Pack 抽象在其上加层）：
+
+- **npm 包仍只发一个**（`@issac/pi-pt`，含 `src/builtin/assets/` 作为 builtin Pack）——§2.1 决策不变
+- **builtin Pack 是 fallback**——优先级最低，被 project / settings / global 同名资产覆盖（§2.2 内建 fallback 机制沿用）
+- **全局 Pack（`~/.pt/assets/`）**——用户跨项目共用，不随 npm 包发布，Pt 自动加载
+- **settings Pack**——`.pi/settings.json` 的 `pt.asset-packs[]` 声明第三方 / 团队 Pack（v15.x 用 git repo / tarball 共享，v16+ 计划 npm 传输）
+
+**与 §2.1 的关系**：Pack 抽象不替代单包发布——npm 包仍是 builtin Pack 的传输载体。Pack 抽象解决的是"用户如何加载项目外资产"（全局 / settings），不改变"代码 + builtin 资产如何发布"（单 npm 包）。
+
+**详细设计**：见 `.pt/docs/designs/pt-asset-pack.md`（v15.x Pack 抽象完整设计——加载顺序 / manifest / @pack/name / use 单继承 / 校验降级）。
+
 ---
 
 ## 三、npm 包字段补全
