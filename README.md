@@ -49,56 +49,58 @@ npm install @issac/pi-pt
 
 ### 1. 激活内建 Profile
 
+进入 pi 后用 `/pt-profile` 选择 `guide`，或直接 `/pt-profile guide`：
+
+```
+/pt-profile guide
+```
+
+也可以启动时用 flag 激活：
+
 ```bash
 pi --pt-profile guide
 ```
 
-内建 `guide` Profile 用 dev-knowledge Blueprint + 五个内建 Domain（`user-info` / `agent-info` / `project-analysis` / `authoring` / `usage`）——Agent 立刻有“用户身份 + Agent 身份 + 怎么写 Pt 资产 / 怎么分析项目 / 怎么用 Pt”的知识。装包后不改配置也会自动激活 guide（可用 `pt.default-profile` 关闭或改默认）。
+内建 `guide` Profile 用 dev-knowledge Blueprint + 五个内建 Domain（`user-info` / `agent-info` / `project-analysis` / `authoring` / `usage`）——Agent 立刻有“用户身份 + Agent 身份 + 怎么写 Pt 资产 / 怎么分析项目 / 怎么用 Pt”的知识。
 
 ### 2. 加自己的知识
 
-在项目 `.pt/assets/` 下加 Domain 和 Profile。项目资产优先级高于内建（同名覆盖）：
+用自然语言告诉 Agent 你的项目情况——`guide` Profile 会分析当前项目，帮你创建合适的 Domain 和 Profile，或直接告诉你该怎么创建。
 
-`.pt/assets/domains/user-info.md`：
-```markdown
 ---
-name: user-info
----
-# user-info
-## Participant
-### user_profile
-- desc: 我是这个项目的作者，偏好类型安全、模块化设计
-```
 
-`.pt/assets/profiles/my-dev.profile.md`：
-```markdown
----
-name: my-dev
-blueprint: dev-knowledge
-domains: [me, project-analysis, authoring, usage]
----
-```
+## 命令速查
 
-会话中切换：`/pt-profile my-dev`（下一轮生效）。
+| 命令 | 作用 |
+|---|---|
+| `/pt-profile` | 列出所有可用 Profile |
+| `/pt-profile <name>` | 切换 Profile（下一轮生效） |
+| `/pt` | 查看当前编译状态 |
+| `/pt flows` | 列出可触发手册 |
+| `/manual:<domain>` | 注入该 Domain 的手册段到 Turn Inject |
+| `/<flow> <args>` | 触发 Domain 的 FlowTemplate |
+| `--pt-profile <name>` | Pi 启动时激活 Profile（CLI 优先级最高） |
+
+LLM 工具（Agent 可调用）：`pt_status` / `pt_flows` / `pt_manual` / `pt_verify` / `pt_check_refs`。
 
 ---
 
 ## Pt 的机制：四个概念
 
-Pt 用四个概念组织——你写原料，定结构，组装配置，编译出产物：
+Pt 用四个概念组织——写领域知识，定转换结构，组装身份配置，编译出上下文：
 
 ```
 Pt Domain ──→ Blueprint ──→ Pt Profile ──→ Agent Context
-  原料          结构           配置            产物
+ 领域知识      转换结构       身份配置      编译后上下文
 ```
 
-### Pt Domain — 原料
+### Pt Domain — 领域知识
 
-领域知识，一个 `.md` 文件。内部用 H2 段切分内容——`## Scene`（概念/背景）、`## Rules`（规则/约束）、`## Flows`（流程模板）、`## Checklists`（验收清单）等。H2 段名决定内容去向，是开放的（加新段名走 generic fallback，不改代码）。放 `.pt/assets/domains/`。
+领域知识，一个 `.md` 文件。用 H2 段切分内容——`## Scene`（概念/背景）、`## Rules`（规则/约束）、`## Flows`（流程模板）、`## Checklists`（验收清单）等。H2 段名决定内容去向，是开放的（加新段名走 generic fallback，不改代码）。放 `.pt/assets/domains/`。
 
-### Blueprint — 结构
+### Blueprint — 转换结构
 
-聚合结构模板，一个 `.blueprint.yaml` 文件。定义有哪些聚合组（`groups`），每个组聚合哪些 Domain 的 H2 段，注入到哪（`inject: session` 会话级 / `inject: turn` 轮次级）。跨项目复用。放 `.pt/assets/blueprints/`。
+转换结构，一个 `.blueprint.yaml` 文件。定义有哪些聚合组（`groups`），每个组聚合哪些 Domain 的 H2 段，注入到哪（`inject: session` 会话级 / `inject: turn` 轮次级）。跨项目复用。放 `.pt/assets/blueprints/`。
 
 ```yaml
 name: dev-knowledge
@@ -114,13 +116,13 @@ groups:
     modules: [Rules, Flows, Checklists]
 ```
 
-### Pt Profile — 配置
+### Pt Profile — 身份配置
 
-业务实例，一个 `.profile.md` 文件。选一个 Blueprint + 列要用的 Domain。项目级，不跨项目复用。放 `.pt/assets/profiles/`。
+身份配置，一个 `.profile.md` 文件。选一个 Blueprint + 列要用的 Domain，组合出具体场景的 Agent 身份。项目级，不跨项目复用。放 `.pt/assets/profiles/`。
 
-### Agent Context — 产物
+### Agent Context — 编译后上下文
 
-Profile 编译后的产物，分两面：
+编译后的上下文，分两面：
 
 | 面 | 注入 | 时效 | 作用 |
 |---|---|---|---|
@@ -129,43 +131,11 @@ Profile 编译后的产物，分两面：
 
 带 hash 缓存（`.pt/cache/agent-contexts/`），资产变了自动重编译。
 
-**一句话串起来**：写 Domain → 用 Blueprint 定聚合结构 → 用 Profile 组装 → 编译出 Agent Context 两面注入。
-
----
-
-## 命令速查
-
-| 命令 | 作用 |
-|---|---|
-| `/pt-profile <name>` | 切换 Profile（下一轮生效） |
-| `/pt` | 查看当前编译状态 |
-| `/pt flows` | 列出可触发手册 |
-| `/manual:<domain>` | 注入该 Domain 的手册段到 Turn Inject |
-| `/<flow> <args>` | 触发 Domain 的 FlowTemplate |
-| `--pt-profile <name>` | Pi 启动时激活 Profile（CLI 优先级最高） |
-
-LLM 工具（Agent 可调用）：`pt_status` / `pt_flows` / `pt_manual` / `pt_verify` / `pt_check_refs`。
-
----
-
-## 进一步阅读
-
-- [全景概览](.pt/docs/designs/pt-overview.md) — 术语 + 架构 + 生命周期的权威技术概览
-- [分层模型与转译架构](.pt/docs/designs/pt-asset-layering.md) — 四层模型 + 三段式编译流程
-- [产品定位](.pt/docs/designs/pt-positioning.md) — Pt 在知识资产化领域的产品定位
-- [术语决策](.pt/docs/designs/pt-terminology.md) — 命名决策记录
-
-Pt 项目自身就用 Pt 配置自己——看真实资产：[`.pt/assets/`](.pt/assets/)（10 个 Domain + dev-knowledge Blueprint + pt-dev Profile）。
+**一句话串起来**：写 Domain → 用 Blueprint 定转换结构 → 用 Profile 组装身份 → 编译出 Agent Context 两面注入。
 
 ---
 
 ## 开发
-
-```bash
-npm run verify      # biome check + vitest
-npm run typecheck   # tsc --noEmit
-npm run build       # tsup
-```
 
 技术栈：TypeScript + tsup + Vitest + Biome。零运行时依赖（除 yaml 库用于 Blueprint 解析）。
 

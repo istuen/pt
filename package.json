@@ -1,7 +1,7 @@
 {
   "name": "@issac/pi-pt",
   "version": "0.1.0",
-  "description": "Pt — Turn domain knowledge into agent context. A Pi extension that compiles domain knowledge assets into Agent Context (Session Context + Turn Context).",
+  "description": "Pt — Turn domain knowledge into configurable Agent Context.",
   "type": "module",
   "keywords": [
     "pi-package"
