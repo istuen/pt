@@ -25,6 +25,7 @@ import {
   loadProjectPack,
   tryLoadPack,
 } from "../../src/asset-pack/loader.js";
+import { parseManifest } from "../../src/asset-pack/manifest.js";
 import { shouldPromptGlobalPackGuide, validatePack } from "../../src/asset-pack/validate.js";
 import type { AssetPack } from "../../src/schema.js";
 import { BUILTIN_ASSETS_DIR } from "../../src/constants.js";
@@ -43,7 +44,12 @@ async function mkAssetRoot(prefix: string): Promise<string> {
 describe("MdFilePack", () => {
   it("loadDomains 递归多级——能加载顶层 + 子目录的 .md", async () => {
     const root = join(process.cwd(), "tests/fixtures/asset-pack/nested");
-    const pack = new MdFilePack(root, "fixture", "project");
+    // PR2：构造改 async（读 manifest），走 MdFilePack.create factory
+    const pack = await MdFilePack.create({
+      rootDir: root,
+      source: "project",
+      reservedName: "fixture",
+    });
     const domains = await pack.loadDomains();
     // 顶层 term-a.md + sub/term-b.md 都加载到（frontmatter.name 优先，name=term-b）
     const names = domains.map((d) => d.name).sort();
@@ -57,19 +63,31 @@ describe("MdFilePack", () => {
   });
 
   it("loadDomains 目录不存在返空数组", async () => {
-    const pack = new MdFilePack("/tmp/__pt_nonexistent_pack__", "x", "project");
+    const pack = await MdFilePack.create({
+      rootDir: "/tmp/__pt_nonexistent_pack__",
+      source: "project",
+      reservedName: "x",
+    });
     const domains = await pack.loadDomains();
     expect(domains).toEqual([]);
   });
 
   it("loadBlueprints 目录不存在返空数组", async () => {
-    const pack = new MdFilePack("/tmp/__pt_nonexistent_pack__", "x", "project");
+    const pack = await MdFilePack.create({
+      rootDir: "/tmp/__pt_nonexistent_pack__",
+      source: "project",
+      reservedName: "x",
+    });
     const blueprints = await pack.loadBlueprints();
     expect(blueprints).toEqual([]);
   });
 
   it("loadProfiles 目录不存在返空数组", async () => {
-    const pack = new MdFilePack("/tmp/__pt_nonexistent_pack__", "x", "project");
+    const pack = await MdFilePack.create({
+      rootDir: "/tmp/__pt_nonexistent_pack__",
+      source: "project",
+      reservedName: "x",
+    });
     const profiles = await pack.loadProfiles();
     expect(profiles).toEqual([]);
   });
@@ -431,7 +449,12 @@ describe("MdFilePack parse 失败可见性（PR1 补丁 S2）", () => {
       },
     };
     try {
-      const pack = new MdFilePack(root, "prj", "project", adapterCtx);
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "project",
+        reservedName: "prj",
+        adapterCtx,
+      });
       const domains = await pack.loadDomains();
       // broken.md（目录）被静默过滤掉（parse 失败）
       expect(domains).toEqual([]);
@@ -454,7 +477,12 @@ describe("MdFilePack parse 失败可见性（PR1 补丁 S2）", () => {
       },
     };
     try {
-      const pack = new MdFilePack(root, "prj", "project", adapterCtx);
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "project",
+        reservedName: "prj",
+        adapterCtx,
+      });
       const blueprints = await pack.loadBlueprints();
       expect(blueprints).toEqual([]);
       expect(notifs.some((n) => n.level === "error" && n.msg.includes("broken"))).toBe(true);
@@ -469,7 +497,11 @@ describe("MdFilePack parse 失败可见性（PR1 补丁 S2）", () => {
     // 不传 adapterCtx → diagnostics.ts 三通道 fallback 最后走 console.error
     // 测试只验证 loadXxx 不抛（fallback 内部行为已由 console.error 处理，不影响返回）
     try {
-      const pack = new MdFilePack(root, "prj", "project");
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "project",
+        reservedName: "prj",
+      });
       const domains = await pack.loadDomains();
       expect(domains).toEqual([]);
     } finally {
@@ -526,5 +558,272 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
     expect(out).toContain("pt packs: 2/3 degraded");
     expect(out).toContain("[@prj] ⚠ DEGRADED");
     expect(out).toContain("pack 目录不存在");
+  });
+
+  it("PR2：version 出现在展示行", async () => {
+    const { statusText } = await import("../../src/commands.js");
+    const { createSessionState } = await import("../../src/session.js");
+    const s = createSessionState();
+    s.packValidation = [
+      {
+        pack: "prj",
+        source: "project",
+        ok: true,
+        errors: [],
+        warnings: [],
+        version: "1.2.3",
+        rootDir: "/x",
+      },
+      {
+        pack: "gbl",
+        source: "global",
+        ok: true,
+        errors: [],
+        warnings: [],
+        version: "0.0.0",
+        rootDir: "/y",
+      },
+      {
+        pack: "pt",
+        source: "builtin",
+        ok: true,
+        errors: [],
+        warnings: [],
+        version: "0.0.0",
+        rootDir: "/z",
+      },
+    ];
+    const out = statusText(s);
+    expect(out).toContain("v1.2.3");
+    expect(out).toContain("v0.0.0");
+  });
+
+  it("PR2：description 出现在展示行（截断 40 字符）", async () => {
+    const { statusText } = await import("../../src/commands.js");
+    const { createSessionState } = await import("../../src/session.js");
+    const s = createSessionState();
+    const longDesc = "a".repeat(60);
+    s.packValidation = [
+      {
+        pack: "prj",
+        source: "project",
+        ok: true,
+        errors: [],
+        warnings: [],
+        version: "1.0.0",
+        rootDir: "/x",
+        description: longDesc,
+      },
+    ];
+    const out = statusText(s);
+    expect(out).toContain("aaa...");
+    expect(out).not.toContain("a".repeat(45));
+  });
+});
+
+// ==================== PR2 §2.2：parseManifest 测试 ====================
+
+describe("parseManifest（§2.2 / §2.4.1 校验）", () => {
+  it("合法 manifest → ok=true + name/version/description", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-"));
+    try {
+      await writeFile(
+        join(root, "pt-asset-pack.yaml"),
+        `name: pt-internal
+version: 1.4.0
+description: Pt 项目内部共享资产
+`
+      );
+      const m = await parseManifest(root);
+      expect(m.ok).toBe(true);
+      expect(m.name).toBe("pt-internal");
+      expect(m.version).toBe("1.4.0");
+      expect(m.description).toBe("Pt 项目内部共享资产");
+      expect(m.warnings).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("文件不存在 → ok=false + warnings=[]（隐式 pack）", async () => {
+    const m = await parseManifest("/tmp/__pt_no_manifest__");
+    expect(m.ok).toBe(false);
+    expect(m.warnings).toEqual([]);
+  });
+
+  it("YAML 语法错 → ok=false + warnings 含 'parse failed'", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-"));
+    try {
+      await writeFile(join(root, "pt-asset-pack.yaml"), "name: [\nunclosed bracket\n");
+      const m = await parseManifest(root);
+      expect(m.ok).toBe(false);
+      expect(m.warnings.some((w) => w.includes("parse failed"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("name 非 kebab-case → warnings + name 丢弃", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-"));
+    try {
+      await writeFile(join(root, "pt-asset-pack.yaml"), `name: "Bad Name"\n`);
+      const m = await parseManifest(root);
+      expect(m.ok).toBe(true);
+      expect(m.name).toBeUndefined();
+      expect(m.warnings.some((w) => w.includes("not kebab-case"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("name 保留名冲突（'prj'）→ warnings + name 丢弃", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-"));
+    try {
+      await writeFile(join(root, "pt-asset-pack.yaml"), `name: prj\n`);
+      const m = await parseManifest(root);
+      expect(m.ok).toBe(true);
+      expect(m.name).toBeUndefined();
+      expect(m.warnings.some((w) => w.includes("is reserved"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("version 非 semver → warnings + version 丢弃", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-"));
+    try {
+      await writeFile(
+        join(root, "pt-asset-pack.yaml"),
+        `name: foo\nversion: "1.2"\n` // 缺 patch
+      );
+      const m = await parseManifest(root);
+      expect(m.ok).toBe(true);
+      expect(m.name).toBe("foo");
+      expect(m.version).toBeUndefined();
+      expect(m.warnings.some((w) => w.includes("not semver"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("top-level 不是 mapping → ok=false + warnings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-"));
+    try {
+      await writeFile(join(root, "pt-asset-pack.yaml"), `- just\n- a\n- list\n`);
+      const m = await parseManifest(root);
+      expect(m.ok).toBe(false);
+      expect(m.warnings.some((w) => w.includes("not a mapping"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ==================== PR2 §2.4.2：MdFilePack.create name 解析优先级 ====================
+
+describe("MdFilePack.create name 解析优先级（§2.4.2）", () => {
+  it("reserved pack 跳过 manifest 用固定名", async () => {
+    // 即使目录有 manifest，reserved pack 跳过
+    const root = await mkAssetRoot("mdpack-reserved");
+    await writeFile(
+      join(root, "pt-asset-pack.yaml"),
+      `name: should-be-ignored
+version: 9.9.9
+`
+    );
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "project",
+        reservedName: "prj",
+      });
+      expect(pack.name).toBe("prj");
+      expect(pack.version).toBe("0.0.0"); // reserved 固定
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("显式 pack + 合法 manifest → manifest.name", async () => {
+    const root = await mkAssetRoot("mdpack-explicit");
+    await writeFile(
+      join(root, "pt-asset-pack.yaml"),
+      `name: pt-internal
+version: 2.0.0
+description: Test pack
+`
+    );
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "global", // 非 reserved
+      });
+      expect(pack.name).toBe("pt-internal");
+      expect(pack.version).toBe("2.0.0");
+      expect(pack.description).toBe("Test pack");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("隐式 pack 无 manifest → name=basename + version='0.0.0'", async () => {
+    const root = await mkAssetRoot("mdpack-implicit"); // basename = "pt-asset-pack-mdpack-implicit-XXXX"
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "global",
+      });
+      // basename 兜底（tmp 目录带 pt-asset-pack 前缀）
+      expect(pack.name).toMatch(/mdpack-implicit/);
+      expect(pack.version).toBe("0.0.0");
+      expect(pack.description).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ==================== PR2 §6.7.2：validatePack pack 内一致性 ====================
+
+describe("validatePack pack 内一致性（§6.7.2 层 2）", () => {
+  it("同 Pack 内两个同名 domain → ok=false + errors[0].code='intra-pack-conflict'", async () => {
+    const root = await mkAssetRoot("intra-domain");
+    await writeFile(join(root, "domains/dup-a.md"), "---\nname: dup\n---\n## Scene\n- x: y\n");
+    await writeFile(join(root, "domains/dup-b.md"), "---\nname: dup\n---\n## Scene\n- x: z\n");
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "project",
+        reservedName: "prj",
+      });
+      const result = await validatePack(pack);
+      expect(result.ok).toBe(false);
+      expect(result.errors.some((e) => e.code === "intra-pack-conflict")).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("ValidationResult 含 version/description/rootDir 展示字段", async () => {
+    const root = await mkAssetRoot("vr-fields");
+    await writeFile(
+      join(root, "pt-asset-pack.yaml"),
+      `name: test-pack
+version: 1.0.0
+description: test desc
+`
+    );
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "global",
+      });
+      const result = await validatePack(pack);
+      expect(result.version).toBe("1.0.0");
+      expect(result.description).toBe("test desc");
+      expect(result.rootDir).toBe(root);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

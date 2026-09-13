@@ -287,10 +287,13 @@ export interface AgentContext {
   name: string;
   /** Blueprint 名（AgentContext 来源 Blueprint，缓存标识 + YAML 头）。 */
   blueprint: string;
-  /** hash(profile + blueprint + domains)，缓存失效依据。 */
+  /** hash(profile + blueprint + domains + packs)，缓存失效依据。 */
   sourceHash: string;
   /** 聚合组名（语义名）→ 聚合后的 markdown 字符串。 */
   modules: Record<string, string>;
+  /** v15.x PR2（§8.3）：cache 文件名 <pack>__<profile> 用——所属 pack name。
+   *  PR3 接通 @pack/name 后改为 Profile.sourcePack；PR2 用 pack name 字符串。 */
+  packName: string;
 }
 
 // ==================== IR 集合（编译期内存态） ====================
@@ -310,6 +313,11 @@ export interface SchemaBundle {
   profiles: Profile[];
   /** 当前激活的 Profile 名。 */
   activeProfile: string;
+  /** v15.x PR2（§8.1）：加载的所有 AssetPack——sourceHash + cache 文件名用。 */
+  packs: AssetPack[];
+  /** v15.x PR2（§8.3）：激活 Profile 所属的 pack name（cache 文件名 <pack>__<profile> 用）。
+   *  PR3 接通 @pack/name 后改为 Profile.sourcePack；PR2 用 pack name 字符串。 */
+  activeProfilePack: string;
 }
 
 // ==================== Source Adapter 接口（依赖反转后） ====================

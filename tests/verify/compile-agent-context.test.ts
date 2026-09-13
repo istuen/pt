@@ -40,12 +40,33 @@ function makeDomain(overrides?: Partial<Domain>): Domain {
   };
 }
 
+// v15.x PR2：compileAgentContext/computeSourceHash 加 packs 参数——测试用空数组 + "prj" 占位
+function compileCtx(p: Profile, bp: Blueprint, ds: Domain[]) {
+  return compileAgentContext(p, bp, ds, [], "prj");
+}
+function hashCtx(p: Profile, bp: Blueprint, ds: Domain[]) {
+  return computeSourceHash(p, bp, ds, []);
+}
+
+// v15.x PR2（§8.1）：构造测试 AssetPack（mock 简化版本）
+function makePack(name: string, rootDir: string): AssetPack {
+  return {
+    name,
+    rootDir,
+    version: "0.0.0",
+    source: "project",
+    loadDomains: () => Promise.resolve([]),
+    loadBlueprints: () => Promise.resolve([]),
+    loadProfiles: () => Promise.resolve([]),
+  };
+}
+
 describe("compileAgentContext", () => {
   it("返回 AgentContext 基础字段：name / blueprint / sourceHash", () => {
     const p = makeProfile();
     const bp = makeBlueprint();
     const ds = [makeDomain()];
-    const ctx = compileAgentContext(p, bp, ds);
+    const ctx = compileCtx(p, bp, ds);
     expect(ctx.name).toBe("test-profile");
     expect(ctx.blueprint).toBe("test-blueprint");
     // sourceHash = simpleHash(FNV-1a 32-bit hex) + "-" + payload.length hex
@@ -56,7 +77,7 @@ describe("compileAgentContext", () => {
     const p = makeProfile({ domains: ["d1"] });
     const bp = makeBlueprint();
     const ds = [makeDomain({ modules: { Scene: [{ name: "t1", desc: "term 1" }] } })];
-    const ctx = compileAgentContext(p, bp, ds);
+    const ctx = compileCtx(p, bp, ds);
     expect(ctx.modules.会话背景).toContain("t1");
     expect(ctx.modules.会话背景).toContain("term 1");
   });
@@ -74,7 +95,7 @@ describe("compileAgentContext", () => {
         modules: { Scene: [{ name: "t2", desc: "term 2" }] },
       }),
     ];
-    const ctx = compileAgentContext(p, bp, ds);
+    const ctx = compileCtx(p, bp, ds);
     expect(ctx.modules.会话背景).toContain("t2");
     expect(ctx.modules.会话背景).not.toContain("t1"); // d1 不在追加列表
   });
@@ -87,7 +108,7 @@ describe("compileAgentContext", () => {
       ],
     });
     const bp = makeBlueprint();
-    const ctx = compileAgentContext(p, bp, [makeDomain()]);
+    const ctx = compileCtx(p, bp, [makeDomain()]);
     expect(ctx.modules.会话背景).toBeDefined();
     expect(ctx.modules.未声明聚合组).toBeUndefined();
   });
@@ -98,8 +119,8 @@ describe("computeSourceHash", () => {
     const p = makeProfile();
     const bp = makeBlueprint();
     const ds = [makeDomain()];
-    const h1 = computeSourceHash(p, bp, ds);
-    const h2 = computeSourceHash(p, bp, ds);
+    const h1 = hashCtx(p, bp, ds);
+    const h2 = hashCtx(p, bp, ds);
     expect(h1).toBe(h2);
   });
 
@@ -118,26 +139,24 @@ describe("computeSourceHash", () => {
       blueprint: "b",
       name: "p",
     };
-    expect(computeSourceHash(p1, makeBlueprint(), [])).toBe(
-      computeSourceHash(p2, makeBlueprint(), [])
-    );
+    expect(hashCtx(p1, makeBlueprint(), [])).toBe(hashCtx(p2, makeBlueprint(), []));
   });
 
   it("不同 Profile.name → 不同 hash", () => {
-    const h1 = computeSourceHash(makeProfile({ name: "p1" }), makeBlueprint(), [makeDomain()]);
-    const h2 = computeSourceHash(makeProfile({ name: "p2" }), makeBlueprint(), [makeDomain()]);
+    const h1 = hashCtx(makeProfile({ name: "p1" }), makeBlueprint(), [makeDomain()]);
+    const h2 = hashCtx(makeProfile({ name: "p2" }), makeBlueprint(), [makeDomain()]);
     expect(h1).not.toBe(h2);
   });
 
   it("不同 Blueprint.groups → 不同 hash", () => {
-    const h1 = computeSourceHash(
+    const h1 = hashCtx(
       makeProfile(),
       makeBlueprint({
         groups: [{ name: "会话背景", inject: "session" }],
       }),
       [makeDomain()]
     );
-    const h2 = computeSourceHash(
+    const h2 = hashCtx(
       makeProfile(),
       makeBlueprint({
         groups: [{ name: "参考手册", inject: "turn" }],
@@ -148,9 +167,45 @@ describe("computeSourceHash", () => {
   });
 
   it("不同 domains → 不同 hash", () => {
-    const h1 = computeSourceHash(makeProfile(), makeBlueprint(), [makeDomain({ name: "d1" })]);
-    const h2 = computeSourceHash(makeProfile(), makeBlueprint(), [makeDomain({ name: "d2" })]);
+    const h1 = hashCtx(makeProfile(), makeBlueprint(), [makeDomain({ name: "d1" })]);
+    const h2 = hashCtx(makeProfile(), makeBlueprint(), [makeDomain({ name: "d2" })]);
     expect(h1).not.toBe(h2);
+  });
+
+  it("PR2 §8.1：packs[].name 变化 → hash 变化", () => {
+    const p = makeProfile();
+    const bp = makeBlueprint();
+    const ds = [makeDomain()];
+    const packs1 = [makePack("prj", "/x")];
+    const packs2 = [makePack("gbl", "/x")];
+    expect(computeSourceHash(p, bp, ds, packs1)).not.toBe(computeSourceHash(p, bp, ds, packs2));
+  });
+
+  it("PR2 §8.1：packs[].rootDir 变化 → hash 变化", () => {
+    const p = makeProfile();
+    const bp = makeBlueprint();
+    const ds = [makeDomain()];
+    const packs1 = [makePack("prj", "/path/a")];
+    const packs2 = [makePack("prj", "/path/b")];
+    expect(computeSourceHash(p, bp, ds, packs1)).not.toBe(computeSourceHash(p, bp, ds, packs2));
+  });
+
+  it("PR2 §8.1：packs[].version 变化 → hash 不变（M1：内容 hash 已覆盖）", () => {
+    const p = makeProfile();
+    const bp = makeBlueprint();
+    const ds = [makeDomain()];
+    const pack1: AssetPack = { ...makePack("prj", "/x"), version: "1.0.0" };
+    const pack2: AssetPack = { ...makePack("prj", "/x"), version: "2.0.0" };
+    expect(computeSourceHash(p, bp, ds, [pack1])).toBe(computeSourceHash(p, bp, ds, [pack2]));
+  });
+
+  it("PR2 §8.1：packs 列表从空变非空 → hash 变化（cache 失效）", () => {
+    const p = makeProfile();
+    const bp = makeBlueprint();
+    const ds = [makeDomain()];
+    expect(computeSourceHash(p, bp, ds, [])).not.toBe(
+      computeSourceHash(p, bp, ds, [makePack("prj", "/x")])
+    );
   });
 });
 
@@ -172,7 +227,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
         },
       }),
     ];
-    const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
+    const ctx = compileCtx(makeProfile(), makeBlueprint(), ds);
     expect(ctx.modules.会话背景).toContain("（字段：必读/设计原则/步骤）");
   });
 
@@ -190,7 +245,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
         },
       }),
     ];
-    const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
+    const ctx = compileCtx(makeProfile(), makeBlueprint(), ds);
     expect(ctx.modules.会话背景).toContain(" — 每个硬指标都要有独立验证方式");
   });
 
@@ -209,7 +264,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
         },
       }),
     ];
-    const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
+    const ctx = compileCtx(makeProfile(), makeBlueprint(), ds);
     // 顺序：name: desc（字段：a/b） — note
     const out = ctx.modules.会话背景;
     expect(out).toContain("（字段：a/b）");
@@ -223,7 +278,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
         modules: { Scene: [{ name: "plain", desc: "just desc" }] },
       }),
     ];
-    const ctx = compileAgentContext(makeProfile(), makeBlueprint(), ds);
+    const ctx = compileCtx(makeProfile(), makeBlueprint(), ds);
     expect(ctx.modules.会话背景).toContain("- plain: just desc");
     // 不应出现 fields/note 追加
     expect(ctx.modules.会话背景).not.toContain("（字段：");
@@ -258,7 +313,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
         },
       }),
     ];
-    const ctx = compileAgentContext(p, makeBlueprint(), ds);
+    const ctx = compileCtx(p, makeBlueprint(), ds);
     // H3 项粒度输出：只 user-profile，不含 pt-goal
     expect(ctx.modules.会话背景).toContain("### user-info.user-profile");
     expect(ctx.modules.会话背景).toContain("user-profile: Pt 项目作者与架构师");
@@ -284,7 +339,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
         modules: { User: [{ name: "user-profile", desc: "desc" }] },
       }),
     ];
-    const ctx = compileAgentContext(p, makeBlueprint(), ds);
+    const ctx = compileCtx(p, makeBlueprint(), ds);
     expect(ctx.modules.会话背景).toBe("");
   });
 
@@ -310,7 +365,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
         modules: { Agent: [{ name: "shared", desc: "in agent-info Agent 段" }] },
       }),
     ];
-    const ctx = compileAgentContext(p, makeBlueprint(), ds);
+    const ctx = compileCtx(p, makeBlueprint(), ds);
     // 只匹配 User 段下 shared，不匹配 Agent 段下
     expect(ctx.modules.会话背景).toContain("in user-info User 段");
     expect(ctx.modules.会话背景).not.toContain("in agent-info Agent 段");
@@ -339,7 +394,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
         },
       }),
     ];
-    const ctx = compileAgentContext(p, makeBlueprint(), ds);
+    const ctx = compileCtx(p, makeBlueprint(), ds);
     expect(ctx.modules.会话背景).toContain("second occurrence");
     expect(ctx.modules.会话背景).not.toContain("first occurrence");
   });
@@ -366,7 +421,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
         modules: { Agent: [{ name: "agent-role-architect", desc: "a" }] },
       }),
     ];
-    const ctx = compileAgentContext(p, makeBlueprint(), ds);
+    const ctx = compileCtx(p, makeBlueprint(), ds);
     // User 段聚合：只 user-info 的 User 段（agent-info 没有 User 段）
     expect(ctx.modules.会话背景).toContain("user-profile");
     expect(ctx.modules.会话背景).not.toContain("agent-role-architect");

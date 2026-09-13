@@ -31,20 +31,21 @@ export function getGlobalPackDir(adapterCtx?: SourceAdapterContext): string {
 
 /**
  * 尝试加载 pack：目录不存在返空 Pack（不报错，§6.4）。
- * reserved pack（project/global/builtin）用固定 name，跳过 basename。
+ * reserved pack（project/global/builtin）用固定 name，跳过 basename 与 manifest。
  *
  * 不预加载——目录不存在时 loadDomains() 等返空数组，与"空 Pack"等价。
  * 这样调用方可以无差别调 loadXxx，不用关心目录是否存在。
  *
+ * PR2：构造从 sync 改 async——走 MdFilePack.create 读 manifest。
  * adapterCtx 透传给 MdFilePack：parse 失败时调 reportError 上抛（PR1 补丁 S2）。
  */
 export async function tryLoadPack(
   rootDir: string,
-  reservedName: string,
+  reservedName: string | undefined,
   source: PackSource,
   adapterCtx?: SourceAdapterContext
 ): Promise<AssetPack> {
-  return new MdFilePack(rootDir, reservedName, source, adapterCtx);
+  return MdFilePack.create({ rootDir, source, reservedName, adapterCtx });
 }
 
 /** 构造 project pack（§6.5：路径可配，默认 .pt/assets）。

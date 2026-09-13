@@ -12,7 +12,7 @@
 //   - back-compat：settingsPacks=[] 时，dedupByNameN([project, global, builtin])
 //     退化等价于今天的 dedupByName(project, builtin)（project 前者赢，builtin 补充）。
 
-import type { AssetPack, SchemaBundle, SourceAdapter } from "../schema.js";
+import type { AssetPack, Profile, SchemaBundle, SourceAdapter } from "../schema.js";
 import { findBlueprint, findProfile } from "../schema.js";
 import {
   loadBuiltinPack,
@@ -51,17 +51,23 @@ export const mdAdapter: SourceAdapter = {
 
     // 4. 找激活的 Profile（按 profileName）
     const active = findProfile(profiles, profileName);
+    // v15.x PR2（§8.3）：active profile 所属 pack——按 dedup 前顺序找（与 dedupByNameN 前者赢一致）
+    const activeProfilePack = active ? findProfilePack(packs, packProfiles, active.name) : "prj"; // fallback（active=null 时不应到达此分支）
     if (!active) {
       // fallback：取第一个 Profile
       const fallback = profiles[0];
       if (!fallback) {
         throw new Error(`Pt: 未找到 Profile "${profileName}"（profiles/*.profile.md）`);
       }
+      // PR2：用第一个含 fallback profile 的 pack（与 dedupByNameN 一致）
+      const fallbackPack = findProfilePack(packs, packProfiles, fallback.name);
       return {
         domains,
         blueprints,
         profiles,
         activeProfile: fallback.name,
+        packs,
+        activeProfilePack: fallbackPack,
       };
     }
 
@@ -85,9 +91,27 @@ export const mdAdapter: SourceAdapter = {
       blueprints,
       profiles,
       activeProfile: active.name,
+      packs,
+      activeProfilePack,
     };
   },
 };
+
+/** v15.x PR2（§8.3）：找 profile 所属 pack——按 dedup 前顺序，
+ *  第一个含该 profile name 的 pack 赢（与 dedupByNameN 前者赢语义一致）。
+ *  fallback "prj"（不应到达——active profile 必来自某 pack）。 */
+function findProfilePack(
+  packs: AssetPack[],
+  packProfiles: Profile[][],
+  profileName: string
+): string {
+  for (let i = 0; i < packs.length; i++) {
+    if (packProfiles[i]?.some((p) => p.name === profileName)) {
+      return packs[i].name;
+    }
+  }
+  return "prj";
+}
 
 // ==================== N 元 dedup（§3.3） ====================
 

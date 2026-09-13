@@ -420,6 +420,8 @@ export default function (pi: ExtensionAPI): void {
           healthBundle.profiles,
           healthBundle.blueprints,
           healthBundle.domains,
+          healthBundle.packs,
+          healthBundle.activeProfilePack,
           { log: s.logger?.toWriter() }
         );
         s.assetHealthIssues = report.issues;

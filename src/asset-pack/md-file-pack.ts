@@ -14,6 +14,7 @@
 //     parseProfile 内 modName 解析失败的 warn 通道在本 PR 阶段丢失（已知 PR1 简化，
 //     不影响 pack 加载本身；后续 PR 可选把 adapterCtx 透传回 parseProfile）
 
+import { basename as pathBasename } from "node:path";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { SUFFIX_BLUEPRINT_YAML, SUFFIX_MD } from "../constants.js";
@@ -29,13 +30,17 @@ import type {
 import { parseBlueprint } from "../parse/blueprint.js";
 import { parseDomain } from "../parse/domain.js";
 import { parseProfile } from "../parse/profile.js";
+import { parseManifest } from "./manifest.js";
 
 /**
- * v15.x PR1：文件系统 Pack 实现——读 <rootDir>/{domains,blueprints,profiles}/。
+ * v15.x PR2：文件系统 Pack 实现——读 <rootDir>/{domains,blueprints,profiles}/。
  * 与 src/parse/{domain,blueprint,profile}.ts 现有 parser 共用，不重写 parse 算法。
  *
- * PR1 简化：name 由构造传入（reserved 固定名或 basename），不读 manifest。
- *           PR2 接通 manifest 后改为从 manifest 读 name/version/description。
+ * PR2：构造从 sync 改 async（读 manifest），走 `MdFilePack.create()` 工厂方法。
+ * name 解析优先级（§2.4.2）：
+ *   - reserved pack（source=project/global/builtin）→ 固定名 prj/gbl/pt，跳过 manifest
+ *   - 显式 pack + 合法 manifest.name → manifest.name
+ *   - 隐式 pack（无 manifest / manifest 无 name / name 校验失败）→ basename 兜底
  *
  * PR1 补丁（S2 修复）：构造可选接 adapterCtx——loadXxx 内部 parse 失败时调
  *           reportError，恢复 v10.x 旧 loadDir 行为的"错误可见性"。未传则 fallback
@@ -43,23 +48,68 @@ import { parseProfile } from "../parse/profile.js";
  */
 export class MdFilePack implements AssetPack {
   readonly name: string;
-  readonly version = "0.0.0"; // PR1 固定；PR2 从 manifest 读
+  readonly version: string; // PR2：从 manifest 读（缺失则 "0.0.0"）
   readonly rootDir: string;
-  readonly description: undefined; // PR1 固定；PR2 从 manifest 读
+  readonly description: string | undefined; // PR2：从 manifest 读（缺失则 undefined）
   readonly source: PackSource;
   /** adapterCtx 可选——parse 失败时调 reportError 走 notify + log 通道。 */
   private readonly adapterCtx: SourceAdapterContext | undefined;
 
-  constructor(
-    rootDir: string,
-    name: string,
-    source: PackSource,
-    adapterCtx?: SourceAdapterContext
-  ) {
-    this.rootDir = rootDir;
-    this.name = name;
-    this.source = source;
-    this.adapterCtx = adapterCtx;
+  private constructor(args: {
+    rootDir: string;
+    name: string;
+    version: string;
+    description?: string;
+    source: PackSource;
+    adapterCtx?: SourceAdapterContext;
+  }) {
+    this.rootDir = args.rootDir;
+    this.name = args.name;
+    this.version = args.version;
+    this.description = args.description;
+    this.source = args.source;
+    this.adapterCtx = args.adapterCtx;
+  }
+
+  /** PR2：工厂方法（async，读 manifest）。
+   *  reserved pack 传 reservedName=固定名 → 跳过 manifest；非 reserved 传 undefined → 读 manifest。 */
+  static async create(args: {
+    rootDir: string;
+    source: PackSource;
+    reservedName?: string;
+    adapterCtx?: SourceAdapterContext;
+  }): Promise<MdFilePack> {
+    // reserved pack：跳过 manifest，用固定名
+    if (args.reservedName) {
+      return new MdFilePack({
+        rootDir: args.rootDir,
+        name: args.reservedName,
+        version: "0.0.0",
+        source: args.source,
+        adapterCtx: args.adapterCtx,
+      });
+    }
+
+    // 非 reserved：读 manifest
+    const manifest = await parseManifest(args.rootDir);
+    const dirName = pathBasename(args.rootDir);
+
+    // manifest warnings 上抛 notify（不阻断——parseManifest 已容错）
+    if (manifest.warnings.length > 0 && args.adapterCtx?.notify) {
+      args.adapterCtx.notify(
+        `Pt: pack "${dirName}" manifest 警告：${manifest.warnings.join("; ")}`,
+        "warning"
+      );
+    }
+
+    return new MdFilePack({
+      rootDir: args.rootDir,
+      name: manifest.name ?? dirName, // manifest.name 优先，兜底 basename
+      version: manifest.version ?? "0.0.0", // manifest.version 优先，兜底 "0.0.0"
+      description: manifest.description,
+      source: args.source,
+      adapterCtx: args.adapterCtx,
+    });
   }
 
   async loadDomains(): Promise<Domain[]> {

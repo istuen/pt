@@ -112,16 +112,25 @@ export async function loadAndTranspile(
       `transpile: blueprint "${profile.blueprint}" not found for profile "${profile.name}"`
     );
   }
-  const ctx = compileAgentContext(profile, blueprint, bundle.domains);
+  // v15.x PR2（§8.1 + §8.3）：compileAgentContext 加 packs + profilePack 参数
+  const ctx = compileAgentContext(
+    profile,
+    blueprint,
+    bundle.domains,
+    bundle.packs,
+    bundle.activeProfilePack
+  );
   adapterCtx?.log?.debug("transpile:compile done", {
     profileName: profile.name,
     sourceHashPrefix: ctx.sourceHash.slice(0, 8),
     moduleCount: Object.keys(ctx.modules).length,
+    packName: ctx.packName,
   });
 
   // 3. cache：load 命中 → 用缓存（跳过写入），未命中 → save
   //   Phase term-P4.2：cacheDir 改用 constants.CACHE_DIR 常量，签名删 compilation 参数。
-  const cached = await loadAgentContext(cwd, ctx.name, ctx.sourceHash);
+  //   v15.x PR2（§8.3）：loadAgentContext 加 packName 参数，cache 文件名 <pack>__<profile>。
+  const cached = await loadAgentContext(cwd, ctx.packName, ctx.name, ctx.sourceHash);
   let used: AgentContext;
   let cacheHit = false;
   if (cached) {
@@ -212,7 +221,11 @@ export async function pruneOrphanCaches(
   const pruned: string[] = [];
   for (const f of files) {
     if (!f.endsWith(".agent-context.md")) continue;
-    const name = f.slice(0, -".agent-context.md".length);
+    // v15.x PR2（§8.3）：cache 文件名 <pack>__<profile>.agent-context.md——split "__" 拿 profile name
+    // PR1 阶段：<profile>.agent-context.md——slice 去后缀。二者需向后兼容。
+    const stem = f.slice(0, -".agent-context.md".length);
+    const sepIdx = stem.lastIndexOf("__");
+    const name = sepIdx >= 0 ? stem.slice(sepIdx + 2) : stem;
     if (validProfileNames.has(name)) continue;
     try {
       await unlink(join(dir, f));

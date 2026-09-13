@@ -8,7 +8,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanProjectHealth } from "../../src/asset-health.js";
-import type { Blueprint, Domain, Profile } from "../../src/schema.js";
+import type { AssetPack, Blueprint, Domain, Profile } from "../../src/schema.js";
+
+// v15.x PR2：scanProjectHealth 加 packs + profilePack 参数——测试用空 packs + "prj" 占位
+function scan(cwd: string, profiles: Profile[], blueprints: Blueprint[], domains: Domain[]) {
+  return scanProjectHealth(cwd, profiles, blueprints, domains, [] as AssetPack[], "prj");
+}
 
 const tempDirs: string[] = [];
 
@@ -59,7 +64,7 @@ describe("scanProjectHealth", () => {
       const profile = makeProfile({
         groups: [{ name: "会话背景", domains: [], modules: [] }],
       });
-      const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       // missing-modules (error) + empty-segment (error，modules 空产出空段) = 2 errors
       expect(r.errors).toBeGreaterThanOrEqual(1);
       const missing = r.issues.filter((i) => i.msg.includes("缺 ### Modules"));
@@ -70,14 +75,14 @@ describe("scanProjectHealth", () => {
 
     it("ProfileGroup.modules 非空 → 不报", async () => {
       const cwd = await makeCwd();
-      const r = await scanProjectHealth(cwd, [makeProfile()], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [makeProfile()], [makeBlueprint()], [makeDomain()]);
       expect(r.issues.filter((i) => i.msg.includes("缺 ### Modules"))).toHaveLength(0);
     });
 
     it("ProfileGroup 整个不存在（无 H2 实例化）→ 不报 missing-modules（orphan 优先）", async () => {
       const cwd = await makeCwd();
       const profile = makeProfile({ groups: [] });
-      const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       // groups: [] → 不触发 missing-modules（无 group 可检查）
       expect(r.issues.filter((i) => i.msg.includes("缺 ### Modules"))).toHaveLength(0);
     });
@@ -87,7 +92,7 @@ describe("scanProjectHealth", () => {
     it("profile.blueprint 不存在 → 报 error 且 skip 后续 group 检查", async () => {
       const cwd = await makeCwd();
       const profile = makeProfile({ blueprint: "ghost-blueprint" });
-      const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       expect(r.issues.length).toBe(1);
       expect(r.issues[0]?.msg).toContain("Blueprint「ghost-blueprint」不存在");
       expect(r.issues[0]?.severity).toBe("error");
@@ -95,7 +100,7 @@ describe("scanProjectHealth", () => {
 
     it("profile.blueprint 存在 → 不报", async () => {
       const cwd = await makeCwd();
-      const r = await scanProjectHealth(cwd, [makeProfile()], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [makeProfile()], [makeBlueprint()], [makeDomain()]);
       expect(r.issues.filter((i) => i.msg.includes("不存在"))).toHaveLength(0);
     });
   });
@@ -109,7 +114,7 @@ describe("scanProjectHealth", () => {
           { name: "未知聚合组", domains: [], modules: [{ section: "Trigger" }] },
         ],
       });
-      const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       const orphans = r.issues.filter((i) => i.msg.includes("不在 Blueprint"));
       expect(orphans.length).toBe(1);
       expect(orphans[0]?.severity).toBe("warning");
@@ -117,7 +122,7 @@ describe("scanProjectHealth", () => {
 
     it("ProfileGroup.name 在 Blueprint.groups → 不报", async () => {
       const cwd = await makeCwd();
-      const r = await scanProjectHealth(cwd, [makeProfile()], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [makeProfile()], [makeBlueprint()], [makeDomain()]);
       expect(r.issues.filter((i) => i.msg.includes("不在 Blueprint"))).toHaveLength(0);
     });
   });
@@ -132,7 +137,7 @@ describe("scanProjectHealth", () => {
           { name: "会话背景", domains: ["nonexistent-domain"], modules: [{ section: "Scene" }] },
         ],
       });
-      const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       const empty = r.issues.filter((i) => i.msg.includes("全聚合组空字符串"));
       expect(empty.length).toBe(1);
       expect(empty[0]?.severity).toBe("error");
@@ -140,7 +145,7 @@ describe("scanProjectHealth", () => {
 
     it("正常 profile → 不报 empty-segment", async () => {
       const cwd = await makeCwd();
-      const r = await scanProjectHealth(cwd, [makeProfile()], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [makeProfile()], [makeBlueprint()], [makeDomain()]);
       expect(r.issues.filter((i) => i.msg.includes("全聚合组空字符串"))).toHaveLength(0);
     });
 
@@ -148,7 +153,7 @@ describe("scanProjectHealth", () => {
       const cwd = await makeCwd();
       const profile = makeProfile({ blueprint: "ghost" });
       // dangling-blueprint-ref 已 catch → 不该再报 empty-segment
-      const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       expect(r.issues.length).toBe(1); // 只有 dangling 一条
     });
   });
@@ -179,7 +184,7 @@ domains: []
         domains: [],
         groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
       };
-      const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       const unknowns = r.issues.filter((i) => i.msg.includes("modName「"));
       // "Foo" 是单段未知 + "User.bar" 段已知但 item 名合法（不算未知）
       // 但 Foo 也算 unknown。Bar 不算（User 段已知）。
@@ -212,7 +217,7 @@ domains: []
         domains: [],
         groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
       };
-      const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       expect(r.issues.filter((i) => i.msg.includes("modName「"))).toHaveLength(0);
     });
 
@@ -220,7 +225,7 @@ domains: []
       const cwd = await makeCwd();
       // 不写文件
       const profile = makeProfile({ name: "builtin-fake" });
-      const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       // unknown-modname 跳过（文件不存在）→ 但 empty-segment 仍可能触发
       // 此处 profile 正常 → 0 issue
       expect(r.issues.filter((i) => i.msg.includes("modName「"))).toHaveLength(0);
@@ -248,7 +253,7 @@ domains: []
         domains: [],
         groups: [{ name: "会话背景", domains: [], modules: [] }], // missing-modules
       };
-      const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       // unknown-modname 不报（Scene 合法）
       expect(r.issues.filter((i) => i.msg.includes("modName「"))).toHaveLength(0);
       // missing-modules 报
@@ -268,7 +273,7 @@ describe("scanProjectHealth integration", () => {
     });
     const p2 = makeProfile({ name: "p2", blueprint: "ghost" }); // dangling only
     const p3 = makeProfile({ name: "p3" }); // ok
-    const r = await scanProjectHealth(cwd, [p1, p2, p3], [makeBlueprint()], [makeDomain()]);
+    const r = await scan(cwd, [p1, p2, p3], [makeBlueprint()], [makeDomain()]);
     // p1: 2 errors, p2: 1 error, p3: 0 → 3 errors total
     expect(r.errors).toBe(3);
     expect(r.warnings).toBe(0);
@@ -276,7 +281,7 @@ describe("scanProjectHealth integration", () => {
 
   it("空 profiles → 0 issue", async () => {
     const cwd = await makeCwd();
-    const r = await scanProjectHealth(cwd, [], [makeBlueprint()], [makeDomain()]);
+    const r = await scan(cwd, [], [makeBlueprint()], [makeDomain()]);
     expect(r.issues.length).toBe(0);
     expect(r.errors).toBe(0);
     expect(r.warnings).toBe(0);
@@ -311,7 +316,7 @@ domains: []
         { name: "未知聚合组", domains: [], modules: [{ section: "Scene" }] },
       ],
     };
-    const r = await scanProjectHealth(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+    const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
     // orphan-h2 (warning，H2 未知聚合组) + unknown-modname (warning，Foo 段名未知) = 2 warnings
     expect(r.warnings).toBe(2);
     expect(r.issues.filter((i) => i.msg.includes("不在 Blueprint")).length).toBe(1);

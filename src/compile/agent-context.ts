@@ -35,6 +35,7 @@ import {
 import { reportWarn } from "../diagnostics.js";
 import type {
   AgentContext,
+  AssetPack,
   Blueprint,
   BlueprintGroup,
   Domain,
@@ -73,6 +74,8 @@ export function compileAgentContext(
   profile: Profile,
   blueprint: Blueprint,
   domains: Domain[],
+  packs: AssetPack[],
+  profilePack: string,
   ctx?: SourceAdapterContext
 ): AgentContext {
   // 1. 按 Domain 名建立索引
@@ -122,14 +125,16 @@ export function compileAgentContext(
     }
   }
 
-  // 4. 算 sourceHash
-  const sourceHash = computeSourceHash(profile, blueprint, domains);
+  // 4. 算 sourceHash（PR2 加 packs 维度）
+  const sourceHash = computeSourceHash(profile, blueprint, domains, packs);
 
   return {
     name: profile.name,
     blueprint: profile.blueprint,
     sourceHash,
     modules,
+    // v15.x PR2（§8.3）：packName 用于 cache 文件名 <pack>__<profile>
+    packName: profilePack,
   };
 }
 
@@ -372,16 +377,24 @@ function renderGenericModule(_d: Domain, content: unknown): string {
 
 // ==================== sourceHash ====================
 
-/** sha256(JSON.stringify(profile) + blueprint + domains) → hex */
+/** v15.x PR2（§8.1）：sourceHash 加 packs[].{name, rootDir}（不含 version/description）。
+ *  pack 内容变化触发 cache 失效；pack version 变化不进 hash（M1：内容 hash 已覆盖）。
+ *  pack 列表顺序敏感——dedupByNameN 后的 pack 顺序固定，添加 settings pack 会改 hash。 */
 export function computeSourceHash(
   profile: Profile,
   blueprint: Blueprint,
-  domains: Domain[]
+  domains: Domain[],
+  packs: AssetPack[]
 ): string {
   const payload = JSON.stringify({
     profile: stableStringify(profile),
     blueprint: stableStringify(blueprint),
     domains: domains.map((d) => stableStringify(d)),
+    packs: packs.map((p) => ({
+      name: p.name,
+      rootDir: p.rootDir,
+      // version 不进 hash（M1）：内容 hash 已覆盖；version 进诊断即可
+    })),
   });
   return simpleHash(payload);
 }
