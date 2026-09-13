@@ -24,12 +24,21 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { FULL_DIR, MANUAL_DIR, PROFILES_DIR, RAW_DIR } from "./constants.js";
 import { toAgentAPI } from "./agent/api-bridge.js";
 import { getAgentAdapter } from "./agent/index.js";
 import { scanProjectHealth } from "./asset-health.js";
+import {
+  applyProjectPackDegrade,
+  getGlobalPackDir,
+  loadBuiltinPack,
+  loadGlobalPack,
+  loadProjectPack,
+} from "./asset-pack/loader.js";
+import { shouldPromptGlobalPackGuide, validatePack } from "./asset-pack/validate.js";
 import {
   detectDefaultProfile,
   detectSingleProfile,
@@ -124,6 +133,23 @@ async function transpileActive(
   notify: (msg: string, level: "warning" | "error") => void
 ): Promise<void> {
   const t0 = Date.now();
+
+  // v15.x PR1（§6.7.3）：project pack 降级时强制回 guide——必须前置覆盖，
+  // 否则用户请求的 profile 会先加载失败才降级（前置覆盖，不是失败后兜底）。
+  const sForDegrade = getSessionById(sessionId);
+  const originalProfile = profileName;
+  profileName = applyProjectPackDegrade(sForDegrade.projectPackDegraded, profileName);
+  if (profileName !== originalProfile) {
+    slog(sessionId, "warn", "transpileActive:project-pack-degraded", {
+      requested: originalProfile,
+      forced: profileName,
+    });
+    notify(
+      `Pt: project pack 降级中，强制使用 builtin guide（请求的 "${originalProfile}" 被覆盖）。修复后重启。`,
+      "warning"
+    );
+  }
+
   slog(sessionId, "info", "transpileActive:start", { profileName });
 
   try {
@@ -247,6 +273,68 @@ export default function (pi: ExtensionAPI): void {
     s.logger.info("session:start", { sessionId: s.sessionId, cwd: ctx.cwd });
 
     s.lastCwd = ctx.cwd;
+
+    // v15.x PR1（§6.7.1 + §7.5）：pack 校验 + 全局 Pack 引导
+    // 两段独立 try/catch 兑底——任一异常都不能阻塞 session_start。
+    // PR1 阶段 loadSettingsPacks() 返空，不验证；PR4 接通 settings 加载后加进 packs。
+    try {
+      const projectPack = await loadProjectPack(ctx.cwd);
+      const globalPack = await loadGlobalPack();
+      const builtinPack = await loadBuiltinPack();
+      const packsForValidate = [projectPack, globalPack, builtinPack];
+
+      const results = await Promise.all(packsForValidate.map(validatePack));
+      s.packValidation = results;
+
+      // project pack 降级（§6.7.3）—— 警告 + 强制回 guide
+      const projectResult = results.find((r) => r.source === "project");
+      if (projectResult && !projectResult.ok) {
+        s.projectPackDegraded = true;
+        const firstErr = projectResult.errors[0];
+        ctx.ui.notify(
+          `⚠ Pt: project pack 校验失败（${firstErr?.msg ?? "未知错误"}）。已降级到 builtin guide。`,
+          "warning"
+        );
+        ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+      }
+
+      s.logger?.info("session:pack validation", {
+        projectOk: projectResult?.ok ?? false,
+        results: results.map((r) => ({
+          pack: r.pack,
+          source: r.source,
+          ok: r.ok,
+          errorCount: r.errors.length,
+        })),
+      });
+    } catch (e) {
+      // 校验异常仅 log，不阻塞 session_start（陷阱 3：不能阻塞）
+      s.logger?.warn("session:pack validation failed", { err: errMsg(e) });
+    }
+
+    // v15.x PR1（§7.5 + §7.5.1）：全局 Pack 初始化引导——一次性、非交互兼容
+    try {
+      const globalPackDir = getGlobalPackDir();
+      if (
+        shouldPromptGlobalPackGuide({
+          isTTY: process.stdout.isTTY === true,
+          globalPackExists: existsSync(globalPackDir),
+          isFirstRun: !s.globalPackGuideShown,
+          isCi: !!process.env.CI,
+          guideDisabled: !!process.env.PT_NO_GUIDE,
+        })
+      ) {
+        ctx.ui.notify(
+          `Pt: 全局 Pack 目录不存在: ${globalPackDir}\n  提示: 你可以把通用的 Domain/Blueprint/Profile 放这里跨项目共享\n  创建目录: mkdir -p ${globalPackDir}`,
+          "info"
+        );
+        s.globalPackGuideShown = true;
+        s.logger?.info("session:global pack guide shown", { globalPackDir });
+      }
+    } catch (e) {
+      s.logger?.warn("session:global pack guide failed", { err: errMsg(e) });
+    }
+
     try {
       // Phase term-P2：flag/settings 链主读新名（pt-profile），旧名（pt-context）作 fallback 兼容。
       const flag = pi.getFlag("pt-profile") ?? pi.getFlag("pt-context");
