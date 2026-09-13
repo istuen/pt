@@ -12,20 +12,25 @@
 // 重点回归：switch-injection（transpileActive 改降级）/ phase9（集成 4 类加载链）
 //           / asset-health（validatePack 与 asset-health 同层不冲突）。
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { mdAdapter } from "../../src/parse/index.js";
 import { MdFilePack } from "../../src/asset-pack/md-file-pack.js";
 import {
   applyProjectPackDegrade,
   loadBuiltinPack,
-  loadProjectPack,
   tryLoadPack,
 } from "../../src/asset-pack/loader.js";
 import { parseManifest } from "../../src/asset-pack/manifest.js";
 import { shouldPromptGlobalPackGuide, validatePack } from "../../src/asset-pack/validate.js";
+import {
+  resolvePackPath,
+  loadProjectPack,
+  loadSettingsPacks,
+} from "../../src/asset-pack/loader.js";
+import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
+import { join } from "node:path";
 import type { AssetPack } from "../../src/schema.js";
 import { BUILTIN_ASSETS_DIR } from "../../src/constants.js";
 
@@ -750,5 +755,210 @@ description: test desc
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+// ==================== PR4：resolvePackPath + loadSettingsPacks + loadProjectPack 配置 ====================
+
+describe("PR4 resolvePackPath（§6.2）", () => {
+  it("~ 开头 → home dir 展开（~/foo）", () => {
+    expect(resolvePackPath("~/projects", "/cwd")).toBe(join(homedir(), "projects"));
+  });
+
+  it("~ 开头（无 /）→ home dir 展开（~foo）", () => {
+    expect(resolvePackPath("~assets", "/cwd")).toBe(join(homedir(), "assets"));
+  });
+
+  it("绝对路径 → 原样返回", () => {
+    expect(resolvePackPath("/abs/path", "/cwd")).toBe("/abs/path");
+  });
+
+  it("相对路径 → resolve(cwd, raw)", () => {
+    expect(resolvePackPath("../shared", "/cwd")).toBe(join("/cwd", "..", "shared"));
+    expect(resolvePackPath("./sub", "/cwd")).toBe(join("/cwd", "sub"));
+  });
+});
+
+describe("PR4 loadSettingsPacks（§6.1）", () => {
+  let tmpCwd: string;
+  beforeEach(() => {
+    tmpCwd = mkdtempSync(join(tmpdir(), "pt-pr4-"));
+  });
+  afterEach(() => {
+    rmSync(tmpCwd, { recursive: true, force: true });
+  });
+
+  function writeSettings(content: object): void {
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(join(tmpCwd, ".pi/settings.json"), JSON.stringify(content), "utf8");
+  }
+
+  // readProjectSetting 按 dot path 解析——settings.json 需嵌套结构 {pt: {asset-packs: [...]}}
+  function writeSettingsPacks(packs: Array<{ path: string }>): void {
+    writeSettings({ pt: { "asset-packs": packs } });
+  }
+
+  function makePackDir(packName: string, withManifest = true): string {
+    const dir = join(tmpCwd, "pack", packName);
+    mkdirSync(join(dir, "domains"), { recursive: true });
+    if (withManifest) {
+      writeFileSync(join(dir, "pt-asset-pack.yaml"), `name: ${packName}\nversion: 1.0.0\n`, "utf8");
+    }
+    return dir;
+  }
+
+  it("无 settings.json → 返 []", async () => {
+    const packs = await loadSettingsPacks(tmpCwd);
+    expect(packs).toEqual([]);
+  });
+
+  it("settings.json 无 pt.asset-packs → 返 []", async () => {
+    writeSettings({ pt: { "default-profile": "guide" } });
+    const packs = await loadSettingsPacks(tmpCwd);
+    expect(packs).toEqual([]);
+  });
+
+  it("pt.asset-packs 空数组 → 返 []", async () => {
+    writeSettingsPacks([]);
+    const packs = await loadSettingsPacks(tmpCwd);
+    expect(packs).toEqual([]);
+  });
+
+  it("2 个有效 path → 返 2 个 settings pack（name 从 manifest 读）", async () => {
+    const dirA = makePackDir("team-a");
+    const dirB = makePackDir("team-b");
+    writeSettingsPacks([{ path: dirA }, { path: dirB }]);
+    const packs = await loadSettingsPacks(tmpCwd);
+    expect(packs).toHaveLength(2);
+    expect(packs[0]?.name).toBe("team-a");
+    expect(packs[1]?.name).toBe("team-b");
+    expect(packs[0]?.source).toBe("settings");
+  });
+
+  it("path 无效（目录不存在）→ 返空 Pack（不抛），session_start validatePack 兑底", async () => {
+    const dirA = makePackDir("team-a");
+    writeSettingsPacks([{ path: dirA }, { path: "/nonexistent/path/should/be/skipped" }]);
+    const packs = await loadSettingsPacks(tmpCwd);
+    // 两个 pack 都返（invald 返空 Pack，team-a 返真 Pack）——不预检测目录
+    expect(packs).toHaveLength(2);
+    expect(packs[0]?.name).toBe("team-a");
+    // invalid pack name 是 basename（无 manifest）—— loader 不预检测，由 session_start validatePack 报 dir-not-found
+    expect(packs[1]?.rootDir).toBe("/nonexistent/path/should/be/skipped");
+  });
+
+  it("条目无 path 字段 → 跳过", async () => {
+    writeSettings({ pt: { "asset-packs": [{ name: "no-path" }, {}] } });
+    const packs = await loadSettingsPacks(tmpCwd);
+    expect(packs).toEqual([]);
+  });
+
+  it("path 是 ~ 开头 → home dir 展开（loader 不抛）", async () => {
+    writeSettingsPacks([{ path: "~/__pt_test_nonexistent__" }]);
+    const packs = await loadSettingsPacks(tmpCwd);
+    expect(packs).toHaveLength(1); // 返空 Pack（目录不存在但 loader 不抛）
+    expect(packs[0]?.source).toBe("settings");
+    expect(packs[0]?.rootDir).toBe(join(homedir(), "__pt_test_nonexistent__"));
+  });
+});
+
+describe("PR4 loadProjectPack pt.project-pack-dir（§6.5）", () => {
+  let tmpCwd: string;
+  beforeEach(() => {
+    tmpCwd = mkdtempSync(join(tmpdir(), "pt-pr4-pp-"));
+  });
+  afterEach(() => {
+    rmSync(tmpCwd, { recursive: true, force: true });
+  });
+
+  it("不写 project-pack-dir → 默认 .pt/assets", async () => {
+    const pack = await loadProjectPack(tmpCwd);
+    expect(pack.name).toBe("prj");
+    expect(pack.source).toBe("project");
+    expect(pack.rootDir).toBe(join(tmpCwd, ".pt/assets"));
+  });
+
+  it("pt.project-pack-dir 自定义相对路径 → 读配置", async () => {
+    const customDir = join(tmpCwd, "custom");
+    mkdirSync(customDir, { recursive: true });
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "project-pack-dir": "custom" } }),
+      "utf8"
+    );
+    const pack = await loadProjectPack(tmpCwd);
+    expect(pack.rootDir).toBe(customDir);
+    expect(pack.name).toBe("prj"); // 身份不变
+  });
+
+  it("pt.project-pack-dir 绝对路径 → 原样使用", async () => {
+    const absDir = "/tmp/__pt_pr4_abs__";
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "project-pack-dir": absDir } }),
+      "utf8"
+    );
+    const pack = await loadProjectPack(tmpCwd);
+    expect(pack.rootDir).toBe(absDir);
+  });
+
+  it("pt.project-pack-dir ~ 开头 → home dir 展开", async () => {
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "project-pack-dir": "~/__pt_pr4_tilde__" } }),
+      "utf8"
+    );
+    const pack = await loadProjectPack(tmpCwd);
+    expect(pack.rootDir).toBe(join(homedir(), "__pt_pr4_tilde__"));
+  });
+});
+
+describe("PR4 mdAdapter.load settings 倒序后者赢（§3.3.1）", () => {
+  let tmpCwd: string;
+  beforeEach(() => {
+    tmpCwd = mkdtempSync(join(tmpdir(), "pt-pr4-md-"));
+  });
+  afterEach(() => {
+    rmSync(tmpCwd, { recursive: true, force: true });
+  });
+
+  it("settings=[] → 行为等价今天（back-compat）", async () => {
+    const { mdAdapter } = await import("../../src/parse/index.js");
+    const bundle = await mdAdapter.load(tmpCwd, "guide", { assetDir: "." });
+    expect(bundle.packs.map((p) => p.name)).toEqual(["prj", "gbl", "pt"]);
+  });
+
+  it("settings 2 个 pack：workingSet 同时保留（同 fp 不同，dedup 保留 2 份）", async () => {
+    const dirA = join(tmpCwd, "team-a");
+    const dirB = join(tmpCwd, "team-b");
+    mkdirSync(join(dirA, "domains"), { recursive: true });
+    mkdirSync(join(dirB, "domains"), { recursive: true });
+    writeFileSync(join(dirA, "pt-asset-pack.yaml"), "name: team-a\n", "utf8");
+    writeFileSync(join(dirB, "pt-asset-pack.yaml"), "name: team-b\n", "utf8");
+    writeFileSync(
+      join(dirA, "domains/user-info.md"),
+      "---\nname: user-info\n---\n## User\n### x\n- desc: from team-a\n",
+      "utf8"
+    );
+    writeFileSync(
+      join(dirB, "domains/user-info.md"),
+      "---\nname: user-info\n---\n## User\n### x\n- desc: from team-b\n",
+      "utf8"
+    );
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "asset-packs": [{ path: dirA }, { path: dirB }] } }),
+      "utf8"
+    );
+    const { mdAdapter } = await import("../../src/parse/index.js");
+    const bundle = await mdAdapter.load(tmpCwd, "guide", { assetDir: "." });
+    // packs 顺序：prj, team-b, team-a, gbl, pt（settings 倒序后者赢）
+    expect(bundle.packs.map((p) => p.name)).toEqual(["prj", "team-b", "team-a", "gbl", "pt"]);
+    // workingSet 同时含 team-a/user-info + team-b/user-info（fp 不同）
+    expect(bundle.workingSet.domains.get("team-a/user-info")).toBeDefined();
+    expect(bundle.workingSet.domains.get("team-b/user-info")).toBeDefined();
   });
 });

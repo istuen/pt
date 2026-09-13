@@ -81,20 +81,22 @@ export interface ProfileMeta {
 }
 
 export async function listProfilesWithTagline(cwd: string): Promise<ProfileMeta[]> {
-  // v15.x PR3（§4.4.3 #5）：扫所有 pack——不再硬编码 project + builtin
-  const { loadProjectPack, loadGlobalPack, loadBuiltinPack } = await import(
+  // v15.x PR4（§4.4.3 #5 + §6.1）：扫所有 pack 含 settings
+  // 顺序与 mdAdapter.load 一致（settings 倒序后者赢）——选择器展示优先级与实际加载一致
+  const { loadProjectPack, loadSettingsPacks, loadGlobalPack, loadBuiltinPack } = await import(
     "./asset-pack/loader.js"
   );
   const projectPack = await loadProjectPack(cwd);
+  const settingsPacks = await loadSettingsPacks(cwd);
   const globalPack = await loadGlobalPack();
   const builtinPack = await loadBuiltinPack();
-  const packs = [projectPack, globalPack, builtinPack]; // settings PR4 接通后加
+  const packs = [projectPack, ...settingsPacks.slice().reverse(), globalPack, builtinPack];
 
   const metas: ProfileMeta[] = [];
   for (const pack of packs) {
     const profiles = await pack.loadProfiles();
     for (const p of profiles) {
-      if (metas.some((m) => m.name === p.name)) continue; // 前者赢（project 优先）
+      if (metas.some((m) => m.name === p.name)) continue; // 前者赢
       metas.push({ name: p.name, tagline: p.tagline, source: pack.source, pack: pack.name });
     }
   }

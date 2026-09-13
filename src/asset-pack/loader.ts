@@ -16,10 +16,23 @@
 
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { ASSETS_DIR, BUILTIN_ASSETS_DIR } from "../constants.js";
+import { readProjectSetting } from "../config.js";
 import type { AssetPack, PackSource, SourceAdapterContext } from "../schema.js";
 import { MdFilePack } from "./md-file-pack.js";
+
+/** v15.x PR4（§6.2）：路径解析——支持 ~ / 绝对 / 相对 cwd。
+ *  ~ 开头 → home dir（join 后自然处理 ~user/foo / ~/foo / ~foo）；绝对路径原样；相对路径 resolve(cwd, raw)。 */
+export function resolvePackPath(raw: string, cwd: string): string {
+  if (raw.startsWith("~")) {
+    return join(homedir(), raw.slice(1));
+  }
+  if (isAbsolute(raw)) {
+    return raw;
+  }
+  return resolve(cwd, raw);
+}
 
 /** 全局 Pack 默认路径（§6.4）。优先级：adapterCtx.globalPackDir > env > 默认 ~/.pt/assets。
  *  返回值永远是绝对路径或可被 resolve 的相对路径。 */
@@ -49,13 +62,17 @@ export async function tryLoadPack(
 }
 
 /** 构造 project pack（§6.5：路径可配，默认 .pt/assets）。
- *  PR1 阶段路径走 adapterCtx.assetDir / 默认 ASSETS_DIR——
- *  PR4 接通 .pi/settings.json 的 pt.project-pack-dir 后改为读 settings。 */
+ *  v15.x PR4：优先读 settings 的 pt.project-pack-dir，fallback adapterCtx.assetDir / ASSETS_DIR。
+ *  project pack 身份固定 "prj"（reservedName），与路径解耦（§6.5 核心价值）。
+ *  指向项目外路径合法（../shared / 绝对），文档提示慎用。 */
 export async function loadProjectPack(
   cwd: string,
   adapterCtx?: SourceAdapterContext
 ): Promise<AssetPack> {
-  const dir = adapterCtx?.assetDir ? resolve(cwd, adapterCtx.assetDir) : resolve(cwd, ASSETS_DIR);
+  // 优先级：pt.project-pack-dir > adapterCtx.assetDir > ASSETS_DIR（默认 .pt/assets）
+  const configured = await readProjectSetting<string>(cwd, "pt.project-pack-dir");
+  const rawDir = configured ?? adapterCtx?.assetDir ?? ASSETS_DIR;
+  const dir = resolvePackPath(rawDir, cwd);
   return tryLoadPack(dir, "prj", "project", adapterCtx);
 }
 
@@ -69,15 +86,39 @@ export async function loadBuiltinPack(adapterCtx?: SourceAdapterContext): Promis
   return tryLoadPack(BUILTIN_ASSETS_DIR, "pt", "builtin", adapterCtx);
 }
 
-/**
- * PR1 stub：settings pack 加载。PR4 接通 .pi/settings.json pt.asset-packs 解析。
- * PR1 阶段返空数组（不阻塞 PR1 的 4 类加载顺序验证）——
- * 保留函数签名稳定（PR4 改实现不改签名）。
- *
- * 入参 _cwd：保留以匹配 PR4 接通后的真实签名（路径解析依赖 cwd）。
- */
-export async function loadSettingsPacks(_cwd: string): Promise<AssetPack[]> {
-  return []; // PR4 实现：读 .pi/settings.json 的 pt.asset-packs[] → 构造 AssetPack[]
+/** v15.x PR4（§6.1 + §6.3）：settings pack 加载。
+ *  读 .pi/settings.json 的 pt.asset-packs[]（只 path 字段，§6.2 单一事实源），构造 AssetPack[]。
+ *  - pack name 从 manifest 读（MdFilePack.create 内部走 PR2 逻辑）
+ *  - 路径解析 resolvePackPath（~ / 绝对 / 相对 cwd）
+ *  - path 无效 / 目录不存在 / parse 失败 → 跳过该 pack（§6.7.5 不阻断）
+ *  - 返回顺序 = settings 声明顺序（mdAdapter.load 负责 .reverse() 实现后者赢） */
+export async function loadSettingsPacks(cwd: string): Promise<AssetPack[]> {
+  const entries = await readProjectSetting<Array<{ path?: unknown }>>(cwd, "pt.asset-packs");
+  if (process.env.PT_DEBUG_SETTINGS) {
+    console.error("[PT_DEBUG] loadSettingsPacks cwd:", cwd);
+    console.error("[PT_DEBUG] entries:", JSON.stringify(entries));
+  }
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return [];
+  }
+
+  const packs: AssetPack[] = [];
+  for (const entry of entries) {
+    // 只 path 字段——name 从 manifest 读（§6.2 单一事实源）
+    if (!entry || typeof entry.path !== "string" || !entry.path.trim()) {
+      // 无效条目跳过（loader 不调 ui，预警由 session_start 的 validatePack 兜底）
+      continue;
+    }
+    const rootDir = resolvePackPath(entry.path.trim(), cwd);
+    try {
+      // reservedName=undefined：settings pack 走 manifest 读 name（PR2 逻辑）
+      const pack = await tryLoadPack(rootDir, undefined, "settings");
+      packs.push(pack);
+    } catch {
+      // MdFilePack.create 内部已容错，catch 仅防御意外抛错——不阻断其他 pack
+    }
+  }
+  return packs;
 }
 
 /**
