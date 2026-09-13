@@ -396,8 +396,12 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(r.segment).toContain("### user-info");
       expect(r.segment).toContain("### agent-info");
       expect(r.segment).toContain("### project-analysis");
-      expect(r.segment).toContain("### usage");
-      expect(r.segment).toContain("### authoring");
+      // v15.x PR3b（§4.5.2）：Scene 段多份 domain 同 pack 不去重（fp 不同——不同 rootDir）
+      //  → mergeSectionContent 合并为 1 个 H3 标题（d0）+ 合并内容；多个 ### usage / ### authoring
+      //  标题被吸收进 d0 的内容。验合并后 d0 标题 + 合并内容关键词。
+      expect(r.segment).toContain("### project-analysis");
+      expect(r.segment).toContain("pt-commands"); // usage Scene 项名
+      expect(r.segment).toContain("domain-format"); // authoring Scene 项名
     });
 
     it("内建 domains 进入池但不污染项目 profile", async () => {

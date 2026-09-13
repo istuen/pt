@@ -273,6 +273,15 @@ export interface Profile {
    * back-compat：未加载的新代码可能缺省（undefined）；parseRef 用 `?? ""` 容错后抛
    * "unqualified ref ... but profile has no sourcePack" 错误——保留配置错误可见性。 */
   sourcePack?: string;
+  /**
+   * v15.x PR5（§5.1）：use 单继承——引用另一 Profile 作为基础，递归展开。
+   *  - 不写 = 完全独立 Profile（back-compat 干净，expandProfile 步骤 4 早退）
+   *  - 写了 = 增量继承：blueprint 覆盖 / tagline 覆盖 / domains 追加 / groups 替换（§5.2 表）
+   *  格式：`@pack/name`（限定）或 `name`（无限定→self.sourcePack/name）
+   *  解析：parseRef（PR3a 已实现，含 @prj/@gbl/@pt 别名归一）
+   *  循环检测 + 菱形处理：路径 visited（每层 new Set，§5.3.3 M4）
+   *  越权校验：use 场景 error（§5.5.1 S7） */
+  use?: string;
 }
 
 // ==================== 产物层：AgentContext ====================

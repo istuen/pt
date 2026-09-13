@@ -29,6 +29,12 @@ import { saveAgentContext, loadAgentContext } from "./render/cache.js";
 import { renderSessionInject } from "./render/session-inject.js";
 import { findProfile } from "./schema.js";
 import { parseRef } from "./parse/ref-resolver.js";
+import {
+  expandProfile,
+  UseTargetNotFound,
+  UseChainCycle,
+  BlueprintGroupOutOfScope,
+} from "./compile/resolve-use.js";
 import type {
   AgentContext,
   Blueprint,
@@ -96,11 +102,45 @@ export async function loadAndTranspile(
   });
 
   // 2. compile：profile → blueprint → context
-  const profile = findProfile(bundle.profiles, bundle.activeProfile);
-  if (!profile) {
+  const rawProfile = findProfile(bundle.profiles, bundle.activeProfile);
+  if (!rawProfile) {
     throw new Error(
       `transpile: profile "${bundle.activeProfile}" not found in bundle (available: ${bundle.profiles.map((p) => p.name).join(", ") || "<none>"})`
     );
+  }
+
+  // v15.x PR5（§5.3.2 + §8.2）：use 单继承展开
+  //  - 在 findProfile 之后、findBlueprint 之前——展开后 blueprint 可能被 self 覆盖
+  //  - 展开后 profile 进 compileAgentContext + computeSourceHash（§8.2 use 链自然进 hash）
+  //  - profileByQualifiedName = workingSet.profiles 视图转换（key 已是 "pack/name"）
+  //  - blueprintByQualifiedName 直接复用 workingSet.blueprints（{pack, asset} 视图）
+  const profileByQualifiedName = new Map<string, Profile>();
+  for (const [k, v] of bundle.workingSet.profiles) {
+    profileByQualifiedName.set(k, v.asset);
+  }
+  let profile: Profile;
+  try {
+    profile = expandProfile(
+      rawProfile,
+      profileByQualifiedName,
+      bundle.workingSet.blueprints,
+      bundle.packs,
+      new Set(),
+      adapterCtx
+    );
+  } catch (e) {
+    // use 链错误：reportWarn + rethrow——让上层报"transpile: failed"并阻断激活
+    if (
+      e instanceof UseTargetNotFound ||
+      e instanceof UseChainCycle ||
+      e instanceof BlueprintGroupOutOfScope
+    ) {
+      reportWarn(adapterCtx, e.message, {
+        profileName: rawProfile.name,
+        errorType: e.name,
+      });
+    }
+    throw e;
   }
   const blueprintEntry = (() => {
     const { pack, name } = parseRef(profile.blueprint, profile.sourcePack ?? "");
