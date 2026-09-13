@@ -1,113 +1,82 @@
-// src/parse/blueprint.ts — blueprints/*.md → Blueprint IR
+// src/parse/blueprint.ts — blueprints/*.blueprint.yaml → Blueprint IR
 //
-// Phase 9.3：v9 适配 — Blueprint 直接拥有 injectionPoints（v8 Channel 吸收进来）。
-//   - ## <注入点名> : 注入点定义（H2 名=注入点人类自定义名）
-//     - target: <system_prompt|context_message|扩展>
-//     - mode: <byDomain|byType|hybrid>
-//     - ### Modules : 聚合点（Domain H2 段名列表，data-driven）
-//   - ## Compilation : 编译方式（cache-dir + split）
+// Phase term-P4.5：载体从 MD 转 YAML。
+//   Blueprint 是纯结构化无叙事（target + mode + modules），MD 的 H2/H3 是用叙事格式装非叙事数据。
+//   YAML 直接表达嵌套结构，parser 简化为 yaml.load() + 校验，与 frontmatter 同构。
 //
-// Blueprint asset 格式（v9）：
-//   ---
+// Blueprint asset 格式（v9.5）：
 //   name: <blueprint-name>
-//   agent: pi
-//   ---
-//
-//   ## 会话知识                          ← H2 = 注入点（人类自定义名）
-//   target: system_prompt
-//   mode: hybrid
-//   ### Modules                          ← 聚合点列表
-//   - Scene
-//   - Trigger
-//
-//   ## 参考手册
-//   target: context_message
-//   ### Modules
-//   - Manual
-//
-//   ## Compilation
-//   cache-dir: .pt/cache/contexts/
-//   split: single-file
+//   groups:
+//     - name: 会话背景              ← 聚合组（人类自定义语义名）
+//       inject: session              ← 注入位置（session / turn，Agent-agnostic）
+//       mode: hybrid                 ← 可选
+//       modules: [Scene, Participant]   ← 聚合点（Domain Schema Name 列表）
+//     - name: 触发索引
+//       inject: session
+//       modules: [Trigger]
+//     - name: 参考手册
+//       inject: turn
+//       modules: [Rules, Flows, Checklists]
 //
 // Tech Debt T6: 用 constants + type guard（pt-quality #1/#4/#5）
 
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CACHE_DIR, SUFFIX_BLUEPRINT } from "../constants.js";
-import type {
-  Blueprint,
-  CompilationConfig,
-  InjectionPointConfig,
-  StructureLayout,
-} from "../schema.js";
-import { extractFieldValue, extractModulesList, readAsset, type Section } from "./shared.js";
+import { parse as parseYaml } from "yaml";
+import type { Blueprint, BlueprintGroup, InjectTarget, StructureLayout } from "../schema.js";
 
 const VALID_MODES: ReadonlyArray<StructureLayout["mode"]> = ["byDomain", "byType", "hybrid"];
 
-/** 读 blueprints/<fileName>.md → Blueprint { name, agent, injectionPoints, compilation }
- *  v10.x：assetDir 让 fixtures 可指向 tests/fixtures/assets/（默认 .pt/assets）。 */
-export async function parseBlueprint(absDir: string, fileName: string): Promise<Blueprint> {
-  const asset = await readAsset(join(absDir, fileName));
-
-  const agent = typeof asset.frontmatter.agent === "string" ? asset.frontmatter.agent : "pi";
-
-  // injectionPoints：每个非特殊 H2 = 一个注入点定义
-  const injectionPoints: InjectionPointConfig[] = [];
-  for (const [h2Name, section] of Object.entries(asset.sections)) {
-    if (h2Name === "Compilation") continue;
-    injectionPoints.push(parseInjectionPointFromSection(h2Name, section));
-  }
-
-  // compilation：## Compilation 段
-  const compilation = parseCompilationFromSection(asset.sections.Compilation);
-
-  return {
-    name:
-      typeof asset.frontmatter.name === "string"
-        ? asset.frontmatter.name
-        : stripBlueprintSuffix(asset.name),
-    agent,
-    injectionPoints,
-    compilation,
-  };
+interface RawBlueprintGroup {
+  name: string;
+  inject: string;
+  mode?: string;
+  // v9.1（modules-to-profile 迁移）：modules 已迁到 ProfileGroup，本接口字段保留注释说明。
+  // 旧 YAML 中 modules: [..] 行 parse 后被忽略——迁移期内联文件用。
+  modules?: string[];
 }
 
-/** 把一个 H2 段解析为 InjectionPointConfig（v9 Blueprint 直接拥有，逻辑同 v8 Channel）。 */
-function parseInjectionPointFromSection(h2Name: string, section: Section): InjectionPointConfig {
-  const targetRaw = extractFieldValue(section, "target") || "system_prompt";
-  const modeRaw = extractFieldValue(section, "mode");
-  const modules = extractModulesList(section);
+interface RawBlueprint {
+  name: string;
+  groups: RawBlueprintGroup[];
+}
 
-  const mode: StructureLayout["mode"] | undefined =
-    modeRaw && isValidMode(modeRaw) ? modeRaw : undefined;
+/** 读 blueprints/<fileName>.blueprint.yaml → Blueprint { name, groups }
+ *  v9.1（modules-to-profile 迁移）：BlueprintGroup 不再带 modules——modules 由 ProfileGroup
+ *  通过 H2 `### Modules` 段提供。YAML 中 modules 行（若有）被静默忽略，迁移期兼容。 */
+export async function parseBlueprint(absDir: string, fileName: string): Promise<Blueprint> {
+  const filePath = join(absDir, fileName);
+  const raw = await readFile(filePath, "utf8");
+  const data = parseYaml(raw) as RawBlueprint;
 
-  // target 未严格收窄（扩展 InjectionTarget 可含任意字符串，如未来 Agent 扩展）
-  const ip: InjectionPointConfig = {
-    name: h2Name,
-    target: targetRaw,
-    modules,
-  };
-  if (mode) ip.mode = mode;
-  return ip;
+  if (!data || typeof data.name !== "string") {
+    throw new Error(`parseBlueprint: ${fileName} 缺少顶层 name 字段`);
+  }
+  if (!Array.isArray(data.groups)) {
+    throw new Error(`parseBlueprint: ${fileName} 缺少 groups 数组`);
+  }
+
+  const groups: BlueprintGroup[] = data.groups.map((ip) => {
+    if (typeof ip.name !== "string") {
+      throw new Error(`parseBlueprint: ${fileName} 聚合组缺 name 字段`);
+    }
+    if (typeof ip.inject !== "string") {
+      throw new Error(`parseBlueprint: ${fileName} 聚合组 ${ip.name} 缺 inject 字段`);
+    }
+
+    const config: BlueprintGroup = {
+      name: ip.name,
+      inject: ip.inject as InjectTarget,
+    };
+    if (ip.mode && isValidMode(ip.mode)) {
+      config.mode = ip.mode;
+    }
+    return config;
+  });
+
+  return { name: data.name, groups };
 }
 
 function isValidMode(x: string): x is StructureLayout["mode"] {
   return (VALID_MODES as readonly string[]).includes(x);
-}
-
-/** 解析 ## Compilation 段 → CompilationConfig。 */
-function parseCompilationFromSection(section: Section | undefined): CompilationConfig {
-  if (!section) {
-    return { cacheDir: CACHE_DIR, split: "single-file" };
-  }
-  const cacheDir = extractFieldValue(section, "cache-dir") || CACHE_DIR;
-  // v11.x：split 仅支持 "single-file"——by-injection-point 预留移除（schema.ts CacheSplitStrategy 收紧）
-  // Blueprint YAML 写 split: single-file 仍接受；写其他值 fallback 到 single-file（无静默 warn）
-  const split = "single-file" as const;
-  return { cacheDir, split };
-}
-
-function stripBlueprintSuffix(fileBase: string): string {
-  // v9 命名约定：<name>.blueprint.md → 去 .blueprint 后缀
-  // v8 兼容：去 .scene/.manual 后缀
-  return fileBase.replace(new RegExp(`${SUFFIX_BLUEPRINT}$`), "").replace(/\.(scene|manual)$/, "");
 }

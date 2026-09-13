@@ -21,7 +21,7 @@ describe("P2: 引用完整性校验", () => {
       name: "test",
       blueprint: "nonexistent-blueprint",
       domains: [],
-      injectionPoints: [],
+      groups: [],
     };
     const result = checkProfileRefs(profile, [], []);
     expect(result.ok).toBe(false);
@@ -33,13 +33,11 @@ describe("P2: 引用完整性校验", () => {
       name: "test",
       blueprint: "bp1",
       domains: ["nonexistent-domain"],
-      injectionPoints: [],
+      groups: [],
     };
     const blueprint: Blueprint = {
       name: "bp1",
-      agent: "pi",
-      injectionPoints: [],
-      compilation: { cacheDir: ".pt/cache", split: "single-file" },
+      groups: [],
     };
     const result = checkProfileRefs(profile, [blueprint], []);
     expect(result.ok).toBe(false);
@@ -51,13 +49,11 @@ describe("P2: 引用完整性校验", () => {
       name: "test",
       blueprint: "bp1",
       domains: [],
-      injectionPoints: [{ name: "unknown-ip", domains: [] }],
+      groups: [{ name: "unknown-ip", domains: [], modules: [] }],
     };
     const blueprint: Blueprint = {
       name: "bp1",
-      agent: "pi",
-      injectionPoints: [{ name: "会话知识", target: "system_prompt", modules: ["Scene"] }],
-      compilation: { cacheDir: ".pt/cache", split: "single-file" },
+      groups: [{ name: "会话背景", inject: "session" }],
     };
     const result = checkProfileRefs(profile, [blueprint], []);
     expect(result.ok).toBe(false);
@@ -69,13 +65,11 @@ describe("P2: 引用完整性校验", () => {
       name: "test",
       blueprint: "bp1",
       domains: [],
-      injectionPoints: [], // 未实例化任何注入点
+      groups: [], // 未实例化任何注入点
     };
     const blueprint: Blueprint = {
       name: "bp1",
-      agent: "pi",
-      injectionPoints: [{ name: "会话知识", target: "system_prompt", modules: ["Scene"] }],
-      compilation: { cacheDir: ".pt/cache", split: "single-file" },
+      groups: [{ name: "会话背景", inject: "session" }],
     };
     const result = checkProfileRefs(profile, [blueprint], []);
     expect(result.ok).toBe(true); // 无错误
@@ -89,16 +83,14 @@ describe("P2: 引用完整性校验", () => {
       name: "test",
       blueprint: "bp1",
       domains: ["d1", "d2"], // 全局 domains 覆盖
-      injectionPoints: [], // 未 H2 实例化任何注入点
+      groups: [], // 未 H2 实例化任何注入点
     };
     const blueprint: Blueprint = {
       name: "bp1",
-      agent: "pi",
-      injectionPoints: [
-        { name: "会话知识", target: "system_prompt", modules: ["Scene"] },
-        { name: "参考手册", target: "context_message", modules: ["Manual"] },
+      groups: [
+        { name: "会话背景", inject: "session" },
+        { name: "参考手册", inject: "turn" },
       ],
-      compilation: { cacheDir: ".pt/cache", split: "single-file" },
     };
     const d1 = { name: "d1", type: "term" as const, modules: {} };
     const d2 = { name: "d2", type: "term" as const, modules: {} };

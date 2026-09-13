@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import installExtension from "../../src/index.js";
 import { PiAdapter } from "../../src/agent/pi-adapter.js";
-import { detectSingleProfile, listProfiles } from "../../src/config.js";
+import { detectDefaultProfile, detectSingleProfile, listProfiles } from "../../src/config.js";
 import { resetTestSession, s, TEST_SESSION_ID } from "./session-fixtures.js";
 import type { AgentAPI, Blueprint, Context, Domain, FlowTemplate } from "../../src/schema.js";
 
@@ -48,11 +48,10 @@ function makeFixture(marker: string): {
   const blueprint: Blueprint = {
     name: `blueprint-${marker}`,
     agent: "pi",
-    injectionPoints: [
-      { name: "system", target: "system_prompt", modules: [] },
-      { name: "manual", target: "context_message", modules: [] },
+    groups: [
+      { name: "system", inject: "session" },
+      { name: "manual", inject: "turn" },
     ],
-    compilation: { cacheDir: ".pt/cache/contexts", split: "single-file" },
   };
   const context: Context = {
     name: marker,
@@ -67,19 +66,20 @@ function makeFixture(marker: string): {
     externals: [],
   };
   const domains: Domain[] = [
-    { name: `domain-${marker}`, type: "workflow", modules: { Manual: [flow] } },
+    // Phase term-P9.2：FlowTemplate 在 ## Flows 段（不是 ## Manual）
+    { name: `domain-${marker}`, type: "workflow", modules: { Flows: [flow] } },
   ];
   return { context, blueprint, domains };
 }
 
 async function makeProjectCwd(dirs: string[]): Promise<string> {
-  const cwd = await mkdtemp(join(tmpdir(), "pt-switch-injection-"));
+  const cwd = await mkdtemp(join(tmpdir(), "pt-switch-group-"));
   dirs.push(cwd);
   await mkdir(join(cwd, ".pt/assets/profiles"), { recursive: true });
   return cwd;
 }
 
-describe("manual profile switch and injection", () => {
+describe("manual profile switch and Session Inject", () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
@@ -98,12 +98,12 @@ describe("manual profile switch and injection", () => {
     const first = makeFixture("A");
     const second = makeFixture("B");
 
-    adapter.setContext(first.context, first.blueprint, first.domains);
+    adapter.setAgentContext(first.context, first.blueprint, first.domains);
     adapter.registerInject(api, first.context, first.blueprint, first.domains);
     const beforeHandler = handlers.get("before_agent_start")?.[0];
     const inputHandler = handlers.get("input")?.[0];
 
-    adapter.setContext(second.context, second.blueprint, second.domains);
+    adapter.setAgentContext(second.context, second.blueprint, second.domains);
     adapter.registerInject(api, second.context, second.blueprint, second.domains);
 
     expect(handlers.get("before_agent_start")).toHaveLength(1);
@@ -129,7 +129,7 @@ describe("manual profile switch and injection", () => {
     const { api, handlers } = makeApi();
     const adapter = new PiAdapter();
     const first = makeFixture("A");
-    adapter.setContext(first.context, first.blueprint, first.domains);
+    adapter.setAgentContext(first.context, first.blueprint, first.domains);
     adapter.registerInject(api, first.context, first.blueprint, first.domains);
     const beforeHandler = handlers.get("before_agent_start")?.[0];
 
@@ -141,7 +141,7 @@ describe("manual profile switch and injection", () => {
     expect(result).toBeUndefined();
   });
 
-  it("installs injection when the first profile is selected by the command", async () => {
+  it("installs Session Inject when the first profile is selected by the command", async () => {
     const events = new Map<string, GenericHandler[]>();
     const commands = new Map<
       string,
@@ -169,6 +169,7 @@ describe("manual profile switch and injection", () => {
       ui: {
         notify: () => undefined,
         setStatus: () => undefined,
+        setWidget: () => undefined,
       },
       getSystemPrompt: () => "BASE",
     };
@@ -176,9 +177,10 @@ describe("manual profile switch and injection", () => {
     installExtension(pi as never);
     const sessionStart = events.get("session_start")?.[0];
     await sessionStart({ type: "session_start" }, ctx);
-    expect(events.get("before_agent_start")).toBeUndefined();
+    // v13.x：detectDefaultProfile 兜底加载内建 guide → session_start 即注册 before_agent_start
+    expect(events.get("before_agent_start")).toBeDefined();
 
-    const switchCommand = commands.get("pt-context")!;
+    const switchCommand = commands.get("pt-profile")!;
     await switchCommand.handler("pt-dev", ctx);
     const beforeHandler = events.get("before_agent_start")?.[0];
     const firstSegment = s().cachedSegment;
@@ -192,7 +194,7 @@ describe("manual profile switch and injection", () => {
     expect(s().lastBuiltPrompt).toBe(firstResult.systemPrompt);
     expect(events.get("before_agent_start")).toHaveLength(1);
 
-    await switchCommand.handler("pt-chat", ctx);
+    await switchCommand.handler("pt-design", ctx);
     const secondBeforeHandler = events.get("before_agent_start")?.[0];
     const secondSegment = s().cachedSegment;
     const secondResult = (await secondBeforeHandler(
@@ -208,17 +210,46 @@ describe("manual profile switch and injection", () => {
     const shutdown = events.get("session_shutdown")?.[0];
     await shutdown({ type: "session_shutdown" }, ctx);
     await sessionStart({ type: "session_start" }, ctx);
-    expect(
-      await secondBeforeHandler({ type: "before_agent_start", systemPrompt: "BASE" })
-    ).toBeUndefined();
+    // v13.x：detectDefaultProfile 兜底加载内建 guide → shutdown + session_start 后旧 handler 读到新 state，注入 guide segment（非 pt-design）
+    const restartResult = (await secondBeforeHandler(
+      { type: "before_agent_start", systemPrompt: "BASE" },
+      ctx
+    )) as { systemPrompt?: string } | undefined;
+    const restartPrompt = restartResult?.systemPrompt ?? "";
+    expect(restartPrompt).not.toContain(secondSegment);
   });
 
   it("does not let the built-in profile affect project auto detection", async () => {
     const cwd = await makeProjectCwd(tempDirs);
-    expect(await listProfiles(cwd)).toContain("pt");
+    expect(await listProfiles(cwd)).toContain("guide");
     expect(await detectSingleProfile(cwd)).toBeNull();
 
     await writeFile(join(cwd, ".pt/assets/profiles/project.profile.md"), "");
     expect(await detectSingleProfile(cwd)).toBe("project");
+  });
+
+  it("detectDefaultProfile: 未设 settings → 返回内建 guide", async () => {
+    const cwd = await makeProjectCwd(tempDirs);
+    expect(await detectDefaultProfile(cwd)).toBe("guide");
+  });
+
+  it("detectDefaultProfile: settings pt.default-profile='none' → 返回 null", async () => {
+    const cwd = await makeProjectCwd(tempDirs);
+    await mkdir(join(cwd, ".pi"), { recursive: true });
+    await writeFile(
+      join(cwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "default-profile": "none" } })
+    );
+    expect(await detectDefaultProfile(cwd)).toBeNull();
+  });
+
+  it("detectDefaultProfile: settings pt.default-profile='my' → 返回 my", async () => {
+    const cwd = await makeProjectCwd(tempDirs);
+    await mkdir(join(cwd, ".pi"), { recursive: true });
+    await writeFile(
+      join(cwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "default-profile": "my" } })
+    );
+    expect(await detectDefaultProfile(cwd)).toBe("my");
   });
 });
