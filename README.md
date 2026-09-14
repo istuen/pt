@@ -208,11 +208,6 @@ domains: [my-domain]              # 追加到 use 的 domains
 
 ---
 
-## 开发
-
-技术栈：TypeScript + tsup + Vitest + Biome。零运行时依赖（除 yaml 库用于 Blueprint 解析）。
-
----
 
 ## License
 
