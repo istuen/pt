@@ -327,6 +327,14 @@ export interface SchemaBundle {
   profiles: Profile[];
   /** 当前激活的 Profile 名。 */
   activeProfile: string;
+  /** v15.x PR6（fix pt-active-profile-fallback-mismatch）：activeProfile 由来——
+   *  - "exact"：用户请求的 profile 名在某个 pack 找到
+   *  - "fallback"：未找到，fallback 到 allProfiles[0]
+   *  caller 层依据 origin 决定是否同步改写 s.activeProfile / loadedFrom / notify。 */
+  activeProfileOrigin: "exact" | "fallback";
+  /** 当 origin="fallback"：记录用户原始请求的 profile 名（用于 notify 文案 / log / debug）。
+   *  origin="exact" 时不设。 */
+  originalProfileName?: string;
   /** v15.x PR2（§8.1）：加载的所有 AssetPack——sourceHash + cache 文件名用。 */
   packs: AssetPack[];
   /** v15.x PR2（§8.3）：激活 Profile 所属的 pack name（cache 文件名 <pack>__<profile> 用）。

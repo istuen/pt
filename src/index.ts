@@ -165,6 +165,24 @@ async function transpileActive(
     s.cachedBlueprint = result.blueprint;
     s.cachedDomains = result.domains;
     s.cachedProfile = result.profile;
+    // v15.x PR6（fix pt-active-profile-fallback-mismatch）：若 loadAndTranspile fallback 了
+    // （user 请求的 profile 找不到），同步改写 s.activeProfile + notify。
+    // 这样 s.activeProfile / loadedFrom / 注入路径 三者与产物保持一致。
+    if (
+      result.activeProfileOrigin === "fallback" &&
+      result.originalProfileName &&
+      result.profile.name !== profileName
+    ) {
+      slog(sessionId, "warn", "transpileActive:profile-fallback", {
+        requested: result.originalProfileName,
+        forced: result.profile.name,
+      });
+      notify(
+        `Pt: profile "${result.originalProfileName}" not found, fallback to "${result.profile.name}". 运行 /pt-profile <correct> 修复。`,
+        "warning"
+      );
+      profileName = result.profile.name;
+    }
     s.activeProfile = profileName;
     s.lastCacheHit = result.cacheHit;
 
@@ -185,6 +203,7 @@ async function transpileActive(
       domainCount: result.domains.length,
       segmentLen: result.segment.length,
       cacheHit: result.cacheHit,
+      origin: result.activeProfileOrigin, // v15.x PR6：记录 fallback 由来便于 debug
       durationMs: Date.now() - t0,
     });
   } catch (e) {
@@ -212,8 +231,12 @@ async function switchProfile(
   try {
     await transpileActive(pi, ctx.cwd, name, sessionId, (msg, level) => ctx.ui.notify(msg, level));
     const s = getSessionById(sessionId);
-    s.loadedFrom = null; // 用户手动切换不属于 auto/flag/settings/session 任何源；null 表达"用户主动"
-    persistProfileToSession(pi, name); // v10.x：session 持久化（issue pt-context-persist-lost）
+    // v15.x PR6（fix pt-active-profile-fallback-mismatch）：transpileActive 可能 fallback
+    // （s.activeProfile 已被改写）。此时 s.loadedFrom = "fallback" 表达"用户手动请求但
+    // 实际 fallback"，比 null 更准确反映状态。
+    s.loadedFrom = s.activeProfile !== name ? "fallback" : null;
+    persistProfileToSession(pi, s.activeProfile ?? name); // v10.x：session 持久化（issue pt-context-persist-lost）
+    // ^ v15.x PR6：持久化用 s.activeProfile（fallback 名）而非原请求名，下次不再 stale
     const injected = registerInjectionIfReady(pi, ctx, sessionId);
     // v11.x：切换后立即标 pending，等下一轮 before_agent_start 翻成 injected
     s.injectionState = "pending";
@@ -409,8 +432,13 @@ export default function (pi: ExtensionAPI): void {
       await transpileActive(pi, ctx.cwd, picked, sessionId, (msg, level) =>
         ctx.ui.notify(msg, level)
       );
-      s.loadedFrom = pickedFrom; // v10.x：可观测性
-      persistProfileToSession(pi, picked); // v10.x：把当前来源同步到 JSONL（下次进程默认走 session）
+      // v15.x PR6（fix pt-active-profile-fallback-mismatch）：transpileActive 可能 fallback
+      // （s.activeProfile 已被改写为 fallback 名）。此处用 s.activeProfile 同步 downstream。
+      // - s.loadedFrom 设为 "fallback" 覆盖原 pickedFrom（如 "session"）——用户能看到
+      // - persistProfileToSession 持久化 fallback 名（避免下次仍走 stale 路径）
+      const finalProfileName = s.activeProfile ?? picked;
+      s.loadedFrom = s.activeProfile !== picked ? "fallback" : pickedFrom; // v10.x：可观测性
+      persistProfileToSession(pi, finalProfileName); // v10.x：把当前来源同步到 JSONL（下次进程默认走 session）
       // 注册 AgentAdapter 注入（封装 before_agent_start + input）
       const injected = registerInjectionIfReady(pi, ctx, sessionId);
       // v11.x：profile 已加载但还没轮到下一轮 before_agent_start → pending
@@ -418,8 +446,9 @@ export default function (pi: ExtensionAPI): void {
       s.injectionError = null;
       refreshInjectionFooter(ctx.ui, s);
       s.logger.info("session:profile loaded", {
-        profileName: picked,
-        loadedFrom: pickedFrom,
+        profileName: finalProfileName,
+        requested: picked, // v15.x PR6：用户原始请求（与 finalProfileName 不同 = fallback 发生）
+        loadedFrom: s.loadedFrom,
         injected,
       });
 

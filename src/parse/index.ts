@@ -89,6 +89,8 @@ export const mdAdapter: SourceAdapter = {
 
     // 3. 找 active profile（PR3：支持 "foo" 和 "@pack/foo" 两种）
     let active: Profile;
+    let activeProfileOrigin: "exact" | "fallback" = "exact";
+    let originalProfileName: string | undefined;
     try {
       active = findActiveProfile(packs, packProfiles, profileName);
     } catch (e) {
@@ -98,6 +100,10 @@ export const mdAdapter: SourceAdapter = {
         throw e; // 真的没 profile——抛错
       }
       active = fallback;
+      // v15.x PR6（fix pt-active-profile-fallback-mismatch）：记录 fallback 由来
+      // 让 caller（transpile.ts + index.ts）能感知并同步 s.activeProfile / loadedFrom / notify
+      activeProfileOrigin = "fallback";
+      originalProfileName = profileName;
     }
 
     // 4. 校验 active 引用的 Blueprint 存在（用 working set）
@@ -131,6 +137,9 @@ export const mdAdapter: SourceAdapter = {
       blueprints: allBlueprints,
       profiles: allProfiles,
       activeProfile: active.name,
+      // v15.x PR6（fix pt-active-profile-fallback-mismatch）：暴露 fallback 由来
+      activeProfileOrigin,
+      originalProfileName,
       packs,
       activeProfilePack: findProfilePack(packs, packProfiles, active.name),
       workingSet: { domains: domainWS, blueprints: blueprintWS, profiles: profileWS },
