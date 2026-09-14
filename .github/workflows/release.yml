@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write  # ★ Required for npm Trusted Publishing (OIDC)
     steps:
       - uses: actions/checkout@v4
 
@@ -29,9 +30,8 @@ jobs:
       - run: npm run verify
       - run: npm run build
 
-      - run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish --access public  # ★ Trusted Publishing: 不需 NODE_AUTH_TOKEN
+        # npm CLI 自动用 GitHub OIDC token 跟 npm registry 交换短期 publish token
 
       - uses: softprops/action-gh-release@v2
         with:
