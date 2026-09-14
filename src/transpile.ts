@@ -60,6 +60,11 @@ export interface TranspileResult {
   activeProfile: string;
   /** 当前激活的 Profile（listManuals 范围过滤用） */
   profile: Profile;
+  /** v15.x PR6（fix pt-active-profile-fallback-mismatch）：bundle.activeProfile 由来
+   *  caller 层依据 origin 决定是否同步 s.activeProfile / loadedFrom / notify。 */
+  activeProfileOrigin: "exact" | "fallback";
+  /** origin="fallback" 时记录用户原始请求名（caller 用作 notify 文案 + log） */
+  originalProfileName?: string;
 }
 
 /** ============== Source Adapter 注册表（MVP 只有 MD） ==============
@@ -246,6 +251,9 @@ export async function loadAndTranspile(
     domains: bundle.domains,
     activeProfile: profile.name,
     profile,
+    // v15.x PR6（fix pt-active-profile-fallback-mismatch）：透传 origin 给 caller
+    activeProfileOrigin: bundle.activeProfileOrigin,
+    originalProfileName: bundle.originalProfileName,
   };
 }
 
