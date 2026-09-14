@@ -20,19 +20,19 @@ Pt 是 Pi 扩展，两种安装方式任选其一。
 ### 方式一：Pi 插件安装（推荐）
 
 ```bash
-pi install npm:@istuen/pi-pt
+pi install npm:@istuen/pt
 ```
 
 Pi 自动加载 Pt。项目级安装（团队共享，写入 `.pi/settings.json`）加 `-l`：
 
 ```bash
-pi install -l npm:@istuen/pi-pt
+pi install -l npm:@istuen/pt
 ```
 
 ### 方式二：npm 安装 + 手动配置
 
 ```bash
-npm install @istuen/pi-pt
+npm install @istuen/pt
 ```
 
 然后在 `.pi/settings.json` 或 `~/.pi/agent/settings.json` 配置扩展入口：
@@ -40,7 +40,7 @@ npm install @istuen/pi-pt
 ```json
 {
   "pi": {
-    "extensions": ["./node_modules/@istuen/pi-pt/dist/index.js"]
+    "extensions": ["./node_modules/@istuen/pt/dist/index.js"]
   }
 }
 ```
