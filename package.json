@@ -1,5 +1,5 @@
 {
-  "name": "@issac/pi-pt",
+  "name": "@istuen/pi-pt",
   "version": "0.1.0",
   "description": "Pt \u2014 Turn domain knowledge into configurable Agent Context.",
   "type": "module",
