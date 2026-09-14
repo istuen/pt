@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write  # ★ Required for npm Trusted Publishing (OIDC)
+      id-token: write  # Required for npm Trusted Publishing (OIDC)
     steps:
       - uses: actions/checkout@v4
 
@@ -23,15 +23,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
+          # 不设置 registry-url，让 npm CLI 完全 native 检测 OIDC
+
+      # ★ 升级 npm 到 11+（CI 默认 10.x 不支持 OIDC / Trusted Publishing）
+      - run: npm install -g npm@latest
+      - run: npm --version  # 验证升级
 
       - run: npm ci
       - run: npm run typecheck
       - run: npm run verify
       - run: npm run build
 
-      - run: npm publish --access public  # ★ Trusted Publishing: 不需 NODE_AUTH_TOKEN
-        # npm CLI 自动用 GitHub OIDC token 跟 npm registry 交换短期 publish token
+      - run: npm publish --access public  # ★ Trusted Publishing (OIDC) — npm 11+ 自动用 Actions ID token
 
       - uses: softprops/action-gh-release@v2
         with:
