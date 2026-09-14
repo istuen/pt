@@ -1128,8 +1128,29 @@ describe("M1 PR4 checkPackNameConflicts（§3.4 pack name 冲突报错）", () =
     rmSync(tmpCwd, { recursive: true, force: true });
   });
 
-  it("两个 settings pack manifest.name 相同 → adapterCtx.notify 收 warn", async () => {
-    // 构造两个 settings pack，都带 manifest name="dupe"（违反 §3.4）
+  // v15.x §3.4 缺口 2 升级：checkPackNameConflicts 从 warn 改 throw + 场景 A/B 区分
+  it("场景 A：settings pack path = project 目录 → throw + error 含 '路径重叠'", async () => {
+    // project pack 用 assetDir="." 指向 tmpCwd，settings pack path 也指向 tmpCwd
+    // → 两者 rootDir 相同 = 路径重叠
+    const dupeDir = join(tmpCwd, "dupe-dir");
+    mkdirSync(join(dupeDir, "domains"), { recursive: true });
+    writeFileSync(join(dupeDir, "pt-asset-pack.yaml"), "name: dupe\n", "utf8");
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "asset-packs": [{ path: dupeDir }] } }),
+      "utf8"
+    );
+
+    const { mdAdapter } = await import("../../src/parse/index.js");
+    // assetDir 也指向 dupeDir → project pack rootDir = settings pack rootDir = 路径重叠
+    await expect(mdAdapter.load(tmpCwd, "guide", { assetDir: dupeDir })).rejects.toThrow(
+      /§3.4 路径重叠/
+    );
+  });
+
+  it("场景 B：两个 settings pack 同 manifest.name 不同路径 → throw + error 含 '不同路径同 name'", async () => {
+    // 构造两个不同目录的 settings pack，都带 manifest name="dupe"（违反 §3.4）
     const dirA = join(tmpCwd, "dupe-a");
     const dirB = join(tmpCwd, "dupe-b");
     mkdirSync(join(dirA, "domains"), { recursive: true });
@@ -1144,32 +1165,37 @@ describe("M1 PR4 checkPackNameConflicts（§3.4 pack name 冲突报错）", () =
     );
 
     const { mdAdapter } = await import("../../src/parse/index.js");
-    const notifs: Array<{ msg: string; level: string }> = [];
-    // 即使 settings 重复——加载不阻断（仅 warn，§3.4）
-    const bundle = await mdAdapter.load(tmpCwd, "guide", {
-      assetDir: ".",
-      notify: (msg, level) => notifs.push({ msg, level }),
-    });
-    expect(bundle.workingSet.domains.identity.size).toBeGreaterThanOrEqual(0);
-    // 冲突 warn 触发——针对 settings 来源同名
-    const conflictWarn = notifs.find(
-      (n) => n.level === "warning" && n.msg.includes('"dupe"') && n.msg.includes("§3.4")
+    // project pack 用不同目录（assetDir='.' = tmpCwd，无 domains/blueprints/profiles），与 settings pack 不撞
+    // 但 dirA 和 dirB 同 manifest.name="dupe"，rootDir 不同 = 场景 B
+    await expect(mdAdapter.load(tmpCwd, "guide", { assetDir: "." })).rejects.toThrow(
+      /§3.4 不同路径同 name/
     );
-    expect(conflictWarn, `expected conflict warn, got: ${JSON.stringify(notifs)}`).toBeDefined();
   });
 
-  it("project/settings 覆盖 global/builtin 不报——合理优先级静默（§3.4）", async () => {
-    // 不写 settings + project 无同名 asset → 不触发冲突 warn
+  it("back-compat：project 覆盖 global/builtin（无 settings 冲突）→ 不 throw", async () => {
+    // project pack 与 global/builtin 同名（manifest.name="prj"）是不可能的（manifest 校验挡 reserved name）
+    // 但 project source=project + global source=global 同名也不 throw——reserved pack 各自唯一
     const { mdAdapter } = await import("../../src/parse/index.js");
-    const notifs: Array<{ msg: string; level: string }> = [];
-    const bundle = await mdAdapter.load(tmpCwd, "guide", {
-      assetDir: ".",
-      notify: (msg, level) => notifs.push({ msg, level }),
-    });
-    expect(bundle.packs.map((p) => p.name)).toEqual(["prj", "gbl", "pt"]);
-    // 任何 "§3.4" 冲突 warn 都不应触发
-    const conflictWarn = notifs.find((n) => n.level === "warning" && n.msg.includes("§3.4"));
-    expect(conflictWarn).toBeUndefined();
+    // 不写 settings，project + global + builtin 各自唯一 → 不 throw
+    const bundle = await mdAdapter.load(tmpCwd, "guide", { assetDir: "." });
+    expect(bundle.packs.map((p) => p.name).sort()).toEqual(["gbl", "prj", "pt"]);
+  });
+
+  it("back-compat：settings pack name 不与任何其他 pack 撞 → 不 throw", async () => {
+    // 构造一个 settings pack，manifest.name="solo"（不与任何 reserved pack 撞）
+    const soloDir = join(tmpCwd, "solo");
+    mkdirSync(join(soloDir, "domains"), { recursive: true });
+    writeFileSync(join(soloDir, "pt-asset-pack.yaml"), "name: solo\n", "utf8");
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "asset-packs": [{ path: soloDir }] } }),
+      "utf8"
+    );
+
+    const { mdAdapter } = await import("../../src/parse/index.js");
+    const bundle = await mdAdapter.load(tmpCwd, "guide", { assetDir: "." });
+    expect(bundle.packs.map((p) => p.name).sort()).toContain("solo");
   });
 });
 

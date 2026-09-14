@@ -216,11 +216,14 @@ function findProfilePack(
   return "prj";
 }
 
-/** v15.x PR4（§3.4）：pack name 全局唯一性校验。
- *  settings pack 之间 manifest.name 冲突 → warn 提示去重（不静默覆盖）。
- *  project/settings 覆盖 global/builtin = 合理优先级，静默（§3.4 表）。
+/** v15.x PR4（§3.4）+ §3.4 缺口 2（升级 throw）：pack name 全局唯一性校验。
+ *  reserved pack 读 manifest 后，project + settings 同 manifest.name 可能撞名。
+ *  3 个场景区分：
+ *    - 场景 A（路径重叠）：settings pack rootDir 与 project pack 一致 → throw + "路径重叠"
+ *    - 场景 B（不同路径同名）：多个 settings pack 同 manifest.name 但 rootDir 不同 → throw + "不同路径同 name"
+ *    - back-compat：project/settings 覆盖 global/builtin 是合理优先级 → 不 throw，静默（§3.4 表）
+ *  错误从 session_start catch 透出到 ctx.ui.notify("error")——用户能直接看到场景区分。
  *
- *  实现：扫所有 pack，按 name 分组——同 name 的 pack 如有任一是 settings 来源则 warn。
  *  reserved 名（prj/gbl/pt）只 1 份，不会冲突。settings pack manifest.name 不能是 reserved 名
  *  （PR2 manifest 校验已挡），所以不会与 reserved 重名。 */
 function checkPackNameConflicts(packs: AssetPack[], adapterCtx?: SourceAdapterContext): void {
@@ -232,23 +235,29 @@ function checkPackNameConflicts(packs: AssetPack[], adapterCtx?: SourceAdapterCo
   }
   for (const [name, group] of seen) {
     if (group.length <= 1) continue;
-    // 同 name 多份——如有 settings 来源则 warn（§3.4）
+    // 同 name 多份——按是否含 settings source 分类处理
     const hasSettings = group.some((p) => p.source === "settings");
-    if (hasSettings) {
-      const paths = group.map((p) => p.rootDir).join('" and "');
-      const sources = group.map((p) => p.source).join(" + ");
-      // v15.x §3.4（缺口 2）：修完后 reserved pack 读 manifest，project+settings 同名可能重复加载
-      // — 加 actionable hint 提示用户去重。保持 warn 不 throw（不阻断 back-compat）。
-      const hasProject = group.some((p) => p.source === "project");
-      const hint = hasProject
-        ? `其中一个是 project pack，考虑从 pt.asset-packs 移除重复 path，或给 project pack 加不同 manifest.name`
-        : `remove one from pt.asset-packs`;
-      reportWarn(
-        adapterCtx,
-        `pack "${name}" loaded from both "${paths}" (${sources}) — ${hint}（§3.4 pack 身份冲突）`,
-        { packName: name, paths: group.map((p) => p.rootDir), sources: group.map((p) => p.source) }
+    if (!hasSettings) {
+      // 没有 settings 来源：project+global/builtin 同名 = 合理优先级（§3.4 表），静默
+      // 不可能发生（manifest 校验挡 reserved name）；保留分支以防未来加新 source
+      continue;
+    }
+    // 有 settings 来源——按 rootDir 是否一致区分场景 A/B
+    const rootDirs = new Set(group.map((p) => p.rootDir));
+    const sources = group.map((p) => `${p.source}(${p.rootDir})`).join(" + ");
+    if (rootDirs.size === 1) {
+      // 场景 A：路径重叠（settings pack 与 project pack 指向同一目录）—— 重复加载同一份
+      throw new Error(
+        `§3.4 路径重叠：settings pack "@${name}" 与 project pack 指向同一目录 ${[...rootDirs][0]}。` +
+          `修复：从 pt.asset-packs 移除重复 path，或从 pt.project-pack-dir / assetDir 切到别处。`
       );
     }
+    // 场景 B：不同路径同名——多份 manifest.name 相同但指向不同目录
+    const pathsList = group.map((p) => `  - ${p.source}: ${p.rootDir}`).join("\n");
+    throw new Error(
+      `§3.4 不同路径同 name：pack "${name}" 在多个不同路径被声明为同一身份：\n${pathsList}\n` +
+        `修复：删掉重复的 pt.asset-packs 条目，或给同名 pack 加唯一 manifest.name 区分。`
+    );
   }
 }
 
