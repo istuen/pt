@@ -20,6 +20,7 @@ import type {
   SchemaBundle,
   SourceAdapter,
   SourceAdapterContext,
+  WorkingSet,
 } from "../schema.js";
 import {
   loadBuiltinPack,
@@ -59,29 +60,44 @@ export const mdAdapter: SourceAdapter = {
     // v15.x PR4（§3.4）：pack name 全局唯一性校验——settings pack 之间同名报错
     checkPackNameConflicts(packs, adapterCtx);
 
-    // 2. v15.x PR3（§4.4.4）：构建 working set——不去重，每份带 pack 标签
-    const domainWS = new Map<string, { pack: AssetPack; asset: Domain }>();
-    const blueprintWS = new Map<string, { pack: AssetPack; asset: Blueprint }>();
-    const profileWS = new Map<string, { pack: AssetPack; asset: Profile }>();
+    // 2. v15.x §4.4.2（双层语义）：构建双索引 working set——location（位置 alias）+ identity（manifest.name）
+    //    reserved pack（project/global/builtin）才进 location 索引；settings pack 不进 location（无位置别名）
+    //    所有 pack 都进 identity 索引
+    //    back-compat（缺口 1-b）：reserved pack 无 manifest 时 pack.name=位置别名，identity 与 location 索引 key 重合——双入口命中同一 asset
+    const LOC_ALIAS: ReadonlyMap<string, string> = new Map([
+      ["project", "prj"],
+      ["global", "gbl"],
+      ["builtin", "pt"],
+    ]);
+    const domainLocWS = new Map<string, { pack: AssetPack; asset: Domain }>();
+    const domainIdWS = new Map<string, { pack: AssetPack; asset: Domain }>();
+    const blueprintLocWS = new Map<string, { pack: AssetPack; asset: Blueprint }>();
+    const blueprintIdWS = new Map<string, { pack: AssetPack; asset: Blueprint }>();
+    const profileLocWS = new Map<string, { pack: AssetPack; asset: Profile }>();
+    const profileIdWS = new Map<string, { pack: AssetPack; asset: Profile }>();
     const packProfiles: Profile[][] = [];
     const allDomains: Domain[] = [];
     const allBlueprints: Blueprint[] = [];
     const allProfiles: Profile[] = [];
 
     for (const pack of packs) {
+      const locAlias = LOC_ALIAS.get(pack.source); // settings → undefined
       const packDoms = await pack.loadDomains();
       for (const d of packDoms) {
-        domainWS.set(`${pack.name}/${d.name}`, { pack, asset: d });
+        domainIdWS.set(`${pack.name}/${d.name}`, { pack, asset: d });
+        if (locAlias) domainLocWS.set(`${locAlias}/${d.name}`, { pack, asset: d });
         allDomains.push(d);
       }
       const packBps = await pack.loadBlueprints();
       for (const b of packBps) {
-        blueprintWS.set(`${pack.name}/${b.name}`, { pack, asset: b });
+        blueprintIdWS.set(`${pack.name}/${b.name}`, { pack, asset: b });
+        if (locAlias) blueprintLocWS.set(`${locAlias}/${b.name}`, { pack, asset: b });
         allBlueprints.push(b);
       }
       const packProfs = await pack.loadProfiles();
       for (const p of packProfs) {
-        profileWS.set(`${pack.name}/${p.name}`, { pack, asset: p });
+        profileIdWS.set(`${pack.name}/${p.name}`, { pack, asset: p });
+        if (locAlias) profileLocWS.set(`${locAlias}/${p.name}`, { pack, asset: p });
         allProfiles.push(p);
       }
       packProfiles.push(packProfs);
@@ -113,6 +129,11 @@ export const mdAdapter: SourceAdapter = {
     // 行为：
     //   - 不限定 ref + 跨 pack fallback 命中 → 静默（compile 阶段会复用同一 fallback）
     //   - 限定 ref 找不到 / 不限定 ref fallback 全部 miss → warn（compile 阶段会 throw）
+    // v15.x §4.4.2：resolveBlueprint 接双索引 WorkingSet，按 parseRef 的 kind 分发查 location/identity
+    const blueprintWS = {
+      location: blueprintLocWS,
+      identity: blueprintIdWS,
+    };
     const bpResolved = resolveBlueprint(
       active,
       blueprintWS,
@@ -127,7 +148,7 @@ export const mdAdapter: SourceAdapter = {
           profileName: active.name,
           referencedBlueprint: active.blueprint,
           resolvedBlueprint: `@${bpPack}/${bpName}`,
-          availableBlueprints: [...blueprintWS.keys()],
+          availableBlueprints: [...blueprintIdWS.keys()],
         }
       );
     }
@@ -142,7 +163,12 @@ export const mdAdapter: SourceAdapter = {
       originalProfileName,
       packs,
       activeProfilePack: findProfilePack(packs, packProfiles, active.name),
-      workingSet: { domains: domainWS, blueprints: blueprintWS, profiles: profileWS },
+      // v15.x §4.4.2：working set 双索引
+      workingSet: {
+        domains: { location: domainLocWS, identity: domainIdWS },
+        blueprints: blueprintWS,
+        profiles: { location: profileLocWS, identity: profileIdWS },
+      },
     };
   },
 };
@@ -210,10 +236,17 @@ function checkPackNameConflicts(packs: AssetPack[], adapterCtx?: SourceAdapterCo
     const hasSettings = group.some((p) => p.source === "settings");
     if (hasSettings) {
       const paths = group.map((p) => p.rootDir).join('" and "');
+      const sources = group.map((p) => p.source).join(" + ");
+      // v15.x §3.4（缺口 2）：修完后 reserved pack 读 manifest，project+settings 同名可能重复加载
+      // — 加 actionable hint 提示用户去重。保持 warn 不 throw（不阻断 back-compat）。
+      const hasProject = group.some((p) => p.source === "project");
+      const hint = hasProject
+        ? `其中一个是 project pack，考虑从 pt.asset-packs 移除重复 path，或给 project pack 加不同 manifest.name`
+        : `remove one from pt.asset-packs`;
       reportWarn(
         adapterCtx,
-        `pack "${name}" loaded from both "${paths}" — remove one from pt.asset-packs（§3.4 pack 身份冲突）`,
-        { packName: name, paths: group.map((p) => p.rootDir) }
+        `pack "${name}" loaded from both "${paths}" (${sources}) — ${hint}（§3.4 pack 身份冲突）`,
+        { packName: name, paths: group.map((p) => p.rootDir), sources: group.map((p) => p.source) }
       );
     }
   }

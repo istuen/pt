@@ -16,12 +16,19 @@ import {
 } from "../../src/parse/ref-resolver.js";
 import type { AssetPack, Blueprint, Profile } from "../../src/schema.js";
 
-function makePack(name: string, rootDir: string, version = "0.0.0"): AssetPack {
+function makePack(
+  name: string,
+  rootDir: string,
+  version = "0.0.0",
+  source?: AssetPack["source"]
+): AssetPack {
+  const inferredSource =
+    source ?? (name === "prj" ? "project" : name === "pt" ? "builtin" : "global");
   return {
     name,
     rootDir,
     version,
-    source: name === "prj" ? "project" : name === "pt" ? "builtin" : "global",
+    source: inferredSource,
     loadDomains: () => Promise.resolve([]),
     loadBlueprints: () => Promise.resolve([]),
     loadProfiles: () => Promise.resolve([]),
@@ -41,25 +48,65 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
 
 // ==================== parseRef ====================
 
-describe("parseRef（§4.2 / §4.5.1）", () => {
-  it("限定 @pack/name → 返 {pack, name}", () => {
-    expect(parseRef("@pt-internal/foo", "prj")).toEqual({ pack: "pt-internal", name: "foo" });
+describe("parseRef（§4.2 / §4.5.1 / §2.4.4 双层语义）", () => {
+  it("限定 @pack/name（身份 alias）→ 返 {kind: identity, pack, name}", () => {
+    expect(parseRef("@pt-internal/foo", "prj")).toEqual({
+      kind: "identity",
+      pack: "pt-internal",
+      name: "foo",
+    });
   });
 
-  it("不限定 foo + selfPack='prj' → 绑 prj", () => {
-    expect(parseRef("foo", "prj")).toEqual({ pack: "prj", name: "foo" });
+  it("不限定 foo + selfPack='prj' → 绑 prj（identity kind）", () => {
+    expect(parseRef("foo", "prj")).toEqual({ kind: "identity", pack: "prj", name: "foo" });
   });
 
-  it("别名 @project/foo → 归一为 @prj/foo", () => {
-    expect(parseRef("@project/foo", "prj")).toEqual({ pack: "prj", name: "foo" });
+  it("位置 alias @project/foo → 归一为 {kind: location, pack: prj}", () => {
+    expect(parseRef("@project/foo", "prj")).toEqual({
+      kind: "location",
+      pack: "prj",
+      name: "foo",
+    });
   });
 
-  it("别名 @global/foo → 归一为 @gbl/foo", () => {
-    expect(parseRef("@global/foo", "prj")).toEqual({ pack: "gbl", name: "foo" });
+  it("位置 alias @global/foo → 归一为 {kind: location, pack: gbl}", () => {
+    expect(parseRef("@global/foo", "prj")).toEqual({
+      kind: "location",
+      pack: "gbl",
+      name: "foo",
+    });
   });
 
-  it("别名 @builtin/foo → 归一为 @pt/foo", () => {
-    expect(parseRef("@builtin/foo", "prj")).toEqual({ pack: "pt", name: "foo" });
+  it("位置 alias @builtin/foo → 归一为 {kind: location, pack: pt}", () => {
+    expect(parseRef("@builtin/foo", "prj")).toEqual({
+      kind: "location",
+      pack: "pt",
+      name: "foo",
+    });
+  });
+
+  it("位置 alias 短名 @prj/foo → {kind: location, pack: prj}", () => {
+    expect(parseRef("@prj/foo", "prj")).toEqual({
+      kind: "location",
+      pack: "prj",
+      name: "foo",
+    });
+  });
+
+  it("位置 alias 短名 @gbl/foo → {kind: location, pack: gbl}", () => {
+    expect(parseRef("@gbl/foo", "prj")).toEqual({
+      kind: "location",
+      pack: "gbl",
+      name: "foo",
+    });
+  });
+
+  it("位置 alias 短名 @pt/foo → {kind: location, pack: pt}", () => {
+    expect(parseRef("@pt/foo", "prj")).toEqual({
+      kind: "location",
+      pack: "pt",
+      name: "foo",
+    });
   });
 
   it("畸形 @foo（无 /）抛错", () => {
@@ -122,81 +169,120 @@ describe("fingerprint（§4.4.2）", () => {
 
 // ==================== resolveAndDedupRefs ====================
 
-describe("resolveAndDedupRefs（§4.4.2 / §4.5）", () => {
+describe("resolveAndDedupRefs（§4.4.2 / §4.5 双层语义）", () => {
   const prj = makePack("prj", "/x");
   const pt = makePack("pt", "/y");
   const assetA = { name: "foo", tag: "project-ver" };
   const assetB = { name: "foo", tag: "builtin-ver" }; // 不同 rootDir → fp 不同
 
+  /** 构造双索引 WorkingSet（v15.x §4.4.2）：location（位置 alias）+ identity（pack.name） */
+  function makeWS(
+    entries: Array<[string, { pack: AssetPack; asset: { name: string; tag: string } }]>
+  ): {
+    location: Map<string, { pack: AssetPack; asset: { name: string; tag: string } }>;
+    identity: Map<string, { pack: AssetPack; asset: { name: string; tag: string } }>;
+  } {
+    const identity = new Map(entries);
+    // location 索引：prj/gbl/pt + asset.name（按 reserved alias）
+    const locAlias: Record<string, string> = { prj: "prj", pt: "pt" };
+    const location = new Map<string, typeof identity extends Map<string, infer V> ? V : never>();
+    for (const [k, v] of entries) {
+      const packName = k.split("/")[0]!;
+      const assetName = k.split("/")[1]!;
+      const alias = locAlias[packName];
+      if (alias) location.set(`${alias}/${assetName}`, v);
+    }
+    return { location, identity };
+  }
+
   it("场景 A：重复引用 @prj/foo × 2 → dedup 后 1 份", () => {
-    const ws = new Map<string, { pack: AssetPack; asset: { name: string; tag: string } }>();
-    ws.set("prj/foo", { pack: prj, asset: assetA });
+    const ws = makeWS([["prj/foo", { pack: prj, asset: assetA }]]);
     const result = resolveAndDedupRefs(["@prj/foo", "@prj/foo"], makeProfile(), ws, ["prj"]);
     expect(result).toHaveLength(1);
     expect(result[0]?.rawRef).toBe("@prj/foo");
   });
 
   it("场景 B：不限定重复 foo × 2 → dedup 后 1 份", () => {
-    const ws = new Map();
-    ws.set("prj/foo", { pack: prj, asset: assetA });
+    const ws = makeWS([["prj/foo", { pack: prj, asset: assetA }]]);
     const result = resolveAndDedupRefs(["foo", "foo"], makeProfile(), ws, ["prj"]);
     expect(result).toHaveLength(1);
   });
 
   it("场景 C：不限定 + 限定同 pack → dedup 后 1 份", () => {
-    const ws = new Map();
-    ws.set("prj/foo", { pack: prj, asset: assetA });
+    const ws = makeWS([["prj/foo", { pack: prj, asset: assetA }]]);
     const result = resolveAndDedupRefs(["foo", "@prj/foo"], makeProfile(), ws, ["prj"]);
     expect(result).toHaveLength(1);
   });
 
   it("场景 D：不同 pack 同 name 同内容 → fp 不同 → 保留 2 份", () => {
-    const ws = new Map();
-    ws.set("prj/foo", { pack: prj, asset: { name: "foo", tag: "same" } });
-    ws.set("pt/foo", { pack: pt, asset: { name: "foo", tag: "same" } });
+    const ws = makeWS([
+      ["prj/foo", { pack: prj, asset: { name: "foo", tag: "same" } }],
+      ["pt/foo", { pack: pt, asset: { name: "foo", tag: "same" } }],
+    ]);
     const result = resolveAndDedupRefs(["@prj/foo", "@pt/foo"], makeProfile(), ws, ["prj", "pt"]);
     expect(result).toHaveLength(2);
   });
 
   it("场景 E：不同 pack 同 name 不同内容 → 保留 2 份", () => {
-    const ws = new Map();
-    ws.set("prj/foo", { pack: prj, asset: assetA });
-    ws.set("pt/foo", { pack: pt, asset: assetB });
+    const ws = makeWS([
+      ["prj/foo", { pack: prj, asset: assetA }],
+      ["pt/foo", { pack: pt, asset: assetB }],
+    ]);
     const result = resolveAndDedupRefs(["@prj/foo", "@pt/foo"], makeProfile(), ws, ["prj", "pt"]);
     expect(result).toHaveLength(2);
   });
 
   it("场景 F：限定跨 pack 不同 name → 保留 2 份", () => {
-    const ws = new Map();
-    ws.set("prj/foo", { pack: prj, asset: { name: "foo", tag: "F" } });
-    ws.set("pt/bar", { pack: pt, asset: { name: "bar", tag: "F" } });
+    const ws = makeWS([
+      ["prj/foo", { pack: prj, asset: { name: "foo", tag: "F" } }],
+      ["pt/bar", { pack: pt, asset: { name: "bar", tag: "F" } }],
+    ]);
     const result = resolveAndDedupRefs(["@prj/foo", "@pt/bar"], makeProfile(), ws, ["prj", "pt"]);
     expect(result).toHaveLength(2);
   });
 
   it("不限定 ref 在 selfPack 找不到时按 packs 顺序 fallback（§4.6 back-compat）", () => {
-    const ws = new Map();
-    ws.set("pt/foo", { pack: pt, asset: assetA });
+    const ws = makeWS([["pt/foo", { pack: pt, asset: assetA }]]);
     const result = resolveAndDedupRefs(["foo"], makeProfile(), ws, ["prj", "pt"]);
     expect(result).toHaveLength(1);
     expect(result[0]?.pack.name).toBe("pt");
   });
 
   it("显式 @prj/foo 找不到 → 抛错（§4.5.1，不 fallback）", () => {
-    const ws = new Map();
-    ws.set("pt/foo", { pack: pt, asset: assetA });
+    const ws = makeWS([["pt/foo", { pack: pt, asset: assetA }]]);
     expect(() => resolveAndDedupRefs(["@prj/foo"], makeProfile(), ws, ["prj", "pt"])).toThrow(
       /unknown pack|has no asset/
     );
   });
 
   it("skipOnMissing=true 静默跳过", () => {
-    const ws = new Map();
-    ws.set("pt/foo", { pack: pt, asset: assetA });
+    const ws = makeWS([["pt/foo", { pack: pt, asset: assetA }]]);
     const result = resolveAndDedupRefs(["@prj/foo"], makeProfile(), ws, ["prj", "pt"], {
       skipOnMissing: true,
     });
     expect(result).toHaveLength(0);
+  });
+
+  it("场景 G（v15.x §4.4.2）：身份 alias @pt-internal/foo + 位置 alias @prj/foo 命中同一 asset", () => {
+    // project pack manifest.name=pt-internal → identity key=pt-internal/foo
+    // 位置 alias @prj/foo → location key=prj/foo（双入口命中同一 asset）
+    const ptInternal = makePack("pt-internal", "/x", "project");
+    // 双索引手动构造：identity 按 pack.name，location 按位置 alias（project→prj）
+    const identity = new Map<string, { pack: AssetPack; asset: { name: string; tag: string } }>();
+    identity.set("pt-internal/foo", { pack: ptInternal, asset: assetA });
+    const location = new Map<string, { pack: AssetPack; asset: { name: string; tag: string } }>();
+    location.set("prj/foo", { pack: ptInternal, asset: assetA }); // 双入口
+    const ws = { location, identity };
+    // 双入口命中同一 asset
+    const result = resolveAndDedupRefs(["@pt-internal/foo", "@prj/foo"], makeProfile(), ws, [
+      "pt-internal",
+    ]);
+    expect(result).toHaveLength(1); // dedup 同 fp
+    // dedup 同 fp 后者赢（Map.set 后写覆盖前写）— "@prj/foo" 在后写入
+    expect(result[0]?.rawRef).toBe("@prj/foo");
+    // 两个 rawRef 应都指向同一 asset
+    expect(result[0]?.asset.name).toBe("foo");
+    expect(result[0]?.pack.name).toBe("pt-internal");
   });
 });
 
@@ -225,8 +311,12 @@ name: user-info
     );
     try {
       const bundle = await mdAdapter.load(root, "guide", { assetDir: "." });
-      expect(bundle.workingSet.domains.get("prj/user-info")).toBeDefined();
-      expect(bundle.workingSet.domains.get("pt/user-info")).toBeDefined();
+      // v15.x §4.4.2：workingSet 双索引——identity 按 pack.name
+      expect(bundle.workingSet.domains.identity.get("prj/user-info")).toBeDefined();
+      expect(bundle.workingSet.domains.identity.get("pt/user-info")).toBeDefined();
+      // location 按位置 alias（reserved pack 双索引）
+      expect(bundle.workingSet.domains.location.get("prj/user-info")).toBeDefined();
+      expect(bundle.workingSet.domains.location.get("pt/user-info")).toBeDefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -257,11 +347,11 @@ domains: []
       const pack = await MdFilePack.create({
         rootDir: root,
         source: "project",
-        reservedName: "prj",
       });
       const profiles = await pack.loadProfiles();
-      // reserved pack 不打 sourcePack（保留固定名 prj）
+      // v15.x §2.4.2：reserved pack 无 manifest 时 sourcePack=位置别名（"prj"）
       expect(profiles[0]?.name).toBe("my");
+      expect(profiles[0]?.sourcePack).toBe("prj");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -270,15 +360,30 @@ domains: []
 
 // ==================== ProfileMeta.pack + formatProfileLabels ====================
 
-describe("ProfileMeta.pack + formatProfileLabels（§7.2 / §7.3）", () => {
-  it("formatProfileLabels 加 [@pack] 前缀", async () => {
+describe("ProfileMeta.pack + formatProfileLabels（§7.2 / §7.3 / §4.4.4）", () => {
+  it("formatProfileLabels：reserved 显 reservedAlias，settings 显 pack", async () => {
     const { formatProfileLabels } = await import("../../src/config.js");
     const labels = formatProfileLabels([
-      { name: "guide", tagline: "builtin onboarding", source: "builtin", pack: "pt" },
-      { name: "pt-dev", tagline: "Senior dev", source: "project", pack: "prj" },
+      {
+        name: "guide",
+        tagline: "builtin onboarding",
+        source: "builtin",
+        pack: "pt",
+        reservedAlias: "pt",
+      },
+      {
+        name: "pt-dev",
+        tagline: "Senior dev",
+        source: "project",
+        pack: "prj",
+        reservedAlias: "prj",
+      },
+      { name: "my-team", tagline: "team pack", source: "settings", pack: "pt-internal" }, // 无 reservedAlias
     ]);
     expect(labels).toContain("[@pt] guide — builtin onboarding");
     expect(labels).toContain("[@prj] pt-dev — Senior dev");
+    // settings pack 无 reservedAlias → 显 pack 名
+    expect(labels).toContain("[@pt-internal] my-team — team pack");
   });
 
   it("listProfilesWithTagline 返 pack 字段", async () => {
@@ -310,22 +415,39 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
   const gbl = makePack("gbl", "/tmp/gbl");
   const packNames = ["prj", "gbl", "pt"];
 
+  /** v15.x §4.4.2：构造 WorkingSet<Blueprint> 双索引 */
+  function makeWS(entries: Array<[string, { pack: AssetPack; asset: Blueprint }]>): {
+    location: Map<string, { pack: AssetPack; asset: Blueprint }>;
+    identity: Map<string, { pack: AssetPack; asset: Blueprint }>;
+  } {
+    const identity = new Map(entries);
+    const locAlias: Record<string, string> = { prj: "prj", pt: "pt", gbl: "gbl" };
+    const location = new Map<string, { pack: AssetPack; asset: Blueprint }>();
+    for (const [k, v] of entries) {
+      const packName = k.split("/")[0]!;
+      const assetName = k.split("/")[1]!;
+      const alias = locAlias[packName];
+      if (alias) location.set(`${alias}/${assetName}`, v);
+    }
+    return { location, identity };
+  }
+
   it("限定 @pt/foo + pt 命中 → 返 pt entry", () => {
-    const ws = new Map([["pt/foo", { pack: pt, asset: makeBlueprint("foo") }]]);
+    const ws = makeWS([["pt/foo", { pack: pt, asset: makeBlueprint("foo") }]]);
     expect(
       resolveBlueprint({ blueprint: "@pt/foo", sourcePack: "prj" }, ws, packNames)?.pack.name
     ).toBe("pt");
   });
 
   it("限定 @prj/foo + prj 缺 + pt 有 → 返 undefined（限定不 fallback）", () => {
-    const ws = new Map([["pt/foo", { pack: pt, asset: makeBlueprint("foo") }]]);
+    const ws = makeWS([["pt/foo", { pack: pt, asset: makeBlueprint("foo") }]]);
     expect(
       resolveBlueprint({ blueprint: "@prj/foo", sourcePack: "prj" }, ws, packNames)
     ).toBeUndefined();
   });
 
   it("不限定 foo + selfPack=prj 但 prj 缺 → fallback 到 pt 命中（核心场景：fix warn false-positive）", () => {
-    const ws = new Map([["pt/dev-knowledge", { pack: pt, asset: makeBlueprint("dev-knowledge") }]]);
+    const ws = makeWS([["pt/dev-knowledge", { pack: pt, asset: makeBlueprint("dev-knowledge") }]]);
     const result = resolveBlueprint(
       { blueprint: "dev-knowledge", sourcePack: "prj" },
       ws,
@@ -338,7 +460,7 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
   it("不限定 foo + prj 命中 → 返 prj entry（前者赢，不 fallback）", () => {
     const prjBp = makeBlueprint("foo");
     const ptBp = makeBlueprint("foo");
-    const ws = new Map([
+    const ws = makeWS([
       ["prj/foo", { pack: prj, asset: prjBp }],
       ["pt/foo", { pack: pt, asset: ptBp }],
     ]);
@@ -348,7 +470,7 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
   });
 
   it("不限定 foo + 所有 pack 都缺 → 返 undefined（compile 阶段会 throw）", () => {
-    const ws = new Map<string, { pack: AssetPack; asset: Blueprint }>();
+    const ws = makeWS([]);
     expect(
       resolveBlueprint({ blueprint: "missing", sourcePack: "prj" }, ws, packNames)
     ).toBeUndefined();
@@ -356,14 +478,14 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
 
   it("空 blueprint → 返 undefined（无 profile.blueprint 字段时）", () => {
     expect(
-      resolveBlueprint({ blueprint: "", sourcePack: "prj" }, new Map(), packNames)
+      resolveBlueprint({ blueprint: "", sourcePack: "prj" }, makeWS([]), packNames)
     ).toBeUndefined();
   });
 
   it("fallback 顺序：prj 缺 + gbl 有 → 返 gbl（前者赢于 pt）", () => {
     const gblBp = makeBlueprint("foo");
     const ptBp = makeBlueprint("foo");
-    const ws = new Map([
+    const ws = makeWS([
       ["gbl/foo", { pack: gbl, asset: gblBp }],
       ["pt/foo", { pack: pt, asset: ptBp }],
     ]);

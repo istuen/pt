@@ -119,16 +119,19 @@ export async function loadAndTranspile(
   //  - 展开后 profile 进 compileAgentContext + computeSourceHash（§8.2 use 链自然进 hash）
   //  - profileByQualifiedName = workingSet.profiles 视图转换（key 已是 "pack/name"）
   //  - blueprintByQualifiedName 直接复用 workingSet.blueprints（{pack, asset} 视图）
+  // v15.x §4.4.2：profileByQualifiedName 从 workingSet.profiles.identity 迭代（key = pack.name/asset.name）
   const profileByQualifiedName = new Map<string, Profile>();
-  for (const [k, v] of bundle.workingSet.profiles) {
+  for (const [k, v] of bundle.workingSet.profiles.identity) {
     profileByQualifiedName.set(k, v.asset);
   }
+  // v15.x §4.4.2：blueprintByQualifiedName 从 workingSet.blueprints.identity 取（与原单索引语义一致）
+  const blueprintByQualifiedName = bundle.workingSet.blueprints.identity;
   let profile: Profile;
   try {
     profile = expandProfile(
       rawProfile,
       profileByQualifiedName,
-      bundle.workingSet.blueprints,
+      blueprintByQualifiedName,
       bundle.packs,
       new Set(),
       adapterCtx
@@ -162,7 +165,8 @@ export async function loadAndTranspile(
       profileName: profile.name,
       referencedBlueprint: profile.blueprint,
       resolvedBlueprint: `@${resolved}`,
-      availableBlueprints: [...bundle.workingSet.blueprints.keys()],
+      // v15.x §4.4.2：availableBlueprints 从 identity 索引读（manifest.name 视图，与原单索引语义一致）
+      availableBlueprints: [...bundle.workingSet.blueprints.identity.keys()],
     });
     throw new Error(
       `transpile: blueprint "${profile.blueprint}" not found for profile "${profile.name}"`

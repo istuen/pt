@@ -79,13 +79,15 @@ function formatPackHealthLine(packValidation: SessionState["packValidation"]): s
   if (packValidation === null) return "pt packs: (not validated)";
   if (packValidation.length === 0) return "pt packs: (none loaded)";
   const items = packValidation.map((r) => {
+    // v15.x §4.4.4（缺口 4）：reserved 显位置别名（reservedAlias），非 reserved 显 pack（manifest.name）
+    // 砍 desc——pack 详情走 /pt packs（缺口 5）
+    const label = r.reservedAlias ?? r.pack;
     const version = r.version ? ` v${r.version}` : "";
     if (r.ok) {
-      const desc = r.description ? ` (${truncate(r.description, 40)})` : "";
-      return `[@${r.pack}]${version} ✅${desc}`;
+      return `[@${label}]${version} ✅`;
     }
     const reason = r.errors[0]?.msg ?? "unknown";
-    return `[@${r.pack}]${version} ⚠ DEGRADED — ${truncate(reason, 60)}`;
+    return `[@${label}]${version} ⚠ DEGRADED — ${truncate(reason, 60)}`;
   });
   const okCount = packValidation.filter((r) => r.ok).length;
   const summary =
@@ -98,6 +100,51 @@ function formatPackHealthLine(packValidation: SessionState["packValidation"]): s
 /** v15.x PR2（§6.7.6）：description / error msg 截断辅助——单行 status 不被撑爆。 */
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 3)}...` : s;
+}
+
+/** v15.x §4.4.4（缺口 5）：/pt packs 详情命令——pack 诊断信息落点。
+ *  pack.name/version/desc/asset 计数走这里，status 单行不再塞 desc。
+ *  asset 计数：从 active bundle 的 workingSet.identity 索引按 pack.name 前缀过滤。 */
+export function packsText(session: SessionState): string {
+  const pv = session.packValidation;
+  if (!pv || pv.length === 0) {
+    return "pt packs: (none loaded)";
+  }
+  const bundle = session.cachedBundles?.[0];
+  const ws = bundle?.workingSet;
+  const lines: string[] = [`pt packs (${pv.length} loaded):`];
+  for (const r of pv) {
+    // v15.x §4.4.4（缺口 4）：reserved 显位置别名，settings 显 pack 名
+    const label = r.reservedAlias ?? r.pack;
+    const status = r.ok ? "✅" : "⚠ DEGRADED";
+    lines.push(`  [@${label}] v${r.version} ${status} (${r.source})`);
+    // reserved 退化场景：pack.name=位置别名，不显 name 行
+    if (r.pack !== label) {
+      lines.push(`    name: ${r.pack}`);
+    }
+    if (r.description) {
+      lines.push(`    ${r.description}`);
+    }
+    // asset 计数（从 workingSet.identity 按 pack.name 前缀统计）
+    if (ws) {
+      const prefix = `${r.pack}/`;
+      const domains = countByPrefix(ws.domains.identity, prefix);
+      const blueprints = countByPrefix(ws.blueprints.identity, prefix);
+      const profiles = countByPrefix(ws.profiles.identity, prefix);
+      lines.push(`    ${domains} domains, ${blueprints} blueprints, ${profiles} profiles`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/** 按 key 前缀计数（§4.4.4 packsText 辅助）。 */
+function countByPrefix<K, V>(map: Map<K, V>, prefix: K): number {
+  if (typeof prefix !== "string") return 0;
+  let n = 0;
+  for (const k of map.keys()) {
+    if (typeof k === "string" && k.startsWith(prefix)) n++;
+  }
+  return n;
 }
 
 /** /pt flows 内核：返回可用手册列表文本。无激活 Profile 返回提示串。

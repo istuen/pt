@@ -165,25 +165,37 @@ export async function scanProjectHealth(
           loadBlueprints: () => Promise.resolve([]),
           loadProfiles: () => Promise.resolve([]),
         };
-      const domainWS = new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
+      // v15.x §4.4.2：scan 临时构造双索引 workingSet——location（按位置 alias）+ identity（按 pack.name）
+      // scan 场景 targetPack 是 project source → locAlias = "prj"
+      const domainLocWS = new Map<
+        string,
+        { pack: typeof targetPack; asset: (typeof domains)[0] }
+      >();
+      const domainIdWS = new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
       for (const d of domains) {
-        domainWS.set(`${targetPack.name}/${d.name}`, { pack: targetPack, asset: d });
+        domainIdWS.set(`${targetPack.name}/${d.name}`, { pack: targetPack, asset: d });
+        domainLocWS.set(`prj/${d.name}`, { pack: targetPack, asset: d });
       }
-      const blueprintWS = new Map<
+      const blueprintLocWS = new Map<
+        string,
+        { pack: typeof targetPack; asset: (typeof blueprints)[0] }
+      >();
+      const blueprintIdWS = new Map<
         string,
         { pack: typeof targetPack; asset: (typeof blueprints)[0] }
       >();
       for (const b of blueprints) {
-        blueprintWS.set(`${targetPack.name}/${b.name}`, { pack: targetPack, asset: b });
+        blueprintIdWS.set(`${targetPack.name}/${b.name}`, { pack: targetPack, asset: b });
+        blueprintLocWS.set(`prj/${b.name}`, { pack: targetPack, asset: b });
       }
       // scan 临时给 profile 打 sourcePack（如未设）——不修改原 profile（仅本调用范围）
       const profileForCompile = profile.sourcePack
         ? profile
         : { ...profile, sourcePack: effectivePackName };
       const ctx = compileAgentContext(profileForCompile, blueprint, domains, packs, profilePack, {
-        domains: domainWS,
-        blueprints: blueprintWS,
-        profiles: new Map(),
+        domains: { location: domainLocWS, identity: domainIdWS },
+        blueprints: { location: blueprintLocWS, identity: blueprintIdWS },
+        profiles: { location: new Map(), identity: new Map() },
       });
       const totalLen = Object.values(ctx.modules).reduce((acc, s) => acc + s.length, 0);
       if (totalLen === 0) {
