@@ -42,19 +42,24 @@ function makeDomain(overrides?: Partial<Domain>): Domain {
   };
 }
 
-// v15.x PR2 + PR3：compileAgentContext/computeSourceHash 加 packs + workingSet 参数
-// 测试用 ds 构造 domain workingSet——profile.domains 解析时能查 "prj/<name>"
+// v15.x PR2 + PR3 + §4.4.2：compileAgentContext/computeSourceHash 加 packs + 双索引 workingSet 参数
+// 测试用 ds 构造 domain workingSet——profile.domains 解析时能查 "prj/<name>"（identity + location 双索引）
 function compileCtx(p: Profile, bp: Blueprint, ds: Domain[]) {
-  const domainWS = new Map<string, { pack: AssetPack; asset: Domain }>();
+  const pack = makePack("prj", "/test");
+  const domainIdWS = new Map<string, { pack: AssetPack; asset: Domain }>();
+  const domainLocWS = new Map<string, { pack: AssetPack; asset: Domain }>();
   for (const d of ds) {
-    domainWS.set(`prj/${d.name}`, { pack: makePack("prj", "/test"), asset: d });
+    domainIdWS.set(`prj/${d.name}`, { pack, asset: d });
+    domainLocWS.set(`prj/${d.name}`, { pack, asset: d });
   }
-  const blueprintWS = new Map<string, { pack: AssetPack; asset: Blueprint }>();
-  blueprintWS.set(`prj/${bp.name}`, { pack: makePack("prj", "/test"), asset: bp });
-  return compileAgentContext(p, bp, ds, [makePack("prj", "/test")], "prj", {
-    domains: domainWS,
-    blueprints: blueprintWS,
-    profiles: new Map(),
+  const blueprintIdWS = new Map<string, { pack: AssetPack; asset: Blueprint }>();
+  const blueprintLocWS = new Map<string, { pack: AssetPack; asset: Blueprint }>();
+  blueprintIdWS.set(`prj/${bp.name}`, { pack, asset: bp });
+  blueprintLocWS.set(`prj/${bp.name}`, { pack, asset: bp });
+  return compileAgentContext(p, bp, ds, [pack], "prj", {
+    domains: { location: domainLocWS, identity: domainIdWS },
+    blueprints: { location: blueprintLocWS, identity: blueprintIdWS },
+    profiles: { location: new Map(), identity: new Map() },
   });
 }
 function hashCtx(p: Profile, bp: Blueprint, ds: Domain[]) {
@@ -724,11 +729,19 @@ describe("compileAgentContext 非 use 越权 warn（PR5 §5.5.1 S7）", () => {
       [makePack("prj", "/test")],
       "prj",
       {
-        domains: new Map([["prj/d1", { pack: makePack("prj", "/test"), asset: domain }]]),
-        blueprints: new Map([
-          ["prj/test-blueprint", { pack: makePack("prj", "/test"), asset: blueprint }],
-        ]),
-        profiles: new Map(),
+        domains: {
+          location: new Map([["prj/d1", { pack: makePack("prj", "/test"), asset: domain }]]),
+          identity: new Map([["prj/d1", { pack: makePack("prj", "/test"), asset: domain }]]),
+        },
+        blueprints: {
+          location: new Map([
+            ["prj/test-blueprint", { pack: makePack("prj", "/test"), asset: blueprint }],
+          ]),
+          identity: new Map([
+            ["prj/test-blueprint", { pack: makePack("prj", "/test"), asset: blueprint }],
+          ]),
+        },
+        profiles: { location: new Map(), identity: new Map() },
       },
       ctx
     );

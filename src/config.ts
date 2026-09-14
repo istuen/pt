@@ -72,12 +72,23 @@ async function listProfileNamesIn(dir: string): Promise<string[]> {
 /** Profile 名 + tagline 列表（项目 + builtin 合并；同名项目覆盖）。
  *  builtin 没 tagline 的 profile 返 undefined（选择器退化为纯名）。
  *  v15.x PR3（§7.2）：加 pack + source（4 类）——选择器显示 [@pack] 前缀；source 区分打包类型。 */
+/** v15.x §4.4.4（位置 alias 表）：reserved pack 的位置别名。reserved pack 才有，非 reserved 为 undefined。
+ *  UI 显示层用——reserved 显位置别名，settings 显 pack 名（§4.4.4 双层语义）。 */
+const RESERVED_ALIAS: ReadonlyMap<ProfileMeta["source"], "prj" | "gbl" | "pt"> = new Map([
+  ["project", "prj"],
+  ["global", "gbl"],
+  ["builtin", "pt"],
+]);
+
 export interface ProfileMeta {
   name: string;
   tagline?: string;
   source: "project" | "settings" | "global" | "builtin";
   /** v15.x PR3（§7.2）：pack 身份（reserved 短名 prj/gbl/pt 或 manifest.name）。 */
   pack: string;
+  /** v15.x §4.4.4（缺口 4）：reserved pack 的位置别名（prj/gbl/pt），非 reserved 为 undefined。
+   *  UI 显示层用——reserved 显位置别名，settings 显 pack 名。 */
+  reservedAlias?: "prj" | "gbl" | "pt";
 }
 
 export async function listProfilesWithTagline(cwd: string): Promise<ProfileMeta[]> {
@@ -97,7 +108,13 @@ export async function listProfilesWithTagline(cwd: string): Promise<ProfileMeta[
     const profiles = await pack.loadProfiles();
     for (const p of profiles) {
       if (metas.some((m) => m.name === p.name)) continue; // 前者赢
-      metas.push({ name: p.name, tagline: p.tagline, source: pack.source, pack: pack.name });
+      metas.push({
+        name: p.name,
+        tagline: p.tagline,
+        source: pack.source,
+        pack: pack.name,
+        reservedAlias: RESERVED_ALIAS.get(pack.source),
+      });
     }
   }
   metas.sort((a, b) => a.name.localeCompare(b.name));
@@ -105,10 +122,12 @@ export async function listProfilesWithTagline(cwd: string): Promise<ProfileMeta[
 }
 
 /** 把 ProfileMeta 列表转成选择器展示标签（`[@pack] name — tagline`，§7.3）。
+ *  v15.x §4.4.4（缺口 4）：reserved pack 显 reservedAlias（位置别名），settings pack 显 pack 名。
  *  tagline 缺省 → 纯名。空 tagline 也走纯名。 */
 export function formatProfileLabels(profiles: ProfileMeta[]): string[] {
   return profiles.map((p) => {
-    const prefix = p.pack ? `[@${p.pack}] ` : "";
+    const label = p.reservedAlias ?? p.pack;
+    const prefix = label ? `[@${label}] ` : "";
     const tagline = p.tagline ? ` — ${p.tagline}` : "";
     return `${prefix}${p.name}${tagline}`;
   });

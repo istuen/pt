@@ -71,26 +71,24 @@ export class MdFilePack implements AssetPack {
     this.adapterCtx = args.adapterCtx;
   }
 
-  /** PR2：工厂方法（async，读 manifest）。
-   *  reserved pack 传 reservedName=固定名 → 跳过 manifest；非 reserved 传 undefined → 读 manifest。 */
+  /** 位置别名退化表（v15.x §2.4.2 缺口 1-b）：reserved pack 无 manifest 时 name 退化到位置别名。
+   *  用途：back-compat——今天无 manifest 的项目 pack.name 仍是 prj/gbl/pt，行为等价。 */
+  private static readonly RESERVED_FALLBACK_NAME: ReadonlyMap<PackSource, string> = new Map([
+    ["project", "prj"],
+    ["global", "gbl"],
+    ["builtin", "pt"],
+  ]);
+
+  /** PR2（v15.x §2.4.2 双层语义）：工厂方法（async，读 manifest）。
+   *  所有 pack 都走 manifest 解析；reserved pack 无 manifest 时 name 退化到位置别名（back-compat）。
+   *  - manifest.name 优先（身份 alias）
+   *  - reserved pack 无 manifest → 退化到 RESERVED_FALLBACK_NAME.get(source)
+   *  - 非 reserved pack 无 manifest → basename 兜底 */
   static async create(args: {
     rootDir: string;
     source: PackSource;
-    reservedName?: string;
     adapterCtx?: SourceAdapterContext;
   }): Promise<MdFilePack> {
-    // reserved pack：跳过 manifest，用固定名
-    if (args.reservedName) {
-      return new MdFilePack({
-        rootDir: args.rootDir,
-        name: args.reservedName,
-        version: "0.0.0",
-        source: args.source,
-        adapterCtx: args.adapterCtx,
-      });
-    }
-
-    // 非 reserved：读 manifest
     const manifest = await parseManifest(args.rootDir);
     const dirName = pathBasename(args.rootDir);
 
@@ -102,10 +100,17 @@ export class MdFilePack implements AssetPack {
       );
     }
 
+    // name 解析优先级（§2.4.2）：
+    //   1. manifest.name（身份 alias 优先）
+    //   2. reserved pack 无 manifest → 退化到位置别名（prj/gbl/pt，back-compat）
+    //   3. 非 reserved 无 manifest → basename 兜底
+    const fallbackName = MdFilePack.RESERVED_FALLBACK_NAME.get(args.source) ?? dirName;
+    const name = manifest.name ?? fallbackName;
+
     return new MdFilePack({
       rootDir: args.rootDir,
-      name: manifest.name ?? dirName, // manifest.name 优先，兜底 basename
-      version: manifest.version ?? "0.0.0", // manifest.version 优先，兜底 "0.0.0"
+      name,
+      version: manifest.version ?? "0.0.0",
       description: manifest.description,
       source: args.source,
       adapterCtx: args.adapterCtx,

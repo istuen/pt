@@ -57,7 +57,14 @@ import {
   getSessionById,
   resetSessionState,
 } from "./session.js";
-import { buildFullPrompt, buildManualDoc, checkText, flowsText, statusText } from "./commands.js";
+import {
+  buildFullPrompt,
+  buildManualDoc,
+  checkText,
+  flowsText,
+  packsText,
+  statusText,
+} from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
 import type { AgentAPI } from "./schema.js";
 import {
@@ -618,6 +625,12 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
+      // v15.x §4.4.4（缺口 5）：/pt packs 详情命令——pack 诊断信息
+      if (sub === "packs") {
+        ctx.ui.notify(packsText(s), "info");
+        return;
+      }
+
       if (sub === "flows") {
         ctx.ui.notify(flowsText(s), "info");
         return;
@@ -781,7 +794,7 @@ export default function (pi: ExtensionAPI): void {
       }
 
       ctx.ui.notify(
-        "用法: /pt [status|flows|raw|full|manual|check|logs|logs:clear|sessions]",
+        "用法: /pt [status|flows|raw|full|manual|check|packs|logs|logs:clear|sessions]",
         "warning"
       );
     },
@@ -802,6 +815,23 @@ export default function (pi: ExtensionAPI): void {
       const s = sessionId ? getSessionById(sessionId) : null;
       return {
         content: [{ type: "text", text: s ? statusText(s) : "no session" }],
+        details: {},
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "pt_packs",
+    label: "Pt Packs",
+    description:
+      "Show Pt pack details: name/version/desc/asset counts for each loaded pack. Read-only.",
+    promptSnippet: "Show Pt pack details (name/version/desc/counts)",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const sessionId = getSessionIdFromCtx(ctx);
+      const s = sessionId ? getSessionById(sessionId) : null;
+      return {
+        content: [{ type: "text", text: s ? packsText(s) : "no session" }],
         details: {},
       };
     },

@@ -321,6 +321,20 @@ export interface AgentContext {
  *
  * （v8 的 channels 字段删除——Channel 保留为未来 Connector，本版本不实现）
  */
+
+/** v15.x §4.4.2（双层语义）：三类 asset 的 working set 通用双索引结构。
+ *  - location：按位置 alias（prj/gbl/pt）——reserved pack（project/global/builtin）才有；settings pack 不进
+ *  - identity：按 pack.name（manifest.name 或退化别名）——所有 pack 都进
+ *  双索引保证：
+ *    - @prj/foo（位置 alias）走 location 索引
+ *    - @<manifest-name>/foo（身份 alias）走 identity 索引
+ *    - 不限定 `foo` 走 identity 索引（self.sourcePack 是 manifest.name）
+ *  back-compat（缺口 1-b）：reserved pack 无 manifest 时 pack.name=位置别名，identity 与 location 索引 key 重合——双入口命中同一 asset。 */
+export interface WorkingSet<T> {
+  location: Map<string, { pack: AssetPack; asset: T }>;
+  identity: Map<string, { pack: AssetPack; asset: T }>;
+}
+
 export interface SchemaBundle {
   domains: Domain[];
   blueprints: Blueprint[];
@@ -340,11 +354,15 @@ export interface SchemaBundle {
   /** v15.x PR2（§8.3）：激活 Profile 所属的 pack name（cache 文件名 <pack>__<profile> 用）。
    *  PR3 接通 @pack/name 后改为 Profile.sourcePack；PR2 用 pack name 字符串。 */
   activeProfilePack: string;
-  /** v15.x PR3（§4.4.4）：三类 asset 的 working set，dedup 下推到引用层。 */
+  /** v15.x §4.4.2（双层语义）：三类 asset 的 working set，dedup 下推到引用层。
+   *  双索引：
+   *    - location：按位置 alias（prj/gbl/pt）——reserved pack 才有，非 reserved 不进
+   *    - identity：按 pack.name（manifest.name 或退化别名）——所有 pack 都进
+   *  场景 G（@prj/foo + @pt-internal/foo 命中同一 asset）依赖双索引。 */
   workingSet: {
-    domains: Map<string, { pack: AssetPack; asset: Domain }>;
-    blueprints: Map<string, { pack: AssetPack; asset: Blueprint }>;
-    profiles: Map<string, { pack: AssetPack; asset: Profile }>;
+    domains: WorkingSet<Domain>;
+    blueprints: WorkingSet<Blueprint>;
+    profiles: WorkingSet<Profile>;
   };
 }
 

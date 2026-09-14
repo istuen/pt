@@ -44,7 +44,8 @@ export function getGlobalPackDir(adapterCtx?: SourceAdapterContext): string {
 
 /**
  * 尝试加载 pack：目录不存在返空 Pack（不报错，§6.4）。
- * reserved pack（project/global/builtin）用固定 name，跳过 basename 与 manifest。
+ * v15.x §2.4.2 双层语义：所有 pack 都走 MdFilePack.create 读 manifest，
+ * reserved pack 无 manifest 时 name 退化到位置别名（back-compat）。
  *
  * 不预加载——目录不存在时 loadDomains() 等返空数组，与"空 Pack"等价。
  * 这样调用方可以无差别调 loadXxx，不用关心目录是否存在。
@@ -54,16 +55,15 @@ export function getGlobalPackDir(adapterCtx?: SourceAdapterContext): string {
  */
 export async function tryLoadPack(
   rootDir: string,
-  reservedName: string | undefined,
   source: PackSource,
   adapterCtx?: SourceAdapterContext
 ): Promise<AssetPack> {
-  return MdFilePack.create({ rootDir, source, reservedName, adapterCtx });
+  return MdFilePack.create({ rootDir, source, adapterCtx });
 }
 
 /** 构造 project pack（§6.5：路径可配，默认 .pt/assets）。
  *  v15.x PR4：优先读 settings 的 pt.project-pack-dir，fallback adapterCtx.assetDir / ASSETS_DIR。
- *  project pack 身份固定 "prj"（reservedName），与路径解耦（§6.5 核心价值）。
+ *  project pack 身份由 manifest.name 决定（无 manifest 时退化到 "prj"，back-compat）。
  *  指向项目外路径合法（../shared / 绝对），文档提示慎用。 */
 export async function loadProjectPack(
   cwd: string,
@@ -73,25 +73,26 @@ export async function loadProjectPack(
   const configured = await readProjectSetting<string>(cwd, "pt.project-pack-dir");
   const rawDir = configured ?? adapterCtx?.assetDir ?? ASSETS_DIR;
   const dir = resolvePackPath(rawDir, cwd);
-  return tryLoadPack(dir, "prj", "project", adapterCtx);
+  return tryLoadPack(dir, "project", adapterCtx);
 }
 
-/** 构造 global pack（§6.4）。 */
+/** 构造 global pack（§6.4）：无 manifest 时退化到 "gbl"（back-compat）。 */
 export async function loadGlobalPack(adapterCtx?: SourceAdapterContext): Promise<AssetPack> {
-  return tryLoadPack(getGlobalPackDir(adapterCtx), "gbl", "global", adapterCtx);
+  return tryLoadPack(getGlobalPackDir(adapterCtx), "global", adapterCtx);
 }
 
-/** 构造 builtin pack（src/builtin/assets/，随 npm 包发布）。 */
+/** 构造 builtin pack（src/builtin/assets/，随 npm 包发布）：无 manifest 时退化到 "pt"。 */
 export async function loadBuiltinPack(adapterCtx?: SourceAdapterContext): Promise<AssetPack> {
-  return tryLoadPack(BUILTIN_ASSETS_DIR, "pt", "builtin", adapterCtx);
+  return tryLoadPack(BUILTIN_ASSETS_DIR, "builtin", adapterCtx);
 }
 
 /** v15.x PR4（§6.1 + §6.3）：settings pack 加载。
  *  读 .pi/settings.json 的 pt.asset-packs[]（只 path 字段，§6.2 单一事实源），构造 AssetPack[]。
- *  - pack name 从 manifest 读（MdFilePack.create 内部走 PR2 逻辑）
+ *  - pack name 从 manifest 读（MdFilePack.create 内部走 §2.4.2 逻辑）
  *  - 路径解析 resolvePackPath（~ / 绝对 / 相对 cwd）
  *  - path 无效 / 目录不存在 / parse 失败 → 跳过该 pack（§6.7.5 不阻断）
- *  - 返回顺序 = settings 声明顺序（mdAdapter.load 负责 .reverse() 实现后者赢） */
+ *  - 返回顺序 = settings 声明顺序（mdAdapter.load 负责 .reverse() 实现后者赢）
+ *  - settings pack 无 manifest 时 name=basename 兜底（非 reserved，走 §2.4.2 路径 3） */
 export async function loadSettingsPacks(cwd: string): Promise<AssetPack[]> {
   const entries = await readProjectSetting<Array<{ path?: unknown }>>(cwd, "pt.asset-packs");
   if (!Array.isArray(entries) || entries.length === 0) {
@@ -107,8 +108,7 @@ export async function loadSettingsPacks(cwd: string): Promise<AssetPack[]> {
     }
     const rootDir = resolvePackPath(entry.path.trim(), cwd);
     try {
-      // reservedName=undefined：settings pack 走 manifest 读 name（PR2 逻辑）
-      const pack = await tryLoadPack(rootDir, undefined, "settings");
+      const pack = await tryLoadPack(rootDir, "settings");
       packs.push(pack);
     } catch {
       // MdFilePack.create 内部已容错，catch 仅防御意外抛错——不阻断其他 pack

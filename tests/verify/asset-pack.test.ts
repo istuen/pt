@@ -48,11 +48,10 @@ async function mkAssetRoot(prefix: string): Promise<string> {
 describe("MdFilePack", () => {
   it("loadDomains 递归多级——能加载顶层 + 子目录的 .md", async () => {
     const root = join(process.cwd(), "tests/fixtures/asset-pack/nested");
-    // PR2：构造改 async（读 manifest），走 MdFilePack.create factory
+    // v15.x §2.4.2：构造改 async（读 manifest），走 MdFilePack.create factory——删 reservedName
     const pack = await MdFilePack.create({
       rootDir: root,
       source: "project",
-      reservedName: "fixture",
     });
     const domains = await pack.loadDomains();
     // 顶层 term-a.md + sub/term-b.md 都加载到（frontmatter.name 优先，name=term-b）
@@ -70,7 +69,6 @@ describe("MdFilePack", () => {
     const pack = await MdFilePack.create({
       rootDir: "/tmp/__pt_nonexistent_pack__",
       source: "project",
-      reservedName: "x",
     });
     const domains = await pack.loadDomains();
     expect(domains).toEqual([]);
@@ -80,7 +78,6 @@ describe("MdFilePack", () => {
     const pack = await MdFilePack.create({
       rootDir: "/tmp/__pt_nonexistent_pack__",
       source: "project",
-      reservedName: "x",
     });
     const blueprints = await pack.loadBlueprints();
     expect(blueprints).toEqual([]);
@@ -90,7 +87,6 @@ describe("MdFilePack", () => {
     const pack = await MdFilePack.create({
       rootDir: "/tmp/__pt_nonexistent_pack__",
       source: "project",
-      reservedName: "x",
     });
     const profiles = await pack.loadProfiles();
     expect(profiles).toEqual([]);
@@ -99,9 +95,9 @@ describe("MdFilePack", () => {
 
 // ==================== tryLoadPack reserved name ====================
 
-describe("tryLoadPack reserved name 不读 basename", () => {
-  it("builtin pack 走 reserved name 'pt'（路径 basename 是 assets）", async () => {
-    // BUILTIN_ASSETS_DIR 路径 basename 一定是 "assets"——reserved name 必须跳过它。
+describe("tryLoadPack reserved name（v15.x §2.4.2 双层语义）", () => {
+  it("builtin pack 退化到位置别名 'pt'（路径 basename 是 assets）", async () => {
+    // v15.x §2.4.2：builtin pack 无 manifest → name=位置别名 'pt'
     const pack = await loadBuiltinPack();
     expect(pack.name).toBe("pt");
     expect(pack.source).toBe("builtin");
@@ -110,17 +106,17 @@ describe("tryLoadPack reserved name 不读 basename", () => {
     expect(pack.description).toBeUndefined();
   });
 
-  it("tryLoadPack 显式传 reserved name 时跳过 basename", async () => {
-    // 显式构造 MdFilePack——name 由构造传入，不读 basename
-    const pack = await tryLoadPack("/some/dir/assets", "prj", "project");
-    expect(pack.name).toBe("prj");
+  it("tryLoadPack 走位置别名退化", async () => {
+    // v15.x §2.4.2：tryLoadPack 不再传 reservedName，reserved pack 无 manifest → 退化到位置别名
+    const pack = await tryLoadPack("/some/dir/assets", "project");
+    expect(pack.name).toBe("prj"); // 退化到位置别名
     expect(pack.source).toBe("project");
   });
 });
 
 // ==================== working set + mdAdapter.load 行为 ====================
 
-describe("mdAdapter.load working set + 前者赢 fallback", () => {
+describe("mdAdapter.load working set + 前者赢 fallback（v15.x §4.4.2 双索引）", () => {
   it("workingSet.domains 含 prj/ + pt/ 双份 user-info（项目 vs builtin）", async () => {
     const root = await mkAssetRoot("ws-dup");
     await writeFile(
@@ -137,15 +133,23 @@ name: user-info
     );
     try {
       const bundle = await mdAdapter.load(root, "guide", { assetDir: "." });
-      // working set 三类 Map
-      expect(bundle.workingSet.domains.size).toBeGreaterThan(0);
-      expect(bundle.workingSet.blueprints.size).toBeGreaterThan(0);
-      expect(bundle.workingSet.profiles.size).toBeGreaterThan(0);
-      // user-info 在 project + builtin 各一份
-      const projectUserInfo = bundle.workingSet.domains.get("prj/user-info");
-      const builtinUserInfo = bundle.workingSet.domains.get("pt/user-info");
+      // working set 双索引都非空
+      expect(bundle.workingSet.domains.identity.size).toBeGreaterThan(0);
+      expect(bundle.workingSet.domains.location.size).toBeGreaterThan(0);
+      expect(bundle.workingSet.blueprints.identity.size).toBeGreaterThan(0);
+      expect(bundle.workingSet.blueprints.location.size).toBeGreaterThan(0);
+      expect(bundle.workingSet.profiles.identity.size).toBeGreaterThan(0);
+      expect(bundle.workingSet.profiles.location.size).toBeGreaterThan(0);
+      // user-info 在 project + builtin 各一份（identity 索引按 pack.name）
+      const projectUserInfo = bundle.workingSet.domains.identity.get("prj/user-info");
+      const builtinUserInfo = bundle.workingSet.domains.identity.get("pt/user-info");
       expect(projectUserInfo).toBeDefined();
       expect(builtinUserInfo).toBeDefined();
+      // 位置索引按位置别名 key（project → prj）
+      const projectLocUserInfo = bundle.workingSet.domains.location.get("prj/user-info");
+      const builtinLocUserInfo = bundle.workingSet.domains.location.get("pt/user-info");
+      expect(projectLocUserInfo).toBeDefined();
+      expect(builtinLocUserInfo).toBeDefined();
       // 验证前者赢（项目版）— 项目版 desc 含"项目版"
       const projectUserModule = projectUserInfo?.asset.modules.User as Array<{
         name: string;
@@ -162,12 +166,62 @@ name: user-info
     try {
       const bundle = await mdAdapter.load(emptyRoot, "guide", { assetDir: "." });
       // 项目无 user-info，但 builtin 有
-      const projectEntry = bundle.workingSet.domains.get("prj/user-info");
-      const builtinEntry = bundle.workingSet.domains.get("pt/user-info");
+      const projectEntry = bundle.workingSet.domains.identity.get("prj/user-info");
+      const builtinEntry = bundle.workingSet.domains.identity.get("pt/user-info");
       expect(projectEntry).toBeUndefined();
       expect(builtinEntry).toBeDefined();
+      // 位置索引同样验证
+      const projectLocEntry = bundle.workingSet.domains.location.get("prj/user-info");
+      const builtinLocEntry = bundle.workingSet.domains.location.get("pt/user-info");
+      expect(projectLocEntry).toBeUndefined();
+      expect(builtinLocEntry).toBeDefined();
     } finally {
       await rm(emptyRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("场景 G（v15.x §4.4.2）：@prj/foo + @pt-internal/foo 双入口命中同一 asset", async () => {
+    // project pack manifest.name=pt-internal，builtin pack 无 manifest 退化到 'pt'
+    // @prj/foo（位置）→ location 索引命中 project pack 的 foo
+    // @pt-internal/foo（身份）→ identity 索引命中 project pack 的 foo（同 asset）
+    // @pt/foo（位置）→ location 索引命中 builtin pack 的 foo
+    const root = await mkAssetRoot("ws-scenario-g");
+    await writeFile(
+      join(root, "pt-asset-pack.yaml"),
+      `name: pt-internal
+version: 0.1.0
+`
+    );
+    await writeFile(
+      join(root, "domains/foo.md"),
+      `---
+name: foo
+---
+
+## User
+
+### test
+- desc: project 版本
+`
+    );
+    try {
+      const bundle = await mdAdapter.load(root, "guide", { assetDir: "." });
+      const fooLoc = bundle.workingSet.domains.location.get("prj/foo");
+      const fooId = bundle.workingSet.domains.identity.get("pt-internal/foo");
+      // 两个查询命中同一 asset（同 pack 同 asset）
+      expect(fooLoc).toBeDefined();
+      expect(fooId).toBeDefined();
+      expect(fooLoc?.asset.name).toBe("foo");
+      expect(fooId?.asset.name).toBe("foo");
+      expect(fooLoc?.pack.name).toBe("pt-internal");
+      expect(fooId?.pack.name).toBe("pt-internal");
+      // 同 fingerprint（同一 pack 同一 asset）
+      const { fingerprint } = await import("../../src/parse/ref-resolver.js");
+      if (fooLoc && fooId) {
+        expect(fingerprint(fooLoc.pack, fooLoc.asset)).toBe(fingerprint(fooId.pack, fooId.asset));
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 });
@@ -176,21 +230,23 @@ name: user-info
 
 describe("validatePack", () => {
   it("目录不存在 → ok=false + errors[0].code='dir-not-found'", async () => {
-    const pack = await tryLoadPack("/tmp/__pt_nonexistent__", "prj", "project");
+    const pack = await tryLoadPack("/tmp/__pt_nonexistent__", "project");
     const result = await validatePack(pack);
     expect(result.ok).toBe(false);
     expect(result.errors[0]?.code).toBe("dir-not-found");
     expect(result.errors[0]?.msg).toContain("/tmp/__pt_nonexistent__");
+    expect(result.reservedAlias).toBe("prj"); // v15.x §4.4.4：reserved pack 有 reservedAlias
   });
 
   it("目录存在但无任何 asset 子目录 → ok=false + errors[0].code='no-asset-subdir'", async () => {
     const root = await mkdtemp(join(tmpdir(), "pt-empty-"));
     try {
-      const pack = await tryLoadPack(root, "prj", "project");
+      const pack = await tryLoadPack(root, "project");
       const result = await validatePack(pack);
       expect(result.ok).toBe(false);
       expect(result.errors[0]?.code).toBe("no-asset-subdir");
       expect(result.errors[0]?.msg).toContain('"prj"');
+      expect(result.reservedAlias).toBe("prj");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -217,16 +273,17 @@ describe("validatePack", () => {
     }
   });
 
-  it("合法 pack → ok=true + errors=[]", async () => {
+  it("合法 pack → ok=true + errors=[] + reservedAlias=prj", async () => {
     const root = await mkAssetRoot("validate-ok");
     try {
-      const pack = await tryLoadPack(root, "prj", "project");
+      const pack = await tryLoadPack(root, "project");
       const result = await validatePack(pack);
       expect(result.ok).toBe(true);
       expect(result.errors).toEqual([]);
       expect(result.warnings).toEqual([]);
       expect(result.source).toBe("project");
       expect(result.pack).toBe("prj");
+      expect(result.reservedAlias).toBe("prj"); // v15.x §4.4.4
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -338,26 +395,30 @@ describe("loadProjectPack", () => {
 describe("第三方 pack 失效——预警跳过，不阻断其它 pack（§6.7.5）", () => {
   it("validatePack 目录不存在的 global pack → ok=false 但不阻断 builtin pack 加载", async () => {
     // global pack 目录不存在 → validatePack 返 ok=false
-    const brokenGlobal = await tryLoadPack("/tmp/__pt_nonexistent_global__", "gbl", "global");
+    const brokenGlobal = await tryLoadPack("/tmp/__pt_nonexistent_global__", "global");
     const globalResult = await validatePack(brokenGlobal);
     expect(globalResult.ok).toBe(false);
     expect(globalResult.errors[0]?.code).toBe("dir-not-found");
     expect(globalResult.source).toBe("global");
+    expect(globalResult.reservedAlias).toBe("gbl"); // v15.x §4.4.4
 
     // builtin pack 同时验证 → 应正常通过
     const builtin = await loadBuiltinPack();
     const builtinResult = await validatePack(builtin);
     expect(builtinResult.ok).toBe(true);
     expect(builtinResult.source).toBe("builtin");
+    expect(builtinResult.reservedAlias).toBe("pt");
   });
 
   it("validatePack 无 asset 子目录的 pack → ok=false + errors[0].code='no-asset-subdir'", async () => {
     const root = await mkdtemp(join(tmpdir(), "pt-empty-pack-"));
     try {
-      const emptyPack = await tryLoadPack(root, "x", "global");
+      // 非 reserved source (settings) 无 manifest → name=basename 兜底；reserved source 无 manifest → 退化
+      const emptyPack = await tryLoadPack(root, "settings");
       const result = await validatePack(emptyPack);
       expect(result.ok).toBe(false);
       expect(result.errors[0]?.code).toBe("no-asset-subdir");
+      expect(result.reservedAlias).toBeUndefined(); // settings 非 reserved
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -382,7 +443,6 @@ describe("MdFilePack parse 失败可见性（PR1 补丁 S2）", () => {
       const pack = await MdFilePack.create({
         rootDir: root,
         source: "project",
-        reservedName: "prj",
         adapterCtx,
       });
       const domains = await pack.loadDomains();
@@ -410,7 +470,6 @@ describe("MdFilePack parse 失败可见性（PR1 补丁 S2）", () => {
       const pack = await MdFilePack.create({
         rootDir: root,
         source: "project",
-        reservedName: "prj",
         adapterCtx,
       });
       const blueprints = await pack.loadBlueprints();
@@ -430,7 +489,6 @@ describe("MdFilePack parse 失败可见性（PR1 补丁 S2）", () => {
       const pack = await MdFilePack.create({
         rootDir: root,
         source: "project",
-        reservedName: "prj",
       });
       const domains = await pack.loadDomains();
       expect(domains).toEqual([]);
@@ -458,9 +516,9 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
     const { createSessionState } = await import("../../src/session.js");
     const s = createSessionState();
     s.packValidation = [
-      { pack: "prj", source: "project", ok: true, errors: [], warnings: [] },
-      { pack: "gbl", source: "global", ok: true, errors: [], warnings: [] },
-      { pack: "pt", source: "builtin", ok: true, errors: [], warnings: [] },
+      { pack: "prj", source: "project", reservedAlias: "prj", ok: true, errors: [], warnings: [] },
+      { pack: "gbl", source: "global", reservedAlias: "gbl", ok: true, errors: [], warnings: [] },
+      { pack: "pt", source: "builtin", reservedAlias: "pt", ok: true, errors: [], warnings: [] },
     ];
     const out = statusText(s);
     expect(out).toContain("pt packs: 3/3 ok");
@@ -477,12 +535,13 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
       {
         pack: "prj",
         source: "project",
+        reservedAlias: "prj",
         ok: false,
         errors: [{ code: "dir-not-found", msg: "pack 目录不存在: /tmp/__nonexistent__" }],
         warnings: [],
       },
-      { pack: "gbl", source: "global", ok: true, errors: [], warnings: [] },
-      { pack: "pt", source: "builtin", ok: true, errors: [], warnings: [] },
+      { pack: "gbl", source: "global", reservedAlias: "gbl", ok: true, errors: [], warnings: [] },
+      { pack: "pt", source: "builtin", reservedAlias: "pt", ok: true, errors: [], warnings: [] },
     ];
     const out = statusText(s);
     expect(out).toContain("pt packs: 2/3 degraded");
@@ -498,6 +557,7 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
       {
         pack: "prj",
         source: "project",
+        reservedAlias: "prj",
         ok: true,
         errors: [],
         warnings: [],
@@ -507,6 +567,7 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
       {
         pack: "gbl",
         source: "global",
+        reservedAlias: "gbl",
         ok: true,
         errors: [],
         warnings: [],
@@ -516,6 +577,7 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
       {
         pack: "pt",
         source: "builtin",
+        reservedAlias: "pt",
         ok: true,
         errors: [],
         warnings: [],
@@ -528,15 +590,16 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
     expect(out).toContain("v0.0.0");
   });
 
-  it("PR2：description 出现在展示行（截断 40 字符）", async () => {
+  it("v15.x §4.4.4：description 不进展示行（砍 desc，详情走 /pt packs）", async () => {
     const { statusText } = await import("../../src/commands.js");
     const { createSessionState } = await import("../../src/session.js");
     const s = createSessionState();
     const longDesc = "a".repeat(60);
     s.packValidation = [
       {
-        pack: "prj",
+        pack: "pt-internal",
         source: "project",
+        reservedAlias: "prj", // reserved 显位置别名（与 pack.name 不同 → name: pt-internal 走 /pt packs）
         ok: true,
         errors: [],
         warnings: [],
@@ -546,8 +609,64 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
       },
     ];
     const out = statusText(s);
-    expect(out).toContain("aaa...");
+    // status 行只显位置别名 + version，desc 砍掉
+    expect(out).toContain("[@prj] v1.0.0 ✅");
     expect(out).not.toContain("a".repeat(45));
+  });
+
+  it("v15.x §4.4.4：settings pack 显 pack 名（不显 reservedAlias）", async () => {
+    const { statusText } = await import("../../src/commands.js");
+    const { createSessionState } = await import("../../src/session.js");
+    const s = createSessionState();
+    s.packValidation = [
+      {
+        pack: "pt-internal",
+        source: "settings",
+        ok: true, // settings 无 reservedAlias
+        errors: [],
+        warnings: [],
+        version: "2.0.0",
+        rootDir: "/x",
+      },
+    ];
+    const out = statusText(s);
+    expect(out).toContain("[@pt-internal] v2.0.0 ✅");
+  });
+
+  it("v15.x §4.4.4（缺口 5）：/pt packs 输出 desc + asset 计数", async () => {
+    const { packsText } = await import("../../src/commands.js");
+    const { createSessionState } = await import("../../src/session.js");
+    const s = createSessionState();
+    s.packValidation = [
+      {
+        pack: "pt-internal",
+        source: "project",
+        reservedAlias: "prj",
+        ok: true,
+        errors: [],
+        warnings: [],
+        version: "1.0.0",
+        rootDir: "/x",
+        description: "Test pack desc",
+      },
+      {
+        pack: "prj",
+        source: "project",
+        reservedAlias: "prj",
+        ok: true,
+        errors: [],
+        warnings: [],
+        version: "0.0.0",
+        rootDir: "/y",
+      },
+    ];
+    const out = packsText(s);
+    expect(out).toContain("pt packs (2 loaded):");
+    expect(out).toContain("[@prj] v1.0.0 ✅ (project)");
+    expect(out).toContain("name: pt-internal"); // 有 manifest 时显真实 name
+    expect(out).toContain("Test pack desc"); // desc 走 packsText
+    // reserved 退化场景：pack.name=位置别名，不显 name 行
+    expect(out).toContain("[@prj] v0.0.0 ✅");
   });
 });
 
@@ -651,30 +770,47 @@ description: Pt 项目内部共享资产
 
 // ==================== PR2 §2.4.2：MdFilePack.create name 解析优先级 ====================
 
-describe("MdFilePack.create name 解析优先级（§2.4.2）", () => {
-  it("reserved pack 跳过 manifest 用固定名", async () => {
-    // 即使目录有 manifest，reserved pack 跳过
+describe("MdFilePack.create name 解析优先级（§2.4.2 双层语义）", () => {
+  it("reserved pack 读 manifest → pack.name=manifest.name", async () => {
+    // v15.x §2.4.2（缺口 1）：reserved pack 读 manifest，不再跳过
     const root = await mkAssetRoot("mdpack-reserved");
     await writeFile(
       join(root, "pt-asset-pack.yaml"),
-      `name: should-be-ignored
-version: 9.9.9
+      `name: pt-internal
+version: 0.1.0
+description: Test reserved pack
 `
     );
     try {
       const pack = await MdFilePack.create({
         rootDir: root,
         source: "project",
-        reservedName: "prj",
       });
-      expect(pack.name).toBe("prj");
-      expect(pack.version).toBe("0.0.0"); // reserved 固定
+      expect(pack.name).toBe("pt-internal");
+      expect(pack.version).toBe("0.1.0");
+      expect(pack.description).toBe("Test reserved pack");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("显式 pack + 合法 manifest → manifest.name", async () => {
+  it("reserved pack 无 manifest → 退化到位置别名（back-compat）", async () => {
+    // v15.x §2.4.2（缺口 1-b）：reserved pack 无 manifest 时 name=位置别名（prj/gbl/pt）
+    const root = await mkAssetRoot("mdpack-reserved-degrade");
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "project",
+      });
+      expect(pack.name).toBe("prj"); // 位置别名退化
+      expect(pack.version).toBe("0.0.0");
+      expect(pack.description).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("显式 pack（settings/source）+ 合法 manifest → manifest.name", async () => {
     const root = await mkAssetRoot("mdpack-explicit");
     await writeFile(
       join(root, "pt-asset-pack.yaml"),
@@ -686,7 +822,7 @@ description: Test pack
     try {
       const pack = await MdFilePack.create({
         rootDir: root,
-        source: "global", // 非 reserved
+        source: "settings", // 非 reserved
       });
       expect(pack.name).toBe("pt-internal");
       expect(pack.version).toBe("2.0.0");
@@ -696,17 +832,35 @@ description: Test pack
     }
   });
 
-  it("隐式 pack 无 manifest → name=basename + version='0.0.0'", async () => {
+  it("非 reserved pack 无 manifest → basename 兜底", async () => {
     const root = await mkAssetRoot("mdpack-implicit"); // basename = "pt-asset-pack-mdpack-implicit-XXXX"
     try {
       const pack = await MdFilePack.create({
         rootDir: root,
-        source: "global",
+        source: "settings", // settings 是非 reserved
       });
       // basename 兜底（tmp 目录带 pt-asset-pack 前缀）
       expect(pack.name).toMatch(/mdpack-implicit/);
       expect(pack.version).toBe("0.0.0");
       expect(pack.description).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("end-to-end 退化路径：reserved 无 manifest 走 packValidation.reservedAlias", async () => {
+    // v15.x §4.4.4（缺口 1-b + 缺口 4）：reserved pack 无 manifest → packValidation.reservedAlias=位置别名
+    const root = await mkAssetRoot("mdpack-e2e-degrade");
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "project",
+      });
+      expect(pack.name).toBe("prj");
+      const { validatePack } = await import("../../src/asset-pack/validate.js");
+      const v = await validatePack(pack);
+      expect(v.reservedAlias).toBe("prj");
+      expect(v.pack).toBe("prj");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -724,7 +878,6 @@ describe("validatePack pack 内一致性（§6.7.2 层 2）", () => {
       const pack = await MdFilePack.create({
         rootDir: root,
         source: "project",
-        reservedName: "prj",
       });
       const result = await validatePack(pack);
       expect(result.ok).toBe(false);
@@ -958,8 +1111,9 @@ describe("PR4 mdAdapter.load settings 倒序后者赢（§3.3.1）", () => {
     // packs 顺序：prj, team-b, team-a, gbl, pt（settings 倒序后者赢）
     expect(bundle.packs.map((p) => p.name)).toEqual(["prj", "team-b", "team-a", "gbl", "pt"]);
     // workingSet 同时含 team-a/user-info + team-b/user-info（fp 不同）
-    expect(bundle.workingSet.domains.get("team-a/user-info")).toBeDefined();
-    expect(bundle.workingSet.domains.get("team-b/user-info")).toBeDefined();
+    // v15.x §4.4.2：workingSet 双索引——identity 按 pack.name，location 按位置别名（settings 无位置别名）
+    expect(bundle.workingSet.domains.identity.get("team-a/user-info")).toBeDefined();
+    expect(bundle.workingSet.domains.identity.get("team-b/user-info")).toBeDefined();
   });
 });
 
@@ -996,7 +1150,7 @@ describe("M1 PR4 checkPackNameConflicts（§3.4 pack name 冲突报错）", () =
       assetDir: ".",
       notify: (msg, level) => notifs.push({ msg, level }),
     });
-    expect(bundle.workingSet.domains.size).toBeGreaterThanOrEqual(0);
+    expect(bundle.workingSet.domains.identity.size).toBeGreaterThanOrEqual(0);
     // 冲突 warn 触发——针对 settings 来源同名
     const conflictWarn = notifs.find(
       (n) => n.level === "warning" && n.msg.includes('"dupe"') && n.msg.includes("§3.4")

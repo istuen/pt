@@ -18,12 +18,23 @@ import { join } from "node:path";
 import { errMsg } from "../diagnostics.js";
 import type { AssetPack } from "../schema.js";
 
+/** v15.x §2.4.4（位置 alias 表）：reserved pack 的位置别名。reserved pack 才有，非 reserved 为 undefined。
+ *  UI 显示层用——reserved 显位置别名，settings 显 pack 名（§4.4.4 双层语义）。 */
+const RESERVED_ALIAS: ReadonlyMap<AssetPack["source"], "prj" | "gbl" | "pt"> = new Map([
+  ["project", "prj"],
+  ["global", "gbl"],
+  ["builtin", "pt"],
+]);
+
 /** 校验结果（§6.7.7）。validatePack 永远返结果对象，不抛异常。 */
 export interface ValidationResult {
-  /** Pack 名（来源 pack.name） */
+  /** Pack 名（来源 pack.name——manifest.name 或退化别名） */
   pack: string;
   /** Pack 来源类型 */
   source: AssetPack["source"];
+  /** v15.x §4.4.4（缺口 4）：reserved pack 的位置别名（prj/gbl/pt），非 reserved 为 undefined。
+   *  UI 显示层用——reserved 显位置别名，settings 显 pack 名。 */
+  reservedAlias?: "prj" | "gbl" | "pt";
   /** 整体是否可用 */
   ok: boolean;
   /** 致命问题（pack 不可用） */
@@ -70,6 +81,7 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
     return {
       pack: pack.name,
       source: pack.source,
+      reservedAlias: RESERVED_ALIAS.get(pack.source),
       ok: false,
       errors,
       warnings,
@@ -91,6 +103,7 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
     return {
       pack: pack.name,
       source: pack.source,
+      reservedAlias: RESERVED_ALIAS.get(pack.source),
       ok: false,
       errors,
       warnings,
@@ -121,6 +134,7 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
   return {
     pack: pack.name,
     source: pack.source,
+    reservedAlias: RESERVED_ALIAS.get(pack.source),
     ok: errors.length === 0,
     errors,
     warnings,
