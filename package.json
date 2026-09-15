@@ -1,7 +1,7 @@
 {
   "name": "@istuen/pt",
-  "version": "0.1.1",
-  "description": "Pt \u2014 Turn domain knowledge into configurable Agent Context.",
+  "version": "0.1.2",
+  "description": "Pt — Turn domain knowledge into configurable Agent Context.",
   "type": "module",
   "keywords": [
     "pi-package"
