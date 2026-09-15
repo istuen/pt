@@ -60,7 +60,14 @@
 - **`use` Profile 单继承**：Profile 可 `use` 另一 Profile 作为基础，增量覆盖（blueprint 覆盖 / domains 追加 / groups 替换）+ 循环检测 + 菱形处理
 - **跨 Pack mixin 合并**：同 name asset 跨 Pack 合并（mergeSectionContent）——Scenario D/E 同名 asset 内容 union
 - **Pack 校验与降级**：`validatePack` 两层校验（结构 + 解析）+ project pack 失效降级到 builtin guide + settings pack 失效预警跳过
-- **builtin `pack-repair` domain**：project pack 校验失败时 `/manual:pack-repair` 触发修复引导
+- **builtin `pack-management` domain**（v15.x 后续补全）：pack 全生命周期管理——创建 / 调整 / 迭代 / 迁移 / 修复。`/manual:pack-management` 触发任意 FlowTemplate，LLM 跟着 Scene + Rules + Flow + Checklist 走即可。取代原 `pack-repair`（内容并入 `pack-management#pack-repair` flow，pack-repair.md 已删除）
+- **builtin pack 显式 manifest**：`src/builtin/assets/pt-asset-pack.yaml`（name=pt）让 builtin pack 走与 project pack 相同的 manifest 管线，位置 alias `@pt` = 身份 alias `@pt` 合一特例（`parseManifest(rootDir, "builtin")`）；保留名规则对 builtin 放行，其他 source 仍禁用保留名
+- **manifest warnings 引导**：[repair-required] 前缀分类 + `/manual:pack-management` hint 提示——LLM 看到 warnings 自动引导 manual flow；manifest 缺失时 notify 提示 `pack-create` flow
+- **库开发者工作流约定**：dev-workflow.md 新增 `library-dev-link` 场景——全局 npm baseline + symlink 切换让 dev 分支在所有消费者项目同时生效做预生产测试（等价 npm link 思路作用于 Pi 的 npm 安装目录）
+
+**修复**：
+- **phase9 fixture 错位**：cache 文件名 fixture 6 处 `prj__pt-dev` → `pt-internal__pt-dev`（v15.x PR2 假设 reserved pack 固定名 `prj`，b1d9e74 后 reserved pack 也读 manifest.name=pt-internal，fixture 未跟进）。phase9 集成测试 36/44 → 42/44 全过（之前 6 个 ENOENT 失败）
+- **builtin pack 寻址解耦**：`findActiveProfile` 按 parseRef kind 分流——位置 alias 按 source 查，身份 alias 按 pack.name 查（builtin 加 manifest.name 后 `@pt/...` 仍正确寻址）
 
 **改进**：
 - cache 文件名加 pack 前缀（`<pack>__<profile>.agent-context.md`）+ sourceHash 含 pack 身份
@@ -70,6 +77,6 @@
 **back-compat**：
 - 不写 `pt.asset-packs` / `pt.project-pack-dir` / `use` 行为等价 v14.x
 - 不限定引用（`foo`）自动解析为 `@prj/foo`（与今天前者赢补充一致）
-- phase9 44 集成测试全过
+- phase9 44 集成测试全过（fixture 错位修复后）
 
 **设计源**：`.pt/docs/designs/pt-asset-pack.md`（v15.x 完整设计）
