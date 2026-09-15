@@ -28,6 +28,7 @@ import type {
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+  checkManualCompletion,
   isManualActive,
   parseManualProgress,
   renderManualFooterSuffix,
@@ -124,9 +125,12 @@ function refreshInjectionFooter(ui: ExtensionUIContext, session: SessionState): 
 
 /** 刷新 widget（aboveEditor）。根据 session.activeManual 决定显示/撤掉。
  *  - 无 activeManual → 撤 widget
- *  - 文件不存在 / 已 completed → 清 activeManual + 撤 widget
+ *  - 文件不存在 / 真完成（status=completed + stepDone===stepTotal + 无 —/INCONCLUSIVE）→ 清 activeManual + 撤 widget
+ *  - 伪完成（status=completed 但 step 未全勾或有 —/INCONCLUSIVE）→ 仍渲染 widget，加 ⚠ fake done 提示
  *  - in-progress → 渲染 3 行 widget + 更新 cachedManualProgress（footer 同步读）
- *  v12.x：state 全部从 session 参数读，不再读写 module-level 单例。 */
+ *  v12.x：state 全部从 session 参数读，不再读写 module-level 单例。
+ *  v15.x（issue pt-manual-completion-check-too-loose）：用 checkManualCompletion 替代 `p.status === "completed"`,
+ *  让伪完成的 manual 仍 active（widget 重新挂载，提示用户步骤未全完成）。 */
 async function refreshManualWidget(ui: ExtensionUIContext, session: SessionState): Promise<void> {
   const m = session.activeManual;
   if (!m) {
@@ -135,7 +139,7 @@ async function refreshManualWidget(ui: ExtensionUIContext, session: SessionState
     return;
   }
   const p = await parseManualProgress(m.filePath);
-  if (!p || p.status === "completed") {
+  if (!p || !checkManualCompletion(p)) {
     session.activeManual = null;
     session.cachedManualProgress = null;
     ui.setWidget("pt-manual", undefined);
