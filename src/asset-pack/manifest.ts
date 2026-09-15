@@ -87,9 +87,13 @@ export async function parseManifest(rootDir: string): Promise<ParsedManifest> {
   if (typeof data.name === "string" && data.name.trim()) {
     const n = data.name.trim();
     if (!KEBAB_RE.test(n)) {
-      warnings.push(`manifest.name "${n}" not kebab-case, falling back to basename`);
+      warnings.push(
+        `[repair-required][name-kebab] manifest.name "${n}" not kebab-case, fallback: basename. Auto-fix: /manual:pack-management#pack-repair`
+      );
     } else if (RESERVED_NAMES.has(n)) {
-      warnings.push(`manifest.name "${n}" is reserved, falling back to basename`);
+      warnings.push(
+        `[repair-required][name-reserved] manifest.name "${n}" is reserved, fallback: basename. Auto-fix: /manual:pack-management#pack-repair`
+      );
     } else {
       name = n;
     }
@@ -99,7 +103,9 @@ export async function parseManifest(rootDir: string): Promise<ParsedManifest> {
   if (typeof data.version === "string" && data.version.trim()) {
     const v = data.version.trim();
     if (!SEMVER_RE.test(v)) {
-      warnings.push(`manifest.version "${v}" not semver, treating as "0.0.0"`);
+      warnings.push(
+        `[repair-required][version-semver] manifest.version "${v}" not semver, default: "0.0.0". Auto-fix: /manual:pack-management#pack-repair`
+      );
     } else {
       version = v;
     }

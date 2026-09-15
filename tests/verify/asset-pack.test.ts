@@ -345,28 +345,28 @@ describe("shouldPromptGlobalPackGuide（非交互兼容 + 一次性，§7.5.1）
 
 // ==================== pack-repair builtin domain 加载验证 ====================
 
-describe("pack-repair builtin domain（§6.7.4 guide 引用）", () => {
-  it("builtin pack 含 pack-repair domain + FlowTemplate", async () => {
+describe("pack-management builtin domain（§6.7.4 guide 引用）", () => {
+  it("builtin pack 含 pack-management domain + FlowTemplate", async () => {
     const pack = await loadBuiltinPack();
     const domains = await pack.loadDomains();
-    const packRepair = domains.find((d) => d.name === "pack-repair");
-    expect(packRepair).toBeDefined();
-    // Flows 段解析为 FlowTemplate[]——含 pack-repair 这条
-    const flows = packRepair?.modules.Flows as Array<{ name: string }>;
+    const packMgmt = domains.find((d) => d.name === "pack-management");
+    expect(packMgmt).toBeDefined();
+    // Flows 段解析为 FlowTemplate[]——含 pack-repair 这条（保留作为修复 flow）
+    const flows = packMgmt?.modules.Flows as Array<{ name: string }>;
     expect(flows).toBeDefined();
     expect(flows?.some((f) => f.name === "pack-repair")).toBe(true);
   });
 
-  it("mdAdapter.load guide profile 能解析到 pack-repair domain", async () => {
+  it("mdAdapter.load guide profile 能解析到 pack-management domain", async () => {
     // 用 builtin pack 的根作为 cwd（assetDir 默认 = .pt/assets 不存在）——
-    // 这里走空 assetDir + 任意 cwd，验证 guide profile domains 列表里能解析出 pack-repair
+    // 这里走空 assetDir + 任意 cwd，验证 guide profile domains 列表里能解析出 pack-management
     const emptyRoot = await mkAssetRoot("guide-empty");
     try {
       const bundle = await mdAdapter.load(emptyRoot, "guide", { assetDir: "." });
-      const packRepair = bundle.domains.find((d) => d.name === "pack-repair");
-      expect(packRepair).toBeDefined();
+      const packMgmt = bundle.domains.find((d) => d.name === "pack-management");
+      expect(packMgmt).toBeDefined();
       // 验证 rules 段存在（validate-pack-never-throws 这条规则）
-      const rules = packRepair?.modules.Rules as Array<{ name: string }>;
+      const rules = packMgmt?.modules.Rules as Array<{ name: string }>;
       expect(rules?.some((r) => r.name === "validate-pack-never-throws")).toBe(true);
     } finally {
       await rm(emptyRoot, { recursive: true, force: true });

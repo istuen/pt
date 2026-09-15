@@ -1,7 +1,7 @@
 ---
 name: guide
 blueprint: dev-knowledge
-domains: [user-info, agent-info, project-analysis, authoring, usage, pack-repair]
+domains: [user-info, agent-info, project-analysis, authoring, usage, pack-management]
 ---
 
 # guide (profile)
