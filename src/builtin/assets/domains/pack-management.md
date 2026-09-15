@@ -32,6 +32,35 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 ### pack-naming
 - desc: 寻址双层语义——位置 alias（`@prj`/`@gbl`/`@pt`，固定 3 slot 物理位置指针，reserved pack 用）+ 身份 alias（`@<manifest-name>`，跨项目寻址用，settings pack 用）。manifest.name 走身份 alias，无 manifest 时 reserved pack 退到位置 alias，settings pack 退到 basename（**易碎**，建议始终提供 manifest）。
 
+### pack-reserved-vs-external
+- desc: Pt Pack 体系按"是否有固定位置约定"分两类——
+
+  **① 固定位置 slot（reserved，3 个 slot，本质是位置约定）**：
+  - `@prj` → 项目 cwd 下的 `.pt/assets/`（项目 pack）
+  - `@gbl` → 用户 home 下的 `~/.pt/assets/`（用户私有通用 pack）
+  - `@pt`  → npm 包内嵌 `src/builtin/assets/`（工具内嵌 pack）
+
+  三者都是"外部 pack"——它们不在 pt 工具代码本身里，是用户在文件系统 / npm 包里的资产。reserved 不是因为"内置"，而是因为**有固定的物理位置约定**——pt 工具预先知道去哪里找它们，不用用户声明路径。
+
+  **② 用户/外部 Pt Packs（settings，通过 manifest.name 走身份 alias）**：
+  - 用户主动声明在 `.pi/settings.json` 的 `pt.asset-packs[]` 中
+  - 身份由 manifest.name 决定（自由命名，避开保留名）
+  - 没有固定位置约定——可以是任意路径、任意名字
+  - 包含第三方 pack（团队 / 公司 / 社区发布的）
+
+  **关键区别**：① 有固定位置（物理约定）→ 工具自己找；② 有固定身份（manifest.name）→ 用户声明路径找。
+
+### pack-builtin-special
+- desc: `@pt` 是最特殊的 reserved pack——位置 alias + 身份 alias 合一。
+
+  - builtin pack 的"身份"就是"内置"，**不需要跨项目身份寻址**（位置固定 = `pt`）
+  - 位置 slot `@pt` 已经是其完整身份表达
+  - manifest.name="pt" 合法（保留名作为身份 alias）——位置 alias = 身份 alias 合一
+  - working set 双索引 key 重合：`@pt/foo` 的 location 和 identity entry 指向同一份 asset
+  - 其他 reserved pack（prj/gbl）不享受合一——项目/全局 pack 仍用跨项目身份名（`pt-internal` 等）
+
+  设计动机：v10.x 时期 builtin pack.name="pt"（位置别名退化）是 back-compat 默认行为；本轮修复把这个行为**显式声明**为设计意图，而不是引入 `pt-builtin` 之类冗余名字。保留名规则对 builtin 特例放行（`parseManifest(rootDir, "builtin")`），project/global/settings pack 仍禁用保留名。
+
 ## Flows
 
 ### pack-create
@@ -104,6 +133,12 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 
 ### manifest-fallback-is-transitional
 - check: Manifest 缺失时的 fallback 是**过渡方案**，不是设计意图——reserved pack 退到位置 alias、settings pack 退到 basename 都是 back-compat 妥协。Pack 作者应始终提供 manifest，让 pack 成为自描述实体
+
+### reserved-pack-position-agreement
+- check: Reserved pack（`@prj` / `@gbl` / `@pt`）的"reserved"**不是"内置"**——三者都是"外部 pack"（项目 / 用户 home / npm 包里的资产），reserved 是因为有**固定的物理位置约定**（pt 工具预先知道去哪里找）。用户资产 / 第三方 pack 走 settings，通过 manifest.name 走身份 alias（见 `pack-reserved-vs-external`）
+
+### builtin-pack-name-merges-position-and-identity
+- check: builtin pack 是 3 个 reserved slot 里最特殊的——位置 alias `@pt` = 身份 alias `@pt` 合一。`src/builtin/assets/pt-asset-pack.yaml` 的 `name: pt` 合法（保留名作为身份 alias），working set 双索引 key 重合。其他 reserved pack（prj/gbl）仍用跨项目身份名（`pt-internal` 等），不合一（见 `pack-builtin-special`）
 
 ### validate-pack-never-throws
 - check: validatePack 失败时返 `ValidationResult` 对象（`ok=false` + `errors[]`），不抛异常——保证加载链不阻断（§6.7.7）。Manifest parse 失败同样不阻断（parseManifest 已容错，warning 进 notify）
