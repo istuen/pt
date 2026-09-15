@@ -93,11 +93,24 @@ export class MdFilePack implements AssetPack {
     const dirName = pathBasename(args.rootDir);
 
     // manifest warnings 上抛 notify（不阻断——parseManifest 已容错）
-    if (manifest.warnings.length > 0 && args.adapterCtx?.notify) {
-      args.adapterCtx.notify(
-        `Pt: pack "${dirName}" manifest 警告：${manifest.warnings.join("; ")}`,
-        "warning"
-      );
+    if (args.adapterCtx?.notify) {
+      if (manifest.warnings.length > 0) {
+        // 检测 [repair-required] 前缀的 warnings——加 manual hint 引导 LLM 调 /manual:pack-management
+        const hasRepairRequired = manifest.warnings.some((w) => w.startsWith("[repair-required]"));
+        const manualHint = hasRepairRequired
+          ? "\n→ 调 /manual:pack-management 让 LLM 自动修复"
+          : "";
+        args.adapterCtx.notify(
+          `Pt: pack "${dirName}" manifest 警告：${manifest.warnings.join("; ")}${manualHint}`,
+          "warning"
+        );
+      } else if (!manifest.ok) {
+        // manifest 缺失或解析失败（无具体 warnings）—— silent fallback + 引导创建 manifest
+        args.adapterCtx.notify(
+          `Pt: pack "${dirName}" 无 manifest（back-compat fallback）— 建议添加 pt-asset-pack.yaml 让 pack 成为自描述实体。/manual:pack-management#pack-create`,
+          "warning"
+        );
+      }
     }
 
     // name 解析优先级（§2.4.2）：
