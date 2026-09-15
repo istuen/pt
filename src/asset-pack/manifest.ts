@@ -14,6 +14,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { errMsg } from "../diagnostics.js";
+import type { PackSource } from "../schema.js";
 
 /** manifest 解析结果。ok=false 表示文件不存在/解析失败/校验不过——调用方走默认值。 */
 export interface ParsedManifest {
@@ -55,9 +56,13 @@ const KEBAB_RE = /^[a-z0-9-]{1,64}$/;
  * - name 非 kebab-case / 保留名冲突 → warnings + name 丢弃（走 basename）
  * - version 非 semver → warnings + version 丢弃（走 "0.0.0"）
  *
+ * v15.x builtin 特例：source="builtin" 时 manifest.name 等于保留名合法
+ * （位置 alias @pt = 身份 alias 合一；builtin pack 的"身份"就是"内置"）。
+ * project/global/settings pack 仍禁用保留名（保护位置 slot）。
+ *
  * 永远不抛异常（§2.2 校验规则：解析失败当无 manifest 处理，不阻断加载）。
  */
-export async function parseManifest(rootDir: string): Promise<ParsedManifest> {
+export async function parseManifest(rootDir: string, source?: PackSource): Promise<ParsedManifest> {
   const file = join(rootDir, "pt-asset-pack.yaml");
   let raw: string;
   try {
@@ -90,7 +95,10 @@ export async function parseManifest(rootDir: string): Promise<ParsedManifest> {
       warnings.push(
         `[repair-required][name-kebab] manifest.name "${n}" not kebab-case, fallback: basename. Auto-fix: /manual:pack-management#pack-repair`
       );
-    } else if (RESERVED_NAMES.has(n)) {
+    } else if (RESERVED_NAMES.has(n) && source !== "builtin") {
+      // v15.x builtin 特例：source="builtin" 时保留名（prj/gbl/pt）合法——位置 alias = 身份 alias 合一。
+      // 其他 source（project/global/settings）仍禁用保留名：位置 slot 是 reserved pack 的，身份 alias
+      // 不能占用。project pack 应该用跨项目身份名（如 pt-internal）走身份寻址，不是用保留名。
       warnings.push(
         `[repair-required][name-reserved] manifest.name "${n}" is reserved, fallback: basename. Auto-fix: /manual:pack-management#pack-repair`
       );

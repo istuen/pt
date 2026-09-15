@@ -1,0 +1,22 @@
+# pt-asset-pack.yaml — Pt builtin 资产（随 npm 包发布）
+#
+# 加载位置：src/builtin/assets/（builtin pack 根目录）
+# 加载方式：builtin pack（reserved）→ pack name 走 manifest.name="pt"。
+# 位置 alias @pt + 身份 alias @pt 合一（同一索引条目覆盖同一 key）。
+#
+# 设计意图（§2.4.2 + builtin 特例）：
+#   - builtin pack 的"身份"就是"内置"，位置 slot @pt 已是其完整身份表达
+#   - 不需要额外身份别名（如 pt-builtin）——跨项目身份寻址对 npm 内嵌 pack 无意义
+#   - 与 back-compat 默认行为一致（无 manifest 时 pack.name=位置别名）
+#   - 保留名规则对 builtin 特例放行（manifest.ts:name-validation）：builtin 允许用
+#     "prj/gbl/pt" 作 manifest.name；project/global/settings pack 仍禁用保留名
+#
+# 加 manifest 的好处（§2.4.2）：
+#   - /pt status 显示真实 version/description（不再永远 v0.0.0 / undefined）
+#   - 跨 builtin 的 manifest 校验走同一条 parseManifest 路径，无双轨
+#   - 与 project pack 的 manifest 校验语义对称（同样：reserved pack 读 manifest，
+#     身份 alias 优先；只是 builtin 的"身份"恰好等于位置别名）
+
+name: pt
+version: 0.0.0
+description: Pt builtin assets（随 npm 包发布，跨项目复用——guide profile + usage/authoring 等参考文档）

@@ -96,14 +96,16 @@ describe("MdFilePack", () => {
 // ==================== tryLoadPack reserved name ====================
 
 describe("tryLoadPack reserved name（v15.x §2.4.2 双层语义）", () => {
-  it("builtin pack 退化到位置别名 'pt'（路径 basename 是 assets）", async () => {
-    // v15.x §2.4.2：builtin pack 无 manifest → name=位置别名 'pt'
+  it("builtin pack 读 manifest → name='pt'（位置 alias = 身份 alias 合一）", async () => {
+    // v15.x builtin 特例：builtin pack 加 manifest.name="pt"（保留名），位置 alias @pt = 身份 alias 合一。
+    // 不引入 pt-builtin 之类的额外身份名——builtin pack 的"身份"就是"内置"，位置 slot @pt 是
+    // 其完整身份表达。位置/身份双索引 key 重合，同一索引条目覆盖同一 key。
     const pack = await loadBuiltinPack();
     expect(pack.name).toBe("pt");
     expect(pack.source).toBe("builtin");
     expect(pack.rootDir).toBe(BUILTIN_ASSETS_DIR);
     expect(pack.version).toBe("0.0.0");
-    expect(pack.description).toBeUndefined();
+    expect(pack.description).toMatch(/builtin/i);
   });
 
   it("tryLoadPack 走位置别名退化", async () => {
@@ -765,6 +767,259 @@ description: Pt 项目内部共享资产
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+// ==================== v15.x builtin 特例：保留名规则对 source=builtin 放行 ====================
+//
+// 设计依据（§2.4.2 + builtin 特例）：
+//   - builtin pack 的"身份"就是"内置"（位置 slot @pt 是其完整身份表达）
+//   - manifest.name="pt" 合法——位置 alias @pt = 身份 alias 合一
+//   - project/global/settings pack 仍禁用保留名（保护位置 slot，避免占用 reserved pack 的物理位置）
+
+describe("parseManifest 保留名规则（v15.x builtin 特例）", () => {
+  it("source=builtin + manifest.name='pt'（保留名）→ ok=true + name='pt'（不放 warning）", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-builtin-"));
+    try {
+      await writeFile(join(root, "pt-asset-pack.yaml"), `name: pt\nversion: 0.0.0\n`);
+      const m = await parseManifest(root, "builtin"); // 传 source=builtin
+      expect(m.ok).toBe(true);
+      expect(m.name).toBe("pt");
+      expect(m.warnings).toEqual([]); // 不放保留名警告
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("source=project + manifest.name='prj'（保留名）→ 警告 + name 丢弃", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-project-"));
+    try {
+      await writeFile(join(root, "pt-asset-pack.yaml"), `name: prj\nversion: 0.0.0\n`);
+      const m = await parseManifest(root, "project"); // 传 source=project
+      expect(m.ok).toBe(true);
+      expect(m.name).toBeUndefined(); // 保留名丢弃
+      expect(m.warnings.some((w) => w.includes("is reserved"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("source=global + manifest.name='gbl'（保留名）→ 警告 + name 丢弃", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-global-"));
+    try {
+      await writeFile(join(root, "pt-asset-pack.yaml"), `name: gbl\n`);
+      const m = await parseManifest(root, "global");
+      expect(m.name).toBeUndefined();
+      expect(m.warnings.some((w) => w.includes("is reserved"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("source=settings + manifest.name='pt'（保留名）→ 警告 + name 丢弃（保护位置 slot）", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-settings-"));
+    try {
+      await writeFile(join(root, "pt-asset-pack.yaml"), `name: pt\n`);
+      const m = await parseManifest(root, "settings");
+      expect(m.name).toBeUndefined();
+      expect(m.warnings.some((w) => w.includes("is reserved"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("source 不传（默认） + manifest.name='pt'（保留名）→ 警告 + name 丢弃（保守行为）", async () => {
+    // 不传 source → 走通用保留名规则（不允许），调用方需要明确 source 才能放行 builtin 特例
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-default-"));
+    try {
+      await writeFile(join(root, "pt-asset-pack.yaml"), `name: pt\n`);
+      const m = await parseManifest(root); // 不传 source
+      expect(m.name).toBeUndefined();
+      expect(m.warnings.some((w) => w.includes("is reserved"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("source=builtin + manifest.name='pt-builtin'（合法 kebab 非保留名）→ ok=true + name='pt-builtin'", async () => {
+    // 未来如果 builtin pack 想用非保留名身份也是合法的（但当前默认用 pt 合一）
+    const root = await mkdtemp(join(tmpdir(), "pt-manifest-builtin-alt-"));
+    try {
+      await writeFile(join(root, "pt-asset-pack.yaml"), `name: pt-builtin\nversion: 0.0.0\n`);
+      const m = await parseManifest(root, "builtin");
+      expect(m.ok).toBe(true);
+      expect(m.name).toBe("pt-builtin");
+      expect(m.warnings).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ==================== notify 分流：reserved silent / settings 提示 ====================
+//
+// 设计依据：v15.x §2.4.2 + pack-management 域 pack-naming 段
+//   - reserved pack（project/global/builtin）无 manifest → 退化到位置别名（prj/gbl/pt），
+//     back-compat 设计预期——silent 不通知
+//   - settings pack 无 manifest → basename 兜底"易碎"，建议加 manifest 让 pack 自描述
+
+describe("MdFilePack.create notify 分流（reserved silent / settings 提示）", () => {
+  /** 抓 notify 调用的辅助——单测必备。 */
+  function captureNotify(): {
+    notifs: Array<{ msg: string; level: string }>;
+    adapterCtx: { notify: (msg: string, level: "info" | "warning" | "error") => void };
+  } {
+    const notifs: Array<{ msg: string; level: string }> = [];
+    return {
+      notifs,
+      adapterCtx: {
+        notify: (msg: string, level: "info" | "warning" | "error") => {
+          notifs.push({ msg, level });
+        },
+      },
+    };
+  }
+
+  it("reserved pack（project）无 manifest → silent，不通知", async () => {
+    const root = await mkAssetRoot("notify-reserved-project");
+    const { notifs, adapterCtx } = captureNotify();
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "project",
+        adapterCtx,
+      });
+      expect(pack.name).toBe("prj"); // 位置别名退化
+      expect(notifs).toEqual([]); // reserved pack 无 manifest = back-compat 设计预期
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reserved pack（builtin）有 manifest（name='pt'）→ 完全 silent（验证修复：不再被刷\"无 manifest\"警告）", async () => {
+    // 本轮修复点：builtin pack 加 manifest 后不再被刷 "无 manifest（back-compat fallback）" 警告。
+    // 该警告是 false positive——reserved pack 无 manifest 退到位置别名是 back-compat 设计预期。
+    const { notifs, adapterCtx } = captureNotify();
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: BUILTIN_ASSETS_DIR,
+        source: "builtin",
+        adapterCtx,
+      });
+      expect(pack.name).toBe("pt"); // manifest.name="pt" 合一
+      expect(notifs).toEqual([]); // manifest 合法 + source=builtin → 完全 silent
+    } finally {
+      // 不删 builtin dir
+    }
+  });
+
+  it("settings pack 无 manifest → notify 引导创建 manifest", async () => {
+    const root = await mkAssetRoot("notify-settings-no-manifest");
+    const { notifs, adapterCtx } = captureNotify();
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "settings",
+        adapterCtx,
+      });
+      expect(pack.name).toMatch(/notify-settings-no-manifest/); // basename 兜底
+      expect(notifs.length).toBe(1);
+      expect(notifs[0].level).toBe("warning");
+      expect(notifs[0].msg).toContain("无 manifest");
+      expect(notifs[0].msg).toContain("/manual:pack-management#pack-create");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("settings pack 有合法 manifest → silent（无警告，manifest.name 生效）", async () => {
+    const root = await mkAssetRoot("notify-settings-with-manifest");
+    await writeFile(
+      join(root, "pt-asset-pack.yaml"),
+      `name: my-settings-pack
+version: 1.0.0
+description: ok
+`
+    );
+    const { notifs, adapterCtx } = captureNotify();
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "settings",
+        adapterCtx,
+      });
+      expect(pack.name).toBe("my-settings-pack");
+      expect(notifs).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("settings pack manifest name 非 kebab → 走 warnings 路径", async () => {
+    const root = await mkAssetRoot("notify-settings-bad-name");
+    await writeFile(join(root, "pt-asset-pack.yaml"), `name: "Bad Name"\n`);
+    const { notifs, adapterCtx } = captureNotify();
+    try {
+      const pack = await MdFilePack.create({
+        rootDir: root,
+        source: "settings",
+        adapterCtx,
+      });
+      expect(pack.name).toMatch(/notify-settings-bad-name/); // basename 兜底
+      expect(notifs.length).toBe(1);
+      expect(notifs[0].msg).toContain("manifest 警告");
+      expect(notifs[0].msg).not.toContain("无 manifest（basename 兜底）");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ==================== v15.x builtin 特例：位置 alias + 身份 alias 合一 ====================
+//
+// 设计依据：builtin pack 的"身份"就是"内置"，位置 slot @pt 是其完整身份表达。
+// 合一后：@pt/foo（位置 alias）和 @pt/foo（身份 alias）命中同一份 asset。
+// workingSet 双索引 key 重合（location 与 identity index 的 pt/foo 指向同一 entry）。
+
+describe("builtin pack 合一：位置 alias @pt = 身份 alias @pt（集成验证）", () => {
+  it("@pt/guide（位置 alias）+ @pt/guide（身份 alias）→ 命中同一份 builtin guide profile", async () => {
+    const { mdAdapter } = await import("../../src/parse/index.js");
+    const bundle = await mdAdapter.load(process.cwd(), "guide");
+    // profiles 工作集双索引
+    const locWS = bundle.workingSet.profiles.location;
+    const idWS = bundle.workingSet.profiles.identity;
+    // 位置 alias @pt/guide → 命中 builtin pack 的 guide profile（按 source=builtin）
+    const byLoc = locWS.get("pt/guide");
+    expect(byLoc).toBeDefined();
+    expect(byLoc?.pack.source).toBe("builtin");
+    // 身份 alias @pt/guide → pack.name="pt" 查 identity 索引，key 重合命中同一份
+    const byId = idWS.get("pt/guide");
+    expect(byId).toBeDefined();
+    expect(byId?.pack.source).toBe("builtin");
+    // 关键合一证据：两个索引的 entry 是同一份 asset
+    expect(byLoc?.asset).toBe(byId?.asset);
+  });
+
+  it("@pt/user-info（位置 alias）+ @pt/user-info（身份 alias）→ 命中同一份 builtin user-info domain", async () => {
+    const { mdAdapter } = await import("../../src/parse/index.js");
+    const bundle = await mdAdapter.load(process.cwd(), "guide");
+    const locDomWS = bundle.workingSet.domains.location;
+    const idDomWS = bundle.workingSet.domains.identity;
+    const byLoc = locDomWS.get("pt/user-info");
+    const byId = idDomWS.get("pt/user-info");
+    expect(byLoc).toBeDefined();
+    expect(byId).toBeDefined();
+    expect(byLoc?.asset).toBe(byId?.asset); // 合一证明
+  });
+
+  it("active profile 解析：@pt/guide（位置 alias）→ exact（findActiveProfile 按 source 查位置 alias）", async () => {
+    // v15.x §2.4.4：位置 alias 寻址 builtin pack 的 profile——findActiveProfile 本轮修复
+    // （按 source 查位置 alias，与 pack.name 解耦）。合一后位置 alias @pt = 身份 alias @pt 都指向
+    // 同一 pack，按 source 查的路径仍然正确（pack.name 也是 "pt"）。
+    const { mdAdapter } = await import("../../src/parse/index.js");
+    const bundle = await mdAdapter.load(process.cwd(), "@pt/guide");
+    expect(bundle.activeProfileOrigin).toBe("exact");
+    expect(bundle.activeProfile).toBe("guide");
   });
 });
 

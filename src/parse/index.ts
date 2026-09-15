@@ -37,6 +37,17 @@ import { parseProfile } from "./profile.js";
 /** MD adapter：按目录位置分发到 domain/blueprint/profile adapter，组装 SchemaBundle。
  *  v9 命名约定：适配的是 MD 文件格式（不再叫 OXN——OXN 是历史名）。
  *  v15.x PR1（§3.1）：内部构造 4 类 AssetPack → loadXxx → N 元 dedupByNameN。 */
+
+/** v15.x §2.4.4：位置 alias 短名 → source（位置指针独立于 pack.name）。
+ *  用于 findActiveProfile 查位置 alias（kind="location"）时按 source 查 pack，
+ *  与 pack.name 解耦——builtin pack 加 manifest.name="pt-builtin" 后 @pt/... 仍能寻址。
+ *  key 是 parseRef 输出的位置 alias 短名（prj/gbl/pt），value 是 AssetPack.source。
+ *  与 LOC_ALIAS（source → alias）是反向表，互不重复定义。 */
+const ALIAS_TO_SOURCE: ReadonlyMap<string, string> = new Map([
+  ["prj", "project"],
+  ["gbl", "global"],
+  ["pt", "builtin"],
+]);
 export const mdAdapter: SourceAdapter = {
   name: "md",
 
@@ -182,8 +193,16 @@ function findActiveProfile(
   profileRef: string
 ): Profile {
   if (profileRef.startsWith("@")) {
-    const { pack, name } = parseRef(profileRef, ""); // 限定 ref 不需要 selfPack
-    const packIdx = packs.findIndex((p) => p.name === pack);
+    const { kind, pack, name } = parseRef(profileRef, ""); // 限定 ref 不需要 selfPack
+    // v15.x §2.4.4：位置 alias（@prj/@gbl/@pt，kind="location"）按 source 查（固定 3 slot 物理位置指针），
+    // 与 pack.name 解耦——builtin pack 加 manifest.name 后，pack.name 变化不影响 @pt/... 寻址。
+    // 身份 alias（kind="identity"）按 pack.name 查（manifest.name 身份指针）。
+    const packIdx =
+      kind === "location"
+        ? ALIAS_TO_SOURCE.has(pack)
+          ? packs.findIndex((p) => p.source === ALIAS_TO_SOURCE.get(pack))
+          : -1
+        : packs.findIndex((p) => p.name === pack);
     if (packIdx < 0) {
       throw new Error(`active profile "@${pack}/${name}" references unknown pack "${pack}"`);
     }

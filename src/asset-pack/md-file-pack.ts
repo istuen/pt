@@ -89,7 +89,7 @@ export class MdFilePack implements AssetPack {
     source: PackSource;
     adapterCtx?: SourceAdapterContext;
   }): Promise<MdFilePack> {
-    const manifest = await parseManifest(args.rootDir);
+    const manifest = await parseManifest(args.rootDir, args.source);
     const dirName = pathBasename(args.rootDir);
 
     // manifest warnings 上抛 notify（不阻断——parseManifest 已容错）
@@ -104,10 +104,13 @@ export class MdFilePack implements AssetPack {
           `Pt: pack "${dirName}" manifest 警告：${manifest.warnings.join("; ")}${manualHint}`,
           "warning"
         );
-      } else if (!manifest.ok) {
-        // manifest 缺失或解析失败（无具体 warnings）—— silent fallback + 引导创建 manifest
+      } else if (!manifest.ok && args.source === "settings") {
+        // v15.x §2.4.2 + pack-naming：reserved pack（project/global/builtin）无 manifest 是
+        // back-compat 退化路径（退到位置别名 prj/gbl/pt），设计预期——silent。
+        // 只有 settings pack（用户主动声明）无 manifest 时才通知：basename 兜底"易碎"，
+        // 建议加 pt-asset-pack.yaml 让 pack 成为自描述实体，/manual:pack-management#pack-create。
         args.adapterCtx.notify(
-          `Pt: pack "${dirName}" 无 manifest（back-compat fallback）— 建议添加 pt-asset-pack.yaml 让 pack 成为自描述实体。/manual:pack-management#pack-create`,
+          `Pt: pack "${dirName}" 无 manifest（basename 兜底）— 建议添加 pt-asset-pack.yaml 让 pack 成为自描述实体。/manual:pack-management#pack-create`,
           "warning"
         );
       }
