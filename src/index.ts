@@ -23,7 +23,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -73,6 +73,7 @@ import {
   refreshManualWidget,
   tryRestoreManual,
 } from "./manual-session.js";
+import { writeProbeResult } from "./manual-writeback.js";
 import { slog } from "./slog.js";
 
 type AgentUIContext = NonNullable<AgentAPI["ui"]>;
@@ -943,15 +944,39 @@ export default function (pi: ExtensionAPI): void {
             : `? ${result.message}`;
       // v11.x：verify 后重读文件刷新 widget（用户可能手动 tick 了 checklist）
       // 不改 session.activeManual，只 refresh 派生数据（widget + cachedManualProgress）
+      // v15.x（issue pt-verify-result-not-written-back-to-manual）：自动写回 manual 文件
+      //   - 按 probe 名匹配 step 的 observe 列表，定位 ## 执行状态 对应行
+      //   - 写 outcome + message + 维护 frontmatter 注释的 completed probes 列表
+      //   - step 全部 observe 都 completed → checklist - [ ] → - [x]
+      //   - withFileMutationQueue 保证并发安全
+      //   - 写回失败不阻断 verify 结果返回（异常 catch 走 text 末尾提示）
       const sessionId = getSessionIdFromCtx(ctx);
       const s = sessionId ? getSessionById(sessionId) : null;
+      let writebackNote = "";
       if (s?.activeManual) {
+        const filePath = s.activeManual.filePath;
+        try {
+          await withFileMutationQueue(filePath, async () => {
+            const before = await readFile(filePath, "utf8");
+            const wb = writeProbeResult(before, params.probe, result.outcome, result.message);
+            if (wb.changed) {
+              await writeFile(filePath, wb.content, "utf8");
+              const checked =
+                wb.checkedSteps.length > 0 ? `，勾选 ${wb.checkedSteps.length} 个 checklist` : "";
+              writebackNote = `\n↳ 已写回 manual step ${wb.stepIndexes.join(", ")}${checked}`;
+            } else if (wb.matchCount === 0) {
+              writebackNote = `\n? probe "${params.probe}" 未匹配 activeManual 任何 step 的 observe（${filePath}）`;
+            }
+          });
+        } catch (e) {
+          writebackNote = `\n! 写回 manual 失败: ${errMsg(e)}`;
+        }
         await refreshManualWidget(ctx.ui, s);
         refreshInjectionFooter(ctx.ui, s);
       }
       return {
-        content: [{ type: "text", text }],
-        details: result,
+        content: [{ type: "text", text: text + writebackNote }],
+        details: { ...result, writeback: writebackNote || undefined },
       };
     },
   });
