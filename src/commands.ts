@@ -71,7 +71,7 @@ export function statusText(session: SessionState): string {
 }
 
 /** v15.x PR1（§6.7.6）— /pt status 暴露 pack 健康。
- *  单行格式：`pt packs: N/M ok | [@prj] ✅ | [@gbl] ✅ | [@pt] ✅`
+ *  单行格式：`pt packs: N/M ok | [@prj] ✅ | [@pt] ✅`（示例,实际按加载的 pack 动态生成）
  *  降级时附加原因：`[@prj] ⚠ DEGRADED — <errors[0].msg 截断 60 字符>`。
  *  packValidation=null → `pt packs: (not validated)`（尚未 session_start）。
  *  packValidation=[] → `pt packs: (none loaded)`（不应出现——session_start 总构造 3 个 pack）。 */

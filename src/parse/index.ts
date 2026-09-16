@@ -185,7 +185,8 @@ function findActiveProfile(
 ): Profile {
   if (profileRef.startsWith("@")) {
     const { kind, pack, name } = parseRef(profileRef, ""); // 限定 ref 不需要 selfPack
-    // v15.x §2.4.4：位置 alias（@prj/@gbl/@pt，kind="location"）按 source 查（固定 3 slot 物理位置指针），
+    // v15.x §2.4.4：位置 alias（@prj/@pt，kind="location"）按 source 查（固定 2 slot 物理位置指针）；
+    // @gbl PR7 已删（issue pt-remove-global-pack）。
     // 与 pack.name 解耦——builtin pack 加 manifest.name 后，pack.name 变化不影响 @pt/... 寻址。
     // 身份 alias（kind="identity"）按 pack.name 查（manifest.name 身份指针）。
     const packIdx =
