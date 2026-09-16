@@ -1,18 +1,23 @@
-// src/asset-pack/loader.ts — Pack 构造工厂（v15.x PR1）
+// src/asset-pack/loader.ts — Pack 构造工厂（v15.x PR1 + PR7）
 //
-// 设计源：.pt/docs/designs/pt-asset-pack.md §3.1（加载顺序）/ §6.4（全局 Pack）/ §6.5（project-pack-dir）
+// 设计源：.pt/docs/designs/pt-asset-pack.md §3.1（加载顺序）/ §6.5（project-pack-dir）
 //
 // 职责：把"目录路径 + 来源类型"封装成 AssetPack 实例（PR1 走 MdFilePack）。
-// mdAdapter.load 调用这些函数构造 4 类 pack 数组。
+// mdAdapter.load 调用这些函数构造 3 类 pack 数组。
 //
 // PR1 范围：
-//   - reserved pack（project/global/builtin）name 固定（"prj"/"gbl"/"pt"）——跳过 basename
+//   - reserved pack（project/builtin）name 固定（"prj"/"pt"）——跳过 basename
 //   - project pack 路径走 adapterCtx.assetDir / 默认 ASSETS_DIR（PR4 接通 pt.project-pack-dir 后改读 settings）
-//   - global pack 路径走 adapterCtx.globalPackDir / env / 默认 ~/.pt/assets
 //   - settings pack 加载 stub：loadSettingsPacks() 返空数组（PR4 接通 .pi/settings.json pt.asset-packs）
 //   - directory 不存在不报错——tryLoadPack 内部不预加载，loadXxx 返空数组（"空 Pack" 等价）
 //
 // 不做的：manifest 解析（PR2）、@pack/name 限定语法（PR3）、settings 加载（PR4）。
+//
+// PR7（issue pt-remove-global-pack 移除）：
+//   - 删除 loadGlobalPack + getGlobalPackDir + PT_GLOBAL_PACK_DIR 全局 pack 相关函数
+//   - settings pack 能力严格覆盖 global：用户想让 pack 跨项目共享时，在 settings 声明
+//     pt.asset-packs: [{ "path": "~/.pt/packs/foo" }] 即可，效果等价于 global pack
+//   - 加载链：[project, ...settings.reverse(), builtin]——从 4 类收敛为 3 类
 
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -34,16 +39,8 @@ export function resolvePackPath(raw: string, cwd: string): string {
   return resolve(cwd, raw);
 }
 
-/** 全局 Pack 默认路径（§6.4）。优先级：adapterCtx.globalPackDir > env > 默认 ~/.pt/assets。
- *  返回值永远是绝对路径或可被 resolve 的相对路径。 */
-export function getGlobalPackDir(adapterCtx?: SourceAdapterContext): string {
-  return (
-    adapterCtx?.globalPackDir ?? process.env.PT_GLOBAL_PACK_DIR ?? join(homedir(), ".pt", "assets")
-  );
-}
-
 /**
- * 尝试加载 pack：目录不存在返空 Pack（不报错，§6.4）。
+ * 尝试加载 pack：目录不存在返空 Pack（不报错）。
  * v15.x §2.4.2 双层语义：所有 pack 都走 MdFilePack.create 读 manifest，
  * reserved pack 无 manifest 时 name 退化到位置别名（back-compat）。
  *
@@ -74,11 +71,6 @@ export async function loadProjectPack(
   const rawDir = configured ?? adapterCtx?.assetDir ?? ASSETS_DIR;
   const dir = resolvePackPath(rawDir, cwd);
   return tryLoadPack(dir, "project", adapterCtx);
-}
-
-/** 构造 global pack（§6.4）：无 manifest 时退化到 "gbl"（back-compat）。 */
-export async function loadGlobalPack(adapterCtx?: SourceAdapterContext): Promise<AssetPack> {
-  return tryLoadPack(getGlobalPackDir(adapterCtx), "global", adapterCtx);
 }
 
 /** 构造 builtin pack（src/builtin/assets/，随 npm 包发布）：无 manifest 时退化到 "pt"。 */

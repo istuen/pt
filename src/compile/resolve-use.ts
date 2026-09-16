@@ -96,7 +96,8 @@ export function expandProfile(
     return self;
   }
 
-  // 步骤 5：解析 use 引用（复用 parseRef——已含 @prj/@gbl/@pt 别名归一）
+  // 步骤 5：解析 use 引用（复用 parseRef——已含 @prj/@pt 别名归一）
+  // v15.x PR7（issue pt-remove-global-pack 移除）：@gbl 从位置 alias 表删除，parseRef 内已收敛。
   const useRef = parseRef(self.use, self.sourcePack ?? "");
   let useKey = `${useRef.pack}/${useRef.name}`;
   let useProfile = profileByQualifiedName.get(useKey);

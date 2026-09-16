@@ -19,10 +19,11 @@ import { errMsg } from "../diagnostics.js";
 import type { AssetPack } from "../schema.js";
 
 /** v15.x §2.4.4（位置 alias 表）：reserved pack 的位置别名。reserved pack 才有，非 reserved 为 undefined。
- *  UI 显示层用——reserved 显位置别名，settings 显 pack 名（§4.4.4 双层语义）。 */
-const RESERVED_ALIAS: ReadonlyMap<AssetPack["source"], "prj" | "gbl" | "pt"> = new Map([
+ *  UI 显示层用——reserved 显位置别名，settings 显 pack 名（§4.4.4 双层语义）。
+ *  v15.x PR7（issue pt-remove-global-pack 移除）：从 3 个 reserved alias 收敛为 2 个——
+ *  global pack（@gbl）删除，只剩 project（@prj） / builtin（@pt）。 */
+const RESERVED_ALIAS: ReadonlyMap<AssetPack["source"], "prj" | "pt"> = new Map([
   ["project", "prj"],
-  ["global", "gbl"],
   ["builtin", "pt"],
 ]);
 
@@ -32,9 +33,9 @@ export interface ValidationResult {
   pack: string;
   /** Pack 来源类型 */
   source: AssetPack["source"];
-  /** v15.x §4.4.4（缺口 4）：reserved pack 的位置别名（prj/gbl/pt），非 reserved 为 undefined。
+  /** v15.x §4.4.4（缺口 4）：reserved pack 的位置别名（prj/pt），非 reserved 为 undefined。
    *  UI 显示层用——reserved 显位置别名，settings 显 pack 名。 */
-  reservedAlias?: "prj" | "gbl" | "pt";
+  reservedAlias?: "prj" | "pt";
   /** 整体是否可用 */
   ok: boolean;
   /** 致命问题（pack 不可用） */
@@ -164,23 +165,4 @@ function checkIntraPackConflicts<T extends { name: string }>(
     }
     seen.set(a.name, count + 1);
   }
-}
-
-/**
- * v15.x PR1（§7.5 + §7.5.1）：判断是否该弹全局 Pack 初始化引导。
- * pure helper——抽出来让 session_start handler 简洁，也便于单元测试。
- *
- * 约束：TTY + 目录不存在 + 首次（每个 session 只提示一次）+ 非 CI + 非 PT_NO_GUIDE 禁用。
- * 调用方负责检查 isFirstRun（读 session state.globalPackGuideShown）和传 env。
- */
-export function shouldPromptGlobalPackGuide(args: {
-  isTTY: boolean;
-  globalPackExists: boolean;
-  isFirstRun: boolean;
-  isCi: boolean;
-  guideDisabled: boolean;
-}): boolean {
-  return (
-    args.isTTY && !args.globalPackExists && args.isFirstRun && !args.isCi && !args.guideDisabled
-  );
 }

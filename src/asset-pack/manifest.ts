@@ -1,12 +1,15 @@
-// src/asset-pack/manifest.ts — pt-asset-pack.yaml manifest 解析（v15.x PR2）
+// src/asset-pack/manifest.ts — pt-asset-pack.yaml manifest 解析（v15.x PR2 + PR7）
 //
 // 设计源：.pt/docs/designs/pt-asset-pack.md §2.2（manifest 格式）+ §2.4.1（命名约束）
 //
 // 职责：解析 <rootDir>/pt-asset-pack.yaml（可选），提取 name/version/description。
 // 所有问题收集到 warnings——不抛异常，调用方走默认值（§2.2 校验规则）。
 //
-// PR2 阶段保留名 reserved pack（source=project/global/builtin）跳过 manifest，
-//  用固定名 prj/gbl/pt——见 md-file-pack.ts create()。
+// PR2 阶段保留名 reserved pack（source=project/builtin）跳过 manifest，
+//  用固定名 prj/pt——见 md-file-pack.ts create()。
+//
+// PR7（issue pt-remove-global-pack 移除）：global pack 删除，reserved pack 从
+//  3 类收敛为 2 类（project/builtin）。
 //
 // semver 正则按设计文档 §2.2 固定（不引 semver 包）。
 
@@ -31,15 +34,10 @@ export interface ParsedManifest {
 }
 
 /** reserved pack 名（§2.4.1 精确匹配禁用）+ 别名兼容。
- *  精确匹配，不是前缀禁用——`pt-internal` 合法；只有完全等于集合内值才触发冲突。 */
-const RESERVED_NAMES: ReadonlySet<string> = new Set([
-  "gbl",
-  "prj",
-  "pt",
-  "project",
-  "global",
-  "builtin",
-]);
+ *  精确匹配，不是前缀禁用——`pt-internal` 合法；只有完全等于集合内值才触发冲突。
+ *  v15.x PR7（issue pt-remove-global-pack 移除）：删除 `gbl`/`global`——全局 pack
+ *  不再存在，这两个名字从 reserved 名中移出。 */
+const RESERVED_NAMES: ReadonlySet<string> = new Set(["prj", "pt", "project", "builtin"]);
 
 /** semver 正则（§2.2 实现备注）。
  *  格式：<major>.<minor>.<patch>[-<pre-release>][+<build>]
@@ -96,8 +94,8 @@ export async function parseManifest(rootDir: string, source?: PackSource): Promi
         `[repair-required][name-kebab] manifest.name "${n}" not kebab-case, fallback: basename. Auto-fix: /manual:pack-management#pack-repair`
       );
     } else if (RESERVED_NAMES.has(n) && source !== "builtin") {
-      // v15.x builtin 特例：source="builtin" 时保留名（prj/gbl/pt）合法——位置 alias = 身份 alias 合一。
-      // 其他 source（project/global/settings）仍禁用保留名：位置 slot 是 reserved pack 的，身份 alias
+      // v15.x builtin 特例：source="builtin" 时保留名（prj/pt）合法——位置 alias = 身份 alias 合一。
+      // 其他 source（project/settings）仍禁用保留名：位置 slot 是 reserved pack 的，身份 alias
       // 不能占用。project pack 应该用跨项目身份名（如 pt-internal）走身份寻址，不是用保留名。
       warnings.push(
         `[repair-required][name-reserved] manifest.name "${n}" is reserved, fallback: basename. Auto-fix: /manual:pack-management#pack-repair`

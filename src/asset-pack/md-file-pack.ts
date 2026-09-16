@@ -1,4 +1,4 @@
-// src/asset-pack/md-file-pack.ts — AssetPack 的文件系统实现（v15.x PR1）
+// src/asset-pack/md-file-pack.ts — AssetPack 的文件系统实现（v15.x PR1 + PR7）
 //
 // 设计源：.pt/docs/designs/pt-asset-pack.md §2.3（MdFilePack）
 //
@@ -6,7 +6,7 @@
 // AssetPack 只是把"目录"封装成可命名、可版本化的单元。
 //
 // PR1 简化（按 PR1.2 + PR1.6 文档）：
-//   - name 由构造传入（reserved 固定名 "prj"/"gbl"/"pt"，PR4 接通后 settings pack 走 basename 兜底）
+//   - name 由构造传入（reserved 固定名 "prj"/"pt"，PR4 接通后 settings pack 走 basename 兜底）
 //   - version / description 固定占位（PR2 接通 manifest 后从 manifest 读）
 //   - loadXxx 内 parse 失败的文件返 null 后 filter 掉——**不**调 reportWarn/reportError
 //     （那些是 adapterCtx 依赖；PR1 的 MdFilePack 内部错误由 validatePack 层捕获，见 PR1.6）
@@ -72,10 +72,10 @@ export class MdFilePack implements AssetPack {
   }
 
   /** 位置别名退化表（v15.x §2.4.2 缺口 1-b）：reserved pack 无 manifest 时 name 退化到位置别名。
-   *  用途：back-compat——今天无 manifest 的项目 pack.name 仍是 prj/gbl/pt，行为等价。 */
+   *  用途：back-compat——今天无 manifest 的项目 pack.name 仍是 prj/pt，行为等价。
+   *  v15.x PR7（issue pt-remove-global-pack 移除）：global 行删除，reserved pack 从 3 类收敛为 2 类。 */
   private static readonly RESERVED_FALLBACK_NAME: ReadonlyMap<PackSource, string> = new Map([
     ["project", "prj"],
-    ["global", "gbl"],
     ["builtin", "pt"],
   ]);
 
@@ -83,7 +83,8 @@ export class MdFilePack implements AssetPack {
    *  所有 pack 都走 manifest 解析；reserved pack 无 manifest 时 name 退化到位置别名（back-compat）。
    *  - manifest.name 优先（身份 alias）
    *  - reserved pack 无 manifest → 退化到 RESERVED_FALLBACK_NAME.get(source)
-   *  - 非 reserved pack 无 manifest → basename 兜底 */
+   *  - 非 reserved pack 无 manifest → basename 兜底
+   *  PR7（issue pt-remove-global-pack 移除）：reserved pack 从 3 类收敛为 2 类（project/builtin）。 */
   static async create(args: {
     rootDir: string;
     source: PackSource;
@@ -105,8 +106,8 @@ export class MdFilePack implements AssetPack {
           "warning"
         );
       } else if (!manifest.ok && args.source === "settings") {
-        // v15.x §2.4.2 + pack-naming：reserved pack（project/global/builtin）无 manifest 是
-        // back-compat 退化路径（退到位置别名 prj/gbl/pt），设计预期——silent。
+        // v15.x §2.4.2 + pack-naming：reserved pack（project/builtin）无 manifest 是
+        // back-compat 退化路径（退到位置别名 prj/pt），设计预期——silent。
         // 只有 settings pack（用户主动声明）无 manifest 时才通知：basename 兜底"易碎"，
         // 建议加 pt-asset-pack.yaml 让 pack 成为自描述实体，/manual:pack-management#pack-create。
         args.adapterCtx.notify(
@@ -118,7 +119,7 @@ export class MdFilePack implements AssetPack {
 
     // name 解析优先级（§2.4.2）：
     //   1. manifest.name（身份 alias 优先）
-    //   2. reserved pack 无 manifest → 退化到位置别名（prj/gbl/pt，back-compat）
+    //   2. reserved pack 无 manifest → 退化到位置别名（prj/pt，back-compat）
     //   3. 非 reserved 无 manifest → basename 兜底
     const fallbackName = MdFilePack.RESERVED_FALLBACK_NAME.get(args.source) ?? dirName;
     const name = manifest.name ?? fallbackName;

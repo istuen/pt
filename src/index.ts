@@ -24,7 +24,6 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { FULL_DIR, MANUAL_DIR, PROFILES_DIR, RAW_DIR } from "./constants.js";
@@ -33,13 +32,11 @@ import { getAgentAdapter } from "./agent/index.js";
 import { scanProjectHealth } from "./asset-health.js";
 import {
   applyProjectPackDegrade,
-  getGlobalPackDir,
   loadBuiltinPack,
-  loadGlobalPack,
   loadProjectPack,
   loadSettingsPacks,
 } from "./asset-pack/loader.js";
-import { shouldPromptGlobalPackGuide, validatePack } from "./asset-pack/validate.js";
+import { validatePack } from "./asset-pack/validate.js";
 import {
   detectDefaultProfile,
   detectSingleProfile,
@@ -306,15 +303,15 @@ export default function (pi: ExtensionAPI): void {
 
     s.lastCwd = ctx.cwd;
 
-    // v15.x PR4（§6.7.1 + §6.7.5 + §7.5）：pack 校验 + settings pack 接通
+    // v15.x PR4（§6.7.1 + §6.7.5）：pack 校验 + settings pack 接通
     // 两段独立 try/catch 兑底——任一异常都不能阻塞 session_start。
+    // v15.x PR7（issue pt-remove-global-pack 移除）：globalPack 槽位删除，3 类 pack。
     try {
       const projectPack = await loadProjectPack(ctx.cwd);
       const settingsPacks = await loadSettingsPacks(ctx.cwd); // PR4 接通
-      const globalPack = await loadGlobalPack();
       const builtinPack = await loadBuiltinPack();
       // settings 包保持声明顺序（不 reverse）——校验顺序不影响结果（每个 pack 独立校验）
-      const packsForValidate = [projectPack, ...settingsPacks, globalPack, builtinPack];
+      const packsForValidate = [projectPack, ...settingsPacks, builtinPack];
 
       const results = await Promise.all(packsForValidate.map(validatePack));
       s.packValidation = results;
@@ -357,28 +354,9 @@ export default function (pi: ExtensionAPI): void {
       s.logger?.warn("session:pack validation failed", { err: errMsg(e) });
     }
 
-    // v15.x PR1（§7.5 + §7.5.1）：全局 Pack 初始化引导——一次性、非交互兼容
-    try {
-      const globalPackDir = getGlobalPackDir();
-      if (
-        shouldPromptGlobalPackGuide({
-          isTTY: process.stdout.isTTY === true,
-          globalPackExists: existsSync(globalPackDir),
-          isFirstRun: !s.globalPackGuideShown,
-          isCi: !!process.env.CI,
-          guideDisabled: !!process.env.PT_NO_GUIDE,
-        })
-      ) {
-        ctx.ui.notify(
-          `Pt: 全局 Pack 目录不存在: ${globalPackDir}\n  提示: 你可以把通用的 Domain/Blueprint/Profile 放这里跨项目共享\n  创建目录: mkdir -p ${globalPackDir}`,
-          "info"
-        );
-        s.globalPackGuideShown = true;
-        s.logger?.info("session:global pack guide shown", { globalPackDir });
-      }
-    } catch (e) {
-      s.logger?.warn("session:global pack guide failed", { err: errMsg(e) });
-    }
+    // v15.x PR7（issue pt-remove-global-pack 移除）：删除全局 Pack 初始化引导——
+    //   全局 pack 不再存在（被 settings pack 替代）。settings pack 显式声明在
+    //   .pi/settings.json 的 pt.asset-packs[]，无"首次创建"隐式引导。
 
     try {
       // Phase term-P2：flag/settings 链主读新名（pt-profile），旧名（pt-context）作 fallback 兼容。

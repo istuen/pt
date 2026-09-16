@@ -9,8 +9,10 @@
 //   - shouldPromptGlobalPackGuide pure helper（非交互兼容 + 一次性）
 //   - mdAdapter.load back-compat（settingsPacks=[] 时等价今天）
 //
-// 重点回归：switch-injection（transpileActive 改降级）/ phase9（集成 4 类加载链）
+// 重点回归：switch-injection（transpileActive 改降级）/ phase9（集成 3 类加载链）
 //           / asset-health（validatePack 与 asset-health 同层不冲突）。
+// v15.x PR7（issue pt-remove-global-pack 移除）：全局 pack 删除后加载链为 3 类
+//           （project/settings/builtin）而非 4 类。
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
@@ -22,7 +24,7 @@ import {
   tryLoadPack,
 } from "../../src/asset-pack/loader.js";
 import { parseManifest } from "../../src/asset-pack/manifest.js";
-import { shouldPromptGlobalPackGuide, validatePack } from "../../src/asset-pack/validate.js";
+import { validatePack } from "../../src/asset-pack/validate.js";
 import {
   resolvePackPath,
   loadProjectPack,
@@ -309,41 +311,12 @@ describe("applyProjectPackDegrade（transpileActive 降级覆盖）", () => {
   });
 });
 
-// ==================== shouldPromptGlobalPackGuide（pure helper） ====================
-
-describe("shouldPromptGlobalPackGuide（非交互兼容 + 一次性，§7.5.1）", () => {
-  const base = {
-    isTTY: true,
-    globalPackExists: false,
-    isFirstRun: true,
-    isCi: false,
-    guideDisabled: false,
-  };
-
-  it("满足全部条件 → true", () => {
-    expect(shouldPromptGlobalPackGuide(base)).toBe(true);
-  });
-
-  it("!isTTY → false", () => {
-    expect(shouldPromptGlobalPackGuide({ ...base, isTTY: false })).toBe(false);
-  });
-
-  it("globalPackExists → false（目录已存在时不引导）", () => {
-    expect(shouldPromptGlobalPackGuide({ ...base, globalPackExists: true })).toBe(false);
-  });
-
-  it("!isFirstRun → false（同 session 第二次不提示）", () => {
-    expect(shouldPromptGlobalPackGuide({ ...base, isFirstRun: false })).toBe(false);
-  });
-
-  it("isCi → false（CI 环境跳过）", () => {
-    expect(shouldPromptGlobalPackGuide({ ...base, isCi: true })).toBe(false);
-  });
-
-  it("guideDisabled (PT_NO_GUIDE=1) → false", () => {
-    expect(shouldPromptGlobalPackGuide({ ...base, guideDisabled: true })).toBe(false);
-  });
-});
+// ==================== shouldPromptGlobalPackGuide（v15.x PR7 移除） ====================
+//
+// v15.x PR7（issue pt-remove-global-pack）：全局 pack 已被 settings pack 取代，
+// shouldPromptGlobalPackGuide helper + session state.globalPackGuideShown 字段 +
+// session_start 中的"~/.pt/assets/ 不存在"首次引导逻辑全部删除。跨项目共享场景
+// 改走 pt.asset-packs: [{ path: "~/.pt/packs/foo" }]，无隐式首次引导。
 
 // ==================== pack-repair builtin domain 加载验证 ====================
 
@@ -395,16 +368,17 @@ describe("loadProjectPack", () => {
 // ==================== M1 + §6.7.5：第三方 pack 失效预警跳过 ====================
 
 describe("第三方 pack 失效——预警跳过，不阻断其它 pack（§6.7.5）", () => {
-  it("validatePack 目录不存在的 global pack → ok=false 但不阻断 builtin pack 加载", async () => {
-    // global pack 目录不存在 → validatePack 返 ok=false
-    const brokenGlobal = await tryLoadPack("/tmp/__pt_nonexistent_global__", "global");
-    const globalResult = await validatePack(brokenGlobal);
-    expect(globalResult.ok).toBe(false);
-    expect(globalResult.errors[0]?.code).toBe("dir-not-found");
-    expect(globalResult.source).toBe("global");
-    expect(globalResult.reservedAlias).toBe("gbl"); // v15.x §4.4.4
+  it("validatePack 目录不存在的 builtin pack 路径 → ok=false（提示作为 project pack 失败场景）", async () => {
+    // v15.x PR7（issue pt-remove-global-pack 移除）：原 global pack 场景改为
+    // 验证 project pack 失效路径——builtin pack 必须通过，不被 project 失败阻断。
+    const brokenProject = await tryLoadPack("/tmp/__pt_nonexistent_project__", "project");
+    const projectResult = await validatePack(brokenProject);
+    expect(projectResult.ok).toBe(false);
+    expect(projectResult.errors[0]?.code).toBe("dir-not-found");
+    expect(projectResult.source).toBe("project");
+    expect(projectResult.reservedAlias).toBe("prj"); // v15.x §4.4.4
 
-    // builtin pack 同时验证 → 应正常通过
+    // builtin pack 同时验证 → 应正常通过（不被 project 失败阻断）
     const builtin = await loadBuiltinPack();
     const builtinResult = await validatePack(builtin);
     expect(builtinResult.ok).toBe(true);
@@ -517,15 +491,15 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
     const { statusText } = await import("../../src/commands.js");
     const { createSessionState } = await import("../../src/session.js");
     const s = createSessionState();
+    // v15.x PR7（issue pt-remove-global-pack 移除）：3 类 pack（project/builtin），
+    // global pack 行删除——只在 PR6 测试场景出现。
     s.packValidation = [
       { pack: "prj", source: "project", reservedAlias: "prj", ok: true, errors: [], warnings: [] },
-      { pack: "gbl", source: "global", reservedAlias: "gbl", ok: true, errors: [], warnings: [] },
       { pack: "pt", source: "builtin", reservedAlias: "pt", ok: true, errors: [], warnings: [] },
     ];
     const out = statusText(s);
-    expect(out).toContain("pt packs: 3/3 ok");
+    expect(out).toContain("pt packs: 2/2 ok");
     expect(out).toContain("[@prj] ✅");
-    expect(out).toContain("[@gbl] ✅");
     expect(out).toContain("[@pt] ✅");
   });
 
@@ -542,11 +516,11 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
         errors: [{ code: "dir-not-found", msg: "pack 目录不存在: /tmp/__nonexistent__" }],
         warnings: [],
       },
-      { pack: "gbl", source: "global", reservedAlias: "gbl", ok: true, errors: [], warnings: [] },
+      // v15.x PR7（issue pt-remove-global-pack 移除）：global pack 行删除，只剩 builtin pack
       { pack: "pt", source: "builtin", reservedAlias: "pt", ok: true, errors: [], warnings: [] },
     ];
     const out = statusText(s);
-    expect(out).toContain("pt packs: 2/3 degraded");
+    expect(out).toContain("pt packs: 1/2 degraded");
     expect(out).toContain("[@prj] ⚠ DEGRADED");
     expect(out).toContain("pack 目录不存在");
   });
@@ -566,16 +540,7 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
         version: "1.2.3",
         rootDir: "/x",
       },
-      {
-        pack: "gbl",
-        source: "global",
-        reservedAlias: "gbl",
-        ok: true,
-        errors: [],
-        warnings: [],
-        version: "0.0.0",
-        rootDir: "/y",
-      },
+      // v15.x PR7（issue pt-remove-global-pack 移除）：global pack 行删除
       {
         pack: "pt",
         source: "builtin",
@@ -804,17 +769,10 @@ describe("parseManifest 保留名规则（v15.x builtin 特例）", () => {
     }
   });
 
-  it("source=global + manifest.name='gbl'（保留名）→ 警告 + name 丢弃", async () => {
-    const root = await mkdtemp(join(tmpdir(), "pt-manifest-global-"));
-    try {
-      await writeFile(join(root, "pt-asset-pack.yaml"), `name: gbl\n`);
-      const m = await parseManifest(root, "global");
-      expect(m.name).toBeUndefined();
-      expect(m.warnings.some((w) => w.includes("is reserved"))).toBe(true);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
+  // v15.x PR7（issue pt-remove-global-pack 移除）：source=global + manifest.name='gbl'
+  // 测试删除——global pack 类型已删除，调用 parseManifest(root, "global") 在 type 系统层
+  // 报错（"global" 不在 PackSource 联合类型里）。gbl 保留名也从 RESERVED_NAMES 移除，
+  // 因为不再有位置 alias 与之关联。
 
   it("source=settings + manifest.name='pt'（保留名）→ 警告 + name 丢弃（保护位置 slot）", async () => {
     const root = await mkdtemp(join(tmpdir(), "pt-manifest-settings-"));
@@ -1335,7 +1293,7 @@ describe("PR4 mdAdapter.load settings 倒序后者赢（§3.3.1）", () => {
   it("settings=[] → 行为等价今天（back-compat）", async () => {
     const { mdAdapter } = await import("../../src/parse/index.js");
     const bundle = await mdAdapter.load(tmpCwd, "guide", { assetDir: "." });
-    expect(bundle.packs.map((p) => p.name)).toEqual(["prj", "gbl", "pt"]);
+    expect(bundle.packs.map((p) => p.name)).toEqual(["prj", "pt"]);
   });
 
   it("settings 2 个 pack：workingSet 同时保留（同 fp 不同，dedup 保留 2 份）", async () => {
@@ -1363,8 +1321,8 @@ describe("PR4 mdAdapter.load settings 倒序后者赢（§3.3.1）", () => {
     );
     const { mdAdapter } = await import("../../src/parse/index.js");
     const bundle = await mdAdapter.load(tmpCwd, "guide", { assetDir: "." });
-    // packs 顺序：prj, team-b, team-a, gbl, pt（settings 倒序后者赢）
-    expect(bundle.packs.map((p) => p.name)).toEqual(["prj", "team-b", "team-a", "gbl", "pt"]);
+    // packs 顺序：prj, team-b, team-a, pt（settings 倒序后者赢；v15.x PR7 移除 global pack 槽位）
+    expect(bundle.packs.map((p) => p.name)).toEqual(["prj", "team-b", "team-a", "pt"]);
     // workingSet 同时含 team-a/user-info + team-b/user-info（fp 不同）
     // v15.x §4.4.2：workingSet 双索引——identity 按 pack.name，location 按位置别名（settings 无位置别名）
     expect(bundle.workingSet.domains.identity.get("team-a/user-info")).toBeDefined();
@@ -1427,13 +1385,36 @@ describe("M1 PR4 checkPackNameConflicts（§3.4 pack name 冲突报错）", () =
     );
   });
 
-  it("back-compat：project 覆盖 global/builtin（无 settings 冲突）→ 不 throw", async () => {
-    // project pack 与 global/builtin 同名（manifest.name="prj"）是不可能的（manifest 校验挡 reserved name）
-    // 但 project source=project + global source=global 同名也不 throw——reserved pack 各自唯一
+  it("back-compat：project 覆盖 builtin（无 settings 冲突）→ 不 throw", async () => {
+    // v15.x PR7（issue pt-remove-global-pack 移除）：global pack 删除后，
+    // 降级测试改为验证 project + builtin 各自唯一（无 settings 时）→ 不 throw。
+    // project pack 与 builtin 同名（manifest.name="prj"）是不可能的（manifest 校验挡 reserved name）。
     const { mdAdapter } = await import("../../src/parse/index.js");
-    // 不写 settings，project + global + builtin 各自唯一 → 不 throw
+    // 不写 settings，project + builtin 各自唯一 → 不 throw
     const bundle = await mdAdapter.load(tmpCwd, "guide", { assetDir: "." });
-    expect(bundle.packs.map((p) => p.name).sort()).toEqual(["gbl", "prj", "pt"]);
+    expect(bundle.packs.map((p) => p.name).sort()).toEqual(["prj", "pt"]);
+  });
+
+  // v15.x PR7（issue pt-remove-global-pack 移除）：3 类 pack 加载顺序断言
+  it("v15.x PR7：3 类 pack 加载顺序 project + settings + builtin（无 global）", async () => {
+    // 验证 PR7 移除 global pack 后，packs 数组只含 3 类（project/settings/builtin）
+    const dirA = join(tmpCwd, "team-a");
+    mkdirSync(join(dirA, "domains"), { recursive: true });
+    writeFileSync(join(dirA, "pt-asset-pack.yaml"), "name: team-a\n", "utf8");
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "asset-packs": [{ path: dirA }] } }),
+      "utf8"
+    );
+    const { mdAdapter } = await import("../../src/parse/index.js");
+    const bundle = await mdAdapter.load(tmpCwd, "guide", { assetDir: "." });
+    const sources = bundle.packs.map((p) => p.source).sort();
+    // source 类型只 3 种（project/settings/builtin），没有 "global"
+    expect(sources).toEqual(["builtin", "project", "settings"]);
+    expect(bundle.packs.some((p) => p.source === "global")).toBe(false);
+    // pack name 只 3 个：prj, team-a, pt
+    expect(bundle.packs.map((p) => p.name).sort()).toEqual(["prj", "pt", "team-a"]);
   });
 
   it("back-compat：settings pack name 不与任何其他 pack 撞 → 不 throw", async () => {

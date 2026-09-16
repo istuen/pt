@@ -23,7 +23,7 @@ function makePack(
   source?: AssetPack["source"]
 ): AssetPack {
   const inferredSource =
-    source ?? (name === "prj" ? "project" : name === "pt" ? "builtin" : "global");
+    source ?? (name === "prj" ? "project" : name === "pt" ? "builtin" : "settings");
   return {
     name,
     rootDir,
@@ -69,13 +69,8 @@ describe("parseRef（§4.2 / §4.5.1 / §2.4.4 双层语义）", () => {
     });
   });
 
-  it("位置 alias @global/foo → 归一为 {kind: location, pack: gbl}", () => {
-    expect(parseRef("@global/foo", "prj")).toEqual({
-      kind: "location",
-      pack: "gbl",
-      name: "foo",
-    });
-  });
+  // v15.x PR7（issue pt-remove-global-pack 移除）：@global/foo 不再归一为位置 alias——
+  // global pack 已被删除。@global 现在按身份 alias 解析（kind="identity"）。
 
   it("位置 alias @builtin/foo → 归一为 {kind: location, pack: pt}", () => {
     expect(parseRef("@builtin/foo", "prj")).toEqual({
@@ -93,13 +88,8 @@ describe("parseRef（§4.2 / §4.5.1 / §2.4.4 双层语义）", () => {
     });
   });
 
-  it("位置 alias 短名 @gbl/foo → {kind: location, pack: gbl}", () => {
-    expect(parseRef("@gbl/foo", "prj")).toEqual({
-      kind: "location",
-      pack: "gbl",
-      name: "foo",
-    });
-  });
+  // v15.x PR7（issue pt-remove-global-pack 移除）：@gbl/foo 不再归一为位置 alias——
+  // gbl 不是位置 alias。@gbl 按身份 alias 解析（kind="identity"）。
 
   it("位置 alias 短名 @pt/foo → {kind: location, pack: pt}", () => {
     expect(parseRef("@pt/foo", "prj")).toEqual({
@@ -132,9 +122,24 @@ describe("parseRef（§4.2 / §4.5.1 / §2.4.4 双层语义）", () => {
 
   it("normalizePackName 别名归一", () => {
     expect(normalizePackName("project")).toBe("prj");
-    expect(normalizePackName("global")).toBe("gbl");
+    // v15.x PR7（issue pt-remove-global-pack 移除）：global → 不归一（原值返回）
+    expect(normalizePackName("global")).toBe("global");
     expect(normalizePackName("builtin")).toBe("pt");
     expect(normalizePackName("pt-internal")).toBe("pt-internal");
+  });
+
+  // v15.x PR7（issue pt-remove-global-pack 移除）：@gbl/@global 不再是位置 alias
+  it("@gbl/foo 按身份 alias 解析（kind=identity），不再归一为位置 alias", () => {
+    expect(parseRef("@gbl/foo", "prj")).toEqual({
+      kind: "identity",
+      pack: "gbl",
+      name: "foo",
+    });
+    expect(parseRef("@global/foo", "prj")).toEqual({
+      kind: "identity",
+      pack: "global",
+      name: "foo",
+    });
   });
 });
 
@@ -412,8 +417,9 @@ function makeBlueprint(name: string): Blueprint {
 describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用）", () => {
   const prj = makePack("prj", "/tmp/prj");
   const pt = makePack("pt", "/tmp/pt");
-  const gbl = makePack("gbl", "/tmp/gbl");
-  const packNames = ["prj", "gbl", "pt"];
+  // v15.x PR7（issue pt-remove-global-pack 移除）：global pack 删除——
+  // resolveBlueprint 测试改用 prj + pt 双 pack 验证跨包 fallback 语义（无 gbl 中间层）。
+  const packNames = ["prj", "pt"];
 
   /** v15.x §4.4.2：构造 WorkingSet<Blueprint> 双索引 */
   function makeWS(entries: Array<[string, { pack: AssetPack; asset: Blueprint }]>): {
@@ -421,7 +427,8 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
     identity: Map<string, { pack: AssetPack; asset: Blueprint }>;
   } {
     const identity = new Map(entries);
-    const locAlias: Record<string, string> = { prj: "prj", pt: "pt", gbl: "gbl" };
+    // v15.x PR7：位置 alias 从 prj/gbl/pt 收敛为 prj/pt
+    const locAlias: Record<string, string> = { prj: "prj", pt: "pt" };
     const location = new Map<string, { pack: AssetPack; asset: Blueprint }>();
     for (const [k, v] of entries) {
       const packName = k.split("/")[0]!;
@@ -482,15 +489,15 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
     ).toBeUndefined();
   });
 
-  it("fallback 顺序：prj 缺 + gbl 有 → 返 gbl（前者赢于 pt）", () => {
-    const gblBp = makeBlueprint("foo");
+  // v15.x PR7（issue pt-remove-global-pack 移除）："prj 缺 + gbl 有" fallback 测试
+  // 删除——gbl pack 不存在。跨 pack fallback 语义已在 "prj 缺 → pt 命中" 测试中覆盖。
+
+  it("v15.x PR7：3 类 pack 加载顺序中 prj 缺 + pt 有 → 返 pt（fallback 终点）", () => {
+    // 验证 PR7 移除 global pack 后，fallback 链是 prj → pt（无 gbl 中间层）
     const ptBp = makeBlueprint("foo");
-    const ws = makeWS([
-      ["gbl/foo", { pack: gbl, asset: gblBp }],
-      ["pt/foo", { pack: pt, asset: ptBp }],
-    ]);
+    const ws = makeWS([["pt/foo", { pack: pt, asset: ptBp }]]);
     expect(
       resolveBlueprint({ blueprint: "foo", sourcePack: "prj" }, ws, packNames)?.pack.name
-    ).toBe("gbl");
+    ).toBe("pt");
   });
 });

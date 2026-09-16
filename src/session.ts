@@ -100,8 +100,6 @@ export interface SessionState {
   packValidation: ValidationResult[] | null;
   /** v15.x PR1（§6.7.3）：project pack 校验失败时标 true，transpileActive 强制回 guide。 */
   projectPackDegraded: boolean;
-  /** v15.x PR1（§7.5）：全局 Pack 初始化引导一次性提示标记。 */
-  globalPackGuideShown: boolean;
 }
 
 /** 默认空 SessionState。 */
@@ -128,7 +126,6 @@ export function createSessionState(): SessionState {
     assetHealthIssues: null,
     packValidation: null,
     projectPackDegraded: false,
-    globalPackGuideShown: false,
   };
 }
 

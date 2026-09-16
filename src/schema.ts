@@ -356,7 +356,7 @@ export interface SchemaBundle {
   activeProfilePack: string;
   /** v15.x §4.4.2（双层语义）：三类 asset 的 working set，dedup 下推到引用层。
    *  双索引：
-   *    - location：按位置 alias（prj/gbl/pt）——reserved pack 才有，非 reserved 不进
+   *    - location：按位置 alias（prj/pt）——reserved pack 才有，非 reserved 不进
    *    - identity：按 pack.name（manifest.name 或退化别名）——所有 pack 都进
    *  场景 G（@prj/foo + @pt-internal/foo 命中同一 asset）依赖双索引。 */
   workingSet: {
@@ -371,7 +371,8 @@ export interface SchemaBundle {
 /** Adapter load 上下文（v9.1: 传 notify 上去代替 console.error，符合 pt-quality #9）。
  *  v10.x：增 assetDir 让测试夹具可指向 tests/fixtures/assets 而不污染 .pt/assets/。
  *  v10.x：增 log 让 adapter 把 trace 持久化到 .pt/logs/pt.log（PtLogger 提供）。
- *  v15.x PR1：增 globalPackDir 全局 Pack 路径覆盖（§6.4.1 测试逃逸口）。 */
+ *  v15.x PR7（issue pt-remove-global-pack 移除）：globalPackDir 已删除——全局 pack
+ *  被 settings pack 取代（指向 `~/.pt/packs/foo/` 即可跨项目共享）。 */
 export interface SourceAdapterContext {
   /** 错误/警告通知回调（可选；不传则走 console fallback）。 */
   notify?: (msg: string, level: "warning" | "error") => void;
@@ -386,9 +387,6 @@ export interface SourceAdapterContext {
     warn(msg: string, ctx?: Record<string, unknown>): void;
     error(msg: string, ctx?: Record<string, unknown>): void;
   };
-  /** v15.x PR1（§6.4.1）：全局 Pack 路径覆盖。默认 `~/.pt/assets/`；
-   *  测试可传临时目录（如 `/tmp/pt-test-empty`）验证"全局 pack 不存在"场景。 */
-  globalPackDir?: string;
 }
 
 /** 反转后的 SourceAdapter：load() 返回 SchemaBundle 而非 string。
@@ -402,8 +400,12 @@ export interface SourceAdapter {
 
 // ==================== v15.x PR1：AssetPack 抽象 ====================
 
-/** Pack 来源类型（诊断显示用，pt-asset-pack.md §2.1）。 */
-export type PackSource = "project" | "settings" | "global" | "builtin";
+/** Pack 来源类型（诊断显示用，pt-asset-pack.md §2.1）。
+ *  v15.x PR7（issue pt-remove-global-pack 移除）：从 4 类收敛为 3 类——
+ *  project（项目本地） / settings（pt.asset-packs[]，替代 global 职责） /
+ *  builtin（随 npm 包发布）。global pack（@gbl）删除——settings pack 显式声明
+ *  路径可指向 ~/.pt/packs/foo/ 实现跨项目共享，能力严格覆盖 global。 */
+export type PackSource = "project" | "settings" | "builtin";
 
 /**
  * v15.x PR1：AssetPack 是单个资产来源的抽象。
@@ -414,7 +416,8 @@ export type PackSource = "project" | "settings" | "global" | "builtin";
  *           settings pack 加载走 stub 返空数组（PR4 接通）。
  */
 export interface AssetPack {
-  /** Pack 身份（PR1：reserved 固定名 "prj"/"gbl"/"pt"，或目录 basename 兜底） */
+  /** Pack 身份（PR1：reserved 固定名 "prj"/"pt"，或目录 basename 兜底）
+   *  PR7（issue pt-remove-global-pack 移除）：reserved 固定名从 3 个减为 2 个。 */
   readonly name: string;
   /** Pack 版本（PR1：固定 "0.0.0"；PR2 从 manifest 读） */
   readonly version: string;

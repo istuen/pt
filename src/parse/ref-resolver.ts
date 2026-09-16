@@ -19,19 +19,19 @@ import type { AssetPack, Blueprint, Profile, WorkingSet } from "../schema.js";
 // ==================== §4.2：parseRef ====================
 
 /** reserved pack 名 + 别名（§2.4.1 + §4.1 + §2.4.4 双层语义）。
- *  v15.x §2.4.4：这些是"位置 alias"——固定指向 3 个物理位置 slot，与 manifest.name 身份层独立。
- *  精确匹配：别名归一为短名（project → prj 等），非位置 alias 原样保留。 */
+ *  v15.x §2.4.4：这些是"位置 alias"——固定指向物理位置 slot，与 manifest.name 身份层独立。
+ *  精确匹配：别名归一为短名（project → prj 等），非位置 alias 原样保留。
+ *  v15.x PR7（issue pt-remove-global-pack 移除）：gbl/global 行删除，位置 alias 从
+ *  3 个收敛为 2 个（project/builtin 两个保留名都映射到对应 prj/pt 短名）。 */
 const LOCATION_ALIASES: ReadonlyMap<string, string> = new Map([
   ["prj", "prj"],
   ["project", "prj"],
-  ["gbl", "gbl"],
-  ["global", "gbl"],
   ["pt", "pt"],
   ["builtin", "pt"],
 ]);
 
 /** 解析 ref → {kind, pack, name}。双层语义（§2.4.4）：
- *  - kind="location"：位置 alias（prj/gbl/pt + project/global/builtin）→ 按 pack name 物理位置查
+ *  - kind="location"：位置 alias（prj/pt + project/builtin）→ 按 pack name 物理位置查
  *  - kind="identity"：身份 alias（manifest.name）→ 按 pack.name 身份查
  *  不限定 ref 自动绑定 selfPack（kind="identity"）。
  *  畸形输入抛异常（§4.5.1 运行时校验）。 */
@@ -167,7 +167,7 @@ export function resolveAndDedupRefs<T extends { name: string }>(
     // v15.x PR3（§4.6 back-compat）：显式 @pack/name 查不到 → 抛错（§4.5.1）。
     // 不限定 ref 在 selfPack 查不到时（§4.6 等价今天 dedupByNameN 语义）：
     // 按 packs 优先级顺序逐个 fallback 查询（查 identity 索引，packNames 是 manifest.name 列表）。
-    // 例：profile 写在 project pack，不限定 `foo` → identity "pt-internal/foo" 不命中 → fallback "gbl/foo" → "pt/foo"。
+    // 例：profile 写在 project pack，不限定 `foo` → identity "pt-internal/foo" 不命中 → fallback "pt/foo"。
     if (!entry && !raw.startsWith("@")) {
       for (const fallbackPack of loadedPackNames) {
         if (fallbackPack === packName) continue;
@@ -186,6 +186,7 @@ export function resolveAndDedupRefs<T extends { name: string }>(
           `Loaded packs: [${loadedPackNames.join(", ")}]`
       );
     }
+
     const fp = fingerprint(entry.pack, entry.asset);
     resolved.push({ pack: entry.pack, asset: entry.asset, fp, rawRef: raw });
   }

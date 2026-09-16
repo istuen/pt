@@ -73,35 +73,36 @@ async function listProfileNamesIn(dir: string): Promise<string[]> {
  *  builtin 没 tagline 的 profile 返 undefined（选择器退化为纯名）。
  *  v15.x PR3（§7.2）：加 pack + source（4 类）——选择器显示 [@pack] 前缀；source 区分打包类型。 */
 /** v15.x §4.4.4（位置 alias 表）：reserved pack 的位置别名。reserved pack 才有，非 reserved 为 undefined。
- *  UI 显示层用——reserved 显位置别名，settings 显 pack 名（§4.4.4 双层语义）。 */
-const RESERVED_ALIAS: ReadonlyMap<ProfileMeta["source"], "prj" | "gbl" | "pt"> = new Map([
+ *  UI 显示层用——reserved 显位置别名，settings 显 pack 名（§4.4.4 双层语义）。
+ *  v15.x PR7（issue pt-remove-global-pack 移除）：从 3 个 reserved alias 收敛为 2 个——
+ *  global pack（@gbl）删除，只剩 project（@prj） / builtin（@pt）。 */
+const RESERVED_ALIAS: ReadonlyMap<ProfileMeta["source"], "prj" | "pt"> = new Map([
   ["project", "prj"],
-  ["global", "gbl"],
   ["builtin", "pt"],
 ]);
 
 export interface ProfileMeta {
   name: string;
   tagline?: string;
-  source: "project" | "settings" | "global" | "builtin";
-  /** v15.x PR3（§7.2）：pack 身份（reserved 短名 prj/gbl/pt 或 manifest.name）。 */
+  source: "project" | "settings" | "builtin";
+  /** v15.x PR3（§7.2）：pack 身份（reserved 短名 prj/pt 或 manifest.name）。 */
   pack: string;
-  /** v15.x §4.4.4（缺口 4）：reserved pack 的位置别名（prj/gbl/pt），非 reserved 为 undefined。
+  /** v15.x §4.4.4（缺口 4）：reserved pack 的位置别名（prj/pt），非 reserved 为 undefined。
    *  UI 显示层用——reserved 显位置别名，settings 显 pack 名。 */
-  reservedAlias?: "prj" | "gbl" | "pt";
+  reservedAlias?: "prj" | "pt";
 }
 
 export async function listProfilesWithTagline(cwd: string): Promise<ProfileMeta[]> {
   // v15.x PR4（§4.4.3 #5 + §6.1）：扫所有 pack 含 settings
   // 顺序与 mdAdapter.load 一致（settings 倒序后者赢）——选择器展示优先级与实际加载一致
-  const { loadProjectPack, loadSettingsPacks, loadGlobalPack, loadBuiltinPack } = await import(
+  // v15.x PR7（issue pt-remove-global-pack 移除）：从 4 类 pack 收敛为 3 类（globalPack 槽位删除）
+  const { loadProjectPack, loadSettingsPacks, loadBuiltinPack } = await import(
     "./asset-pack/loader.js"
   );
   const projectPack = await loadProjectPack(cwd);
   const settingsPacks = await loadSettingsPacks(cwd);
-  const globalPack = await loadGlobalPack();
   const builtinPack = await loadBuiltinPack();
-  const packs = [projectPack, ...settingsPacks.slice().reverse(), globalPack, builtinPack];
+  const packs = [projectPack, ...settingsPacks.slice().reverse(), builtinPack];
 
   const metas: ProfileMeta[] = [];
   for (const pack of packs) {

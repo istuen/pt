@@ -22,12 +22,7 @@ import type {
   SourceAdapterContext,
   WorkingSet,
 } from "../schema.js";
-import {
-  loadBuiltinPack,
-  loadGlobalPack,
-  loadProjectPack,
-  loadSettingsPacks,
-} from "../asset-pack/loader.js";
+import { loadBuiltinPack, loadProjectPack, loadSettingsPacks } from "../asset-pack/loader.js";
 import { reportWarn } from "../diagnostics.js";
 import { parseRef, resolveBlueprint } from "./ref-resolver.js";
 import { parseBlueprint } from "./blueprint.js";
@@ -36,48 +31,44 @@ import { parseProfile } from "./profile.js";
 
 /** MD adapter：按目录位置分发到 domain/blueprint/profile adapter，组装 SchemaBundle。
  *  v9 命名约定：适配的是 MD 文件格式（不再叫 OXN——OXN 是历史名）。
- *  v15.x PR1（§3.1）：内部构造 4 类 AssetPack → loadXxx → N 元 dedupByNameN。 */
+ *  v15.x PR1（§3.1）：内部构造 AssetPack[] → loadXxx → N 元 dedupByNameN。
+ *  v15.x PR7（issue pt-remove-global-pack 移除）：3 类 pack（project/settings/builtin）。 */
 
 /** v15.x §2.4.4：位置 alias 短名 → source（位置指针独立于 pack.name）。
  *  用于 findActiveProfile 查位置 alias（kind="location"）时按 source 查 pack，
  *  与 pack.name 解耦——builtin pack 加 manifest.name="pt-builtin" 后 @pt/... 仍能寻址。
- *  key 是 parseRef 输出的位置 alias 短名（prj/gbl/pt），value 是 AssetPack.source。
- *  与 LOC_ALIAS（source → alias）是反向表，互不重复定义。 */
+ *  key 是 parseRef 输出的位置 alias 短名（prj/pt），value 是 AssetPack.source。
+ *  与 LOC_ALIAS（source → alias）是反向表，互不重复定义。
+ *  v15.x PR7（issue pt-remove-global-pack 移除）：gbl 行删除，位置 alias 从 3 个收敛为 2 个。 */
 const ALIAS_TO_SOURCE: ReadonlyMap<string, string> = new Map([
   ["prj", "project"],
-  ["gbl", "global"],
   ["pt", "builtin"],
 ]);
 export const mdAdapter: SourceAdapter = {
   name: "md",
 
   async load(cwd, profileName, adapterCtx): Promise<SchemaBundle> {
-    // 1. 构造 4 类 pack（§3.1 顺序：project → settings → global → builtin）
+    // 1. 构造 3 类 pack（§3.1 顺序：project → settings → builtin）
     const projectPack = await loadProjectPack(cwd, adapterCtx);
     const settingsPacks = await loadSettingsPacks(cwd); // PR4 接通：读 .pi/settings.json pt.asset-packs
-    const globalPack = await loadGlobalPack(adapterCtx);
     const builtinPack = await loadBuiltinPack(adapterCtx);
 
     // v15.x PR4（§3.3.1）：settings 倒序——后者赢（npm 风格）
-    // packs 顺序 = [project, ...settings.reverse(), global, builtin]
-    // findActiveProfile 不限定 ref 按此顺序前者赢 → project > 后声明 settings > 先声明 settings > global > builtin
-    const packs: AssetPack[] = [
-      projectPack,
-      ...settingsPacks.slice().reverse(),
-      globalPack,
-      builtinPack,
-    ];
+    // packs 顺序 = [project, ...settings.reverse(), builtin]
+    // findActiveProfile 不限定 ref 按此顺序前者赢 → project > 后声明 settings > 先声明 settings > builtin
+    // v15.x PR7（issue pt-remove-global-pack 移除）：globalPack 槽位删除
+    const packs: AssetPack[] = [projectPack, ...settingsPacks.slice().reverse(), builtinPack];
 
     // v15.x PR4（§3.4）：pack name 全局唯一性校验——settings pack 之间同名报错
     checkPackNameConflicts(packs, adapterCtx);
 
     // 2. v15.x §4.4.2（双层语义）：构建双索引 working set——location（位置 alias）+ identity（manifest.name）
-    //    reserved pack（project/global/builtin）才进 location 索引；settings pack 不进 location（无位置别名）
+    //    reserved pack（project/builtin）才进 location 索引；settings pack 不进 location（无位置别名）
     //    所有 pack 都进 identity 索引
     //    back-compat（缺口 1-b）：reserved pack 无 manifest 时 pack.name=位置别名，identity 与 location 索引 key 重合——双入口命中同一 asset
+    //    v15.x PR7（issue pt-remove-global-pack 移除）：global 行删除，reserved pack 从 3 类收敛为 2 类
     const LOC_ALIAS: ReadonlyMap<string, string> = new Map([
       ["project", "prj"],
-      ["global", "gbl"],
       ["builtin", "pt"],
     ]);
     const domainLocWS = new Map<string, { pack: AssetPack; asset: Domain }>();
@@ -245,7 +236,7 @@ function findProfilePack(
  *
  *  reserved 名（prj/gbl/pt）只 1 份，不会冲突。settings pack manifest.name 不能是 reserved 名
  *  （PR2 manifest 校验已挡），所以不会与 reserved 重名。 */
-function checkPackNameConflicts(packs: AssetPack[], adapterCtx?: SourceAdapterContext): void {
+function checkPackNameConflicts(packs: AssetPack[], _adapterCtx?: SourceAdapterContext): void {
   const seen = new Map<string, AssetPack[]>();
   for (const pack of packs) {
     const arr = seen.get(pack.name) ?? [];
@@ -263,7 +254,6 @@ function checkPackNameConflicts(packs: AssetPack[], adapterCtx?: SourceAdapterCo
     }
     // 有 settings 来源——按 rootDir 是否一致区分场景 A/B
     const rootDirs = new Set(group.map((p) => p.rootDir));
-    const sources = group.map((p) => `${p.source}(${p.rootDir})`).join(" + ");
     if (rootDirs.size === 1) {
       // 场景 A：路径重叠（settings pack 与 project pack 指向同一目录）—— 重复加载同一份
       throw new Error(

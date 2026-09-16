@@ -21,7 +21,7 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 - desc: Pt pack 标准目录结构——必须含 `domains/` + `blueprints/` + `profiles/` 三个子目录之**一**（至少一个）；可选 `pt-asset-pack.yaml` manifest（**强烈建议始终提供**——manifest 是身份证，不是装饰）
 
 ### pack-sources
-- desc: v15.x Pack 有 4 类来源——project（`<cwd>/.pt/assets/`）/ settings（`.pi/settings.json` 的 `pt.asset-packs[]`，PR4 启用）/ global（`~/.pt/assets/`）/ builtin（`src/builtin/assets/`，随 npm 包发布）。每类走相同 MdFilePack 管线，差别只在入口函数和 name fallback 表。
+- desc: v15.x Pack 有 3 类来源——project（`<cwd>/.pt/assets/`）/ settings（`.pi/settings.json` 的 `pt.asset-packs[]`，PR4 启用）/ builtin（`src/builtin/assets/`，随 npm 包发布）。每类走相同 MdFilePack 管线，差别只在入口函数和 name fallback 表。v15.x PR7（issue pt-remove-global-pack 移除）后从 4 类收敛为 3 类——global pack（`~/.pt/assets/`）删除，跨项目共享走 settings pack 显式声明路径。
 
 ### pack-manifest
 - desc: `pt-asset-pack.yaml` 是 pack 自描述 manifest——三个字段：`name`（kebab-case 身份 alias，跨项目寻址用）/ `version`（semver，缓存失效标识）/ `description`（人类可读说明，UI 展示用）。字段全部可选——但**强烈建议始终提供**（back-compat fallback 是过渡方案）。
@@ -30,17 +30,16 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 - desc: validatePack 返回的错误码——`dir-not-found`（路径不存在）/ `no-asset-subdir`（无 asset 子目录）/ `load-failed`（加载抛异常）/ `manifest-warnings`（manifest 缺失/解析失败/字段校验失败，**不阻断**但会走 notify + manual hint）
 
 ### pack-naming
-- desc: 寻址双层语义——位置 alias（`@prj`/`@gbl`/`@pt`，固定 3 slot 物理位置指针，reserved pack 用）+ 身份 alias（`@<manifest-name>`，跨项目寻址用，settings pack 用）。manifest.name 走身份 alias，无 manifest 时 reserved pack 退到位置 alias，settings pack 退到 basename（**易碎**，建议始终提供 manifest）。
+- desc: 寻址双层语义——位置 alias（`@prj`/`@pt`，固定 2 slot 物理位置指针，reserved pack 用）+ 身份 alias（`@<manifest-name>`，跨项目寻址用，settings pack 用）。manifest.name 走身份 alias，无 manifest 时 reserved pack 退到位置 alias，settings pack 退到 basename（**易碎**，建议始终提供 manifest）。
 
 ### pack-reserved-vs-external
 - desc: Pt Pack 体系按"是否有固定位置约定"分两类——
 
-  **① 固定位置 slot（reserved，3 个 slot，本质是位置约定）**：
+  **① 固定位置 slot（reserved，2 个 slot，本质是位置约定）**：
   - `@prj` → 项目 cwd 下的 `.pt/assets/`（项目 pack）
-  - `@gbl` → 用户 home 下的 `~/.pt/assets/`（用户私有通用 pack）
   - `@pt`  → npm 包内嵌 `src/builtin/assets/`（工具内嵌 pack）
 
-  三者都是"外部 pack"——它们不在 pt 工具代码本身里，是用户在文件系统 / npm 包里的资产。reserved 不是因为"内置"，而是因为**有固定的物理位置约定**——pt 工具预先知道去哪里找它们，不用用户声明路径。
+  两者都是"外部 pack"——它们不在 pt 工具代码本身里，是用户在文件系统 / npm 包里的资产。reserved 不是因为"内置"，而是因为**有固定的物理位置约定**——pt 工具预先知道去哪里找它们，不用用户声明路径。
 
   **② 用户/外部 Pt Packs（settings，通过 manifest.name 走身份 alias）**：
   - 用户主动声明在 `.pi/settings.json` 的 `pt.asset-packs[]` 中
@@ -57,9 +56,9 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
   - 位置 slot `@pt` 已经是其完整身份表达
   - manifest.name="pt" 合法（保留名作为身份 alias）——位置 alias = 身份 alias 合一
   - working set 双索引 key 重合：`@pt/foo` 的 location 和 identity entry 指向同一份 asset
-  - 其他 reserved pack（prj/gbl）不享受合一——项目/全局 pack 仍用跨项目身份名（`pt-internal` 等）
+  - 其他 reserved pack（prj）不享受合一——项目 pack 仍用跨项目身份名（`pt-internal` 等）
 
-  设计动机：v10.x 时期 builtin pack.name="pt"（位置别名退化）是 back-compat 默认行为；本轮修复把这个行为**显式声明**为设计意图，而不是引入 `pt-builtin` 之类冗余名字。保留名规则对 builtin 特例放行（`parseManifest(rootDir, "builtin")`），project/global/settings pack 仍禁用保留名。
+  设计动机：v10.x 时期 builtin pack.name="pt"（位置别名退化）是 back-compat 默认行为；本轮修复把这个行为**显式声明**为设计意图，而不是引入 `pt-builtin` 之类冗余名字。保留名规则对 builtin 特例放行（`parseManifest(rootDir, "builtin")`），project/settings pack 仍禁用保留名。
 
 ## Flows
 
@@ -75,7 +74,7 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
   version: 0.1.0            # semver
   description: <一句话说明>
   ```
-- step: 校验：name 满足 `[a-z0-9-]{1,64}` 且非保留字（prj/gbl/pt/project/global/builtin）
+- step: 校验：name 满足 `[a-z0-9-]{1,64}` 且非保留字（prj/pt/project/builtin；v15.x PR7 后删除 gbl/global）
 - step: 校验：version 满足 `^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`
 - step: 若作为 settings pack 暴露：在 `.pi/settings.json` 加 `pt.asset-packs: [{ "path": "<pack-root>" }]`
 - step: 验证：`/pt status` → 新 pack 显示在 Pack 健康行
@@ -89,7 +88,7 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 - step:   - manifest 缺失：走 `pack-create` flow 创建 `pt-asset-pack.yaml`（保留现有 assets 子目录）
 - step:   - manifest 解析失败：检查 YAML 语法（top-level 必须是 mapping）
 - step:   - name 非 kebab-case：改名满足 `[a-z0-9-]{1,64}`
-- step:   - name 是保留字：改用其他身份 alias（不能是 prj/gbl/pt/project/global/builtin）
+- step:   - name 是保留字：改用其他身份 alias（不能是 prj/pt/project/builtin；v15.x PR7 后删除 gbl/global）
 - step:   - version 非 semver：改成 `^\d+\.\d+\.\d+` 格式
 - step:   - dir-not-found：`mkdir -p <pack-root>/{domains,blueprints,profiles}`
 - step:   - no-asset-subdir：至少创建一个 asset 子目录
@@ -120,13 +119,13 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 ## Rules
 
 ### manifest-required-as-identity
-- check: Pack 必须有 `pt-asset-pack.yaml` manifest——没有 manifest 的目录只是 back-compat 兜底状态（reserved pack 退到 prj/gbl/pt，settings pack 退到 basename）。Manifest 是 pack 的身份证 + 说明书，缺它 pack 不是真正的 pt pack
+- check: Pack 必须有 `pt-asset-pack.yaml` manifest——没有 manifest 的目录只是 back-compat 兜底状态（reserved pack 退到 prj/pt，settings pack 退到 basename）。Manifest 是 pack 的身份证 + 说明书，缺它 pack 不是真正的 pt pack
 
 ### manifest-name-kebab-case
 - check: `manifest.name` 必须满足 `[a-z0-9-]{1,64}`——kebab-case 格式，1-64 字符。校验失败 → warning + fallback 到 basename（settings pack）或位置 alias（reserved pack）
 
 ### manifest-name-not-reserved
-- check: `manifest.name` 不能等于保留字——`prj`/`gbl`/`pt`/`project`/`global`/`builtin` 全部禁用（reserved pack 位置 alias 专用）。冲突 → warning + fallback
+- check: `manifest.name` 不能等于保留字——`prj`/`pt`/`project`/`builtin` 全部禁用（reserved pack 位置 alias 专用）。冲突 → warning + fallback
 
 ### manifest-version-semver
 - check: `manifest.version` 必须满足 `^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`——semver 格式。校验失败 → warning + 默认 "0.0.0"
@@ -135,10 +134,10 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 - check: Manifest 缺失时的 fallback 是**过渡方案**，不是设计意图——reserved pack 退到位置 alias、settings pack 退到 basename 都是 back-compat 妥协。Pack 作者应始终提供 manifest，让 pack 成为自描述实体
 
 ### reserved-pack-position-agreement
-- check: Reserved pack（`@prj` / `@gbl` / `@pt`）的"reserved"**不是"内置"**——三者都是"外部 pack"（项目 / 用户 home / npm 包里的资产），reserved 是因为有**固定的物理位置约定**（pt 工具预先知道去哪里找）。用户资产 / 第三方 pack 走 settings，通过 manifest.name 走身份 alias（见 `pack-reserved-vs-external`）
+- check: Reserved pack（`@prj` / `@pt`）的"reserved"**不是"内置"**——两者都是"外部 pack"（项目 / npm 包里的资产），reserved 是因为有**固定的物理位置约定**（pt 工具预先知道去哪里找）。用户资产 / 第三方 pack 走 settings，通过 manifest.name 走身份 alias（见 `pack-reserved-vs-external`）
 
 ### builtin-pack-name-merges-position-and-identity
-- check: builtin pack 是 3 个 reserved slot 里最特殊的——位置 alias `@pt` = 身份 alias `@pt` 合一。`src/builtin/assets/pt-asset-pack.yaml` 的 `name: pt` 合法（保留名作为身份 alias），working set 双索引 key 重合。其他 reserved pack（prj/gbl）仍用跨项目身份名（`pt-internal` 等），不合一（见 `pack-builtin-special`）
+- check: builtin pack 是 2 个 reserved slot 里最特殊的——位置 alias `@pt` = 身份 alias `@pt` 合一。`src/builtin/assets/pt-asset-pack.yaml` 的 `name: pt` 合法（保留名作为身份 alias），working set 双索引 key 重合。其他 reserved pack（prj）仍用跨项目身份名（`pt-internal` 等），不合一（见 `pack-builtin-special`）
 
 ### validate-pack-never-throws
 - check: validatePack 失败时返 `ValidationResult` 对象（`ok=false` + `errors[]`），不抛异常——保证加载链不阻断（§6.7.7）。Manifest parse 失败同样不阻断（parseManifest 已容错，warning 进 notify）
@@ -149,8 +148,8 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 ### restart-after-repair
 - check: 修复 pack 后必须重启 pi session——`projectPackDegraded` 标记在 session_start 重新校验时清零，不重启则继续降级
 
-### global-pack-guide-non-interactive
-- check: 全局 Pack 初始化引导仅在 TTY + 非 CI + 无 `PT_NO_GUIDE` 环境触发（§7.5.1）——避免阻塞 CI / 后台进程
+### global-pack-removed
+- check: 全局 Pack 已删除（v15.x PR7，issue pt-remove-global-pack）——跨项目共享走 settings pack 显式声明路径（如 `~/.pt/packs/foo`），无"首次创建"隐式引导。原来的 §7.5 / §7.5.1 全局 Pack 初始化引导整节删除。
 
 ## Checklists
 
