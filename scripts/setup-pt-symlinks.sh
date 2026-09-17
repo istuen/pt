@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/setup-pt-symlinks.sh
 #
-# 建立主仓 .pt/assets + .pt/packs/fullstack symlink，指向 pt-internal 仓
+# 建立主仓 .pt/assets + .pt/packs/fullstack + .pt/docs symlink，指向 pt-internal 仓
 # （v15.x symlink 方案——gitfile + packs/ 布局改为 symlink + assets/）
 #
 # 设计源：.pt/docs/designs/pt-internal-symlink-plan.md §四 阶段 3
@@ -119,8 +119,10 @@ ensure_symlink() {
 mkdir -p "$REPO_ROOT/.pt/packs"
 ensure_symlink "$REPO_ROOT/.pt/assets" "$PT_INTERNAL_DIR/$PRJ_PACK" "prj"
 ensure_symlink "$REPO_ROOT/.pt/packs/$FULLSTACK_PACK" "$PT_INTERNAL_DIR/$FULLSTACK_PACK" "settings($FULLSTACK_PACK)"
+ensure_symlink "$REPO_ROOT/.pt/docs" "$PT_INTERNAL_DIR/docs" "docs（设计文档/issue/CHANGELOG）"
 
 echo ""
 echo "✅ symlink 建立完成"
 echo "   prj:      $REPO_ROOT/.pt/assets → $PT_INTERNAL_DIR/$PRJ_PACK"
 echo "   settings: $REPO_ROOT/.pt/packs/$FULLSTACK_PACK → $PT_INTERNAL_DIR/$FULLSTACK_PACK"
+echo "   docs:     $REPO_ROOT/.pt/docs → $PT_INTERNAL_DIR/docs"
