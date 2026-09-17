@@ -154,23 +154,24 @@ Profile 编译后的产物，分两面——**Session Context**（每轮注入�
 
 ## Pt 资产包（Pack）
 
-v15.x 起，Pt 资产按 **Pack** 组织——一个 Pack 是一个目录（含 `domains/` + `blueprints/` + `profiles/` 子目录 + 可选 `pt-asset-pack.yaml` manifest）。Pt 加载 4 类 Pack，优先级从高到低：
+v15.x 起，Pt 资产按 **Pack** 组织——一个 Pack 是一个目录（含 `domains/` + `blueprints/` + `profiles/` 子目录 + 可选 `pt-asset-pack.yaml` manifest）。Pt 加载 3 类 Pack，优先级从高到低：
 
 | Pack | 来源 | 寻址名 | 说明 |
 |---|---|---|---|
-| **project** | `<cwd>/.pt/assets/`（或 `pt.project-pack-dir` 配置） | `@prj` | 项目专属资产，永远最高优先 |
+| **project** | `<cwd>/.pt/assets/`（默认）或 `pt.project-pack-dir` 配置 | `@prj` | 项目专属资产，永远最高优先 |
 | **settings** | `.pi/settings.json` 的 `pt.asset-packs[]` | `@<manifest-name>` | 团队共享 / 第三方 Pack，按声明顺序后者赢 |
-| **global** | `~/.pt/assets/` | `@gbl` | 用户跨项目共用资产 |
 | **builtin** | `src/builtin/assets/`（随 npm 包） | `@pt` | 内建 fallback（guide / dev-knowledge 等） |
+
+跨项目共用资产走 **settings pack**（显式声明 `pt.asset-packs[]` 指向共享路径）——不设全局 pack。
 
 ### 跨 Pack 引用
 
-Profile / Domain / Blueprint 引用可限定 Pack：`@pack-name/asset-name`。不限定时按优先级自动解析（project > settings > global > builtin）。
+Profile / Domain / Blueprint 引用可限定 Pack：`@pack-name/asset-name`。不限定时按优先级自动解析（project > settings > builtin）。
 
 ```yaml
 # profile.md frontmatter
-blueprint: @pt-internal/dev-knowledge    # 限定到 pt-internal pack
-domains: [@gbl/team-stdlib, workflow]    # @gbl 限定 + 无前缀自动解析
+blueprint: @pt-project/dev-knowledge    # 限定到 pt-project pack（project pack 也可用 manifest.name 寻址）
+domains: [@fullstack/team-stdlib, workflow]    # @fullstack 限定 + 无前缀自动解析
 ```
 
 ### settings 声明 Pack
@@ -183,10 +184,28 @@ domains: [@gbl/team-stdlib, workflow]    # @gbl 限定 + 无前缀自动解析
     "asset-packs": [
       { "path": "~/projects/pt-team-stdlib/assets" },
       { "path": "../shared-pt-assets" }
-    ],
-    "project-pack-dir": ".pt/assets"
+    ]
   }
 }
+```
+
+`project-pack-dir` 可选配项：默认走 `<cwd>/.pt/assets`，仅在需要把 prj 指向非默认位置（如项目外共享 prj）时配。
+
+### 把 .pt/assets 指向项目外（symlink 方案）
+
+如果你用 gitfile + packs/ 布局（v15.x 早期），迁到 symlink + assets/ 布局后，多项目共用 pt-internal 仓的典型做法：
+
+```bash
+# 1. clone pt-internal 仓到本地（独立项目，非 bare）
+git clone https://github.com/istuen/pt-internal.git ~/prot/pt-internal
+
+# 2. 在主仓建 symlink（用 setup 脚本）
+./scripts/setup-pt-symlinks.sh --pack-dir ~/prot/pt-internal
+
+# 手动方式：
+ln -s ~/prot/pt-internal/pt-project .pt/assets
+mkdir -p .pt/packs && ln -s ~/prot/pt-internal/fullstack .pt/packs/fullstack
+```
 ```
 
 `project-pack-dir` 可指向项目外路径（`~` / 绝对 / 相对 cwd 都支持）。
