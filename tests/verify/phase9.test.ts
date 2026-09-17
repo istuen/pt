@@ -105,7 +105,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 3. Blueprint 复用 ==========
   describe("3. Blueprint 复用", () => {
     it("dev-knowledge Blueprint 被 ≥2 个 Profile 引用", async () => {
-      const profileFiles = (await readdir(join(cwd, ".pt/packs/pt-project/profiles"))).filter((f) =>
+      const profileFiles = (await readdir(join(cwd, ".pt/assets/profiles"))).filter((f) =>
         f.endsWith(".profile.md")
       );
       const refCounts: Record<string, number> = {};
@@ -266,10 +266,10 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 11. 资产目录 ==========
   describe("11. 资产目录", () => {
     it("channels/ 目录不存在", async () => {
-      await expect(readdir(join(cwd, ".pt/packs/pt-project/channels"))).rejects.toThrow();
+      await expect(readdir(join(cwd, ".pt/assets/channels"))).rejects.toThrow();
     });
     it("profiles/ 目录存在", async () => {
-      const files = await readdir(join(cwd, ".pt/packs/pt-project/profiles"));
+      const files = await readdir(join(cwd, ".pt/assets/profiles"));
       expect(files.length).toBeGreaterThan(0);
     });
   });
@@ -577,5 +577,5 @@ describe("Phase 9.9 v9 完整回归", () => {
 
 // Helper（profilesDir）
 function profilesDir(): string {
-  return join(cwd, ".pt/packs/pt-project/profiles");
+  return join(cwd, ".pt/assets/profiles");
 }

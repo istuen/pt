@@ -1,7 +1,8 @@
 {
   "packages": [".."],
   "pt": {
-    "project-pack-dir": ".pt/packs/pt-project",
-    "asset-packs": [{ "path": ".pt/packs/fullstack" }]
+    "asset-packs": [
+      { "path": ".pt/packs/fullstack" }
+    ]
   }
 }
