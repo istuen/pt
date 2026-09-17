@@ -7,7 +7,7 @@
 // v11.x：Profile 全局 domains 覆盖是主用例——"未实例化"警告在该模式下静默
 // （未实例化 = 走全局分发，无 warning；只有 Profile 完全空 + 聚合组全空时才报 warning）。
 
-import type { Blueprint, Domain, Profile } from "../schema.js";
+import { type Blueprint, type Domain, type Profile, refName } from "../schema.js";
 
 export interface RefCheckResult {
   ok: boolean;
@@ -35,8 +35,10 @@ export function checkProfileRefs(
   }
 
   // 2. Profile → Domain（全局 domains）
+  //    v15.x（issue pt-domain-abstraction-and-generic-profiles）：profile.domains 可写
+  //    `@fullstack/dev-process` 限定来源 pack，refName 取尾段（domain name）与 domainNames 比。
   for (const dn of profile.domains) {
-    if (!domainNames.has(dn)) {
+    if (!domainNames.has(refName(dn))) {
       errors.push(`Profile "${profile.name}" 的 domains 引用悬空 Domain "${dn}"`);
     }
   }
@@ -55,7 +57,7 @@ export function checkProfileRefs(
 
     // 3b. 聚合组引用的 Domain 存在
     for (const dn of group.domains) {
-      if (!domainNames.has(dn)) {
+      if (!domainNames.has(refName(dn))) {
         errors.push(`Profile "${profile.name}" 聚合组 "${group.name}" 引用悬空 Domain "${dn}"`);
       }
     }

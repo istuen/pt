@@ -528,10 +528,23 @@ export function findProfile(profiles: Profile[], name: string): Profile | undefi
   return profiles.find((p) => p.name === name);
 }
 
+/** 从 ref 取 asset name——`@pack/name` 限定取尾段，否则原样。
+ *  filterDomainsByProfile 和 ref-check 都用它：profile.domains 可写 `@fullstack/dev-process`
+ *  限定来源 pack，与 d.name（无前缀的 domain.name）比较时取尾段。 */
+export function refName(ref: string): string {
+  if (ref.startsWith("@")) {
+    const slashIdx = ref.indexOf("/");
+    if (slashIdx > 0) return ref.slice(slashIdx + 1);
+  }
+  return ref;
+}
+
 /** 按 Profile 引用范围过滤 domains（turn 路径 scope 过滤用）。
  *  规则：domain 在 Profile YAML 全局 domains 列表 或 任一聚合组 ProfileGroup.domains 追加列表中 → 保留。
  *  v13.x（issue pt-turn-inject-not-profile-scoped）：从 commands.ts 挪到 schema.ts——
  *  render 层（turn-inject）需要反向依赖它，放 schema.ts 避免层次倒挂。commands.ts 改 import。
+ *  v15.x（issue pt-domain-abstraction-and-generic-profiles）：ref normalize——profile.domains
+ *  可写 `@fullstack/dev-process`（限定来源 pack），refName 取尾段匹配 d.name。
  *  profile 为 null 时返 domains 原样（向后兼容——无激活 Profile 时不限制）。 */
 export function filterDomainsByProfile<T extends { name: string }>(
   domains: T[],
@@ -539,7 +552,8 @@ export function filterDomainsByProfile<T extends { name: string }>(
 ): T[] {
   if (!profile) return domains;
   return domains.filter((d) => {
-    if (profile.domains.includes(d.name)) return true;
-    return profile.groups.some((g) => g.domains.includes(d.name));
+    const profileDomainNames = profile.domains.map(refName);
+    if (profileDomainNames.includes(d.name)) return true;
+    return profile.groups.some((g) => g.domains.map(refName).includes(d.name));
   });
 }
