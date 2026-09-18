@@ -225,7 +225,12 @@ export function buildManualDoc(
   cwd: string,
   session: SessionState,
   procedure: string,
-  args: string
+  args: string,
+  // P3：manual frontmatter issue 关联字段。可选——纯需求驱动特性（如 feature-lifecycle）的
+  // 独立 manual 不传 issue，frontmatter 不写该行（与 v11.x manual 零破坏 back-compat）。
+  // issue 是单向引用：manual 自描述"为哪个 issue 服务"，不反向改 issue 文档（联动职责被
+  // 否决的 pt_complete 占据，本版本不实现）。
+  issue?: string
 ): ManualDocResult {
   if (!procedure) {
     return { content: "", filePath: "", error: "用法: /pt manual <procedure-name> [args...]" };
@@ -268,6 +273,11 @@ export function buildManualDoc(
   lines.push(`created: ${now}`);
   lines.push("status: in-progress");
   lines.push(`args: ${args || "(无)"}`);
+  // P3：issue 关联字段——manual 实例自描述"为哪个 issue 服务"。仅传值时写行（back-compat）。
+  // 空字符串与 undefined 等价（不写行），避免污 frontmatter。
+  if (issue?.trim()) {
+    lines.push(`issue: ${issue.trim()}`);
+  }
   lines.push("---");
   lines.push("");
   lines.push(`# ${procedure} 实例`);

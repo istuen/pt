@@ -46,11 +46,14 @@ import type { ActiveManual, SessionState } from "./session.js";
 const PT_MANUAL_ENTRY = "pt:active-manual";
 
 /** 从 session JSONL 读上次保存的 ActiveManual。读出后由 caller 校验（isManualActive）。
- *  静默 fallback：异常 / 无 entry → undefined。 */
+ *  静默 fallback：异常 / 无 entry → undefined。
+ *  P3：加 issue 可选字段——读时用 typeof === "string" ? issue : undefined 兜底，
+ *  旧 entry（P3 之前）无该字段仍能正常读出（activeManual.issue = undefined）。 */
 interface PersistedManualEntry {
   filePath: string;
   procedure: string;
   args: string;
+  issue?: string;
 }
 function readManualFromSession(
   sessionManager: MinimalSessionManager
@@ -66,12 +69,17 @@ function readManualFromSession(
           const filePath = d.filePath;
           const procedure = d.procedure;
           const args = d.args;
+          const issue = d.issue;
           if (typeof filePath === "string" && filePath.trim() && typeof procedure === "string") {
-            return {
+            const entry: PersistedManualEntry = {
               filePath: filePath.trim(),
               procedure,
               args: typeof args === "string" ? args : "",
             };
+            if (typeof issue === "string" && issue.trim()) {
+              entry.issue = issue.trim();
+            }
+            return entry;
           }
         }
       }
@@ -81,15 +89,21 @@ function readManualFromSession(
 }
 
 /** 把当前 ActiveManual 写入 session JSONL。
- *  失败静默（ephemeral session / 旧版 pi 无 appendEntry）——内存中 activeManual 仍可用本进程。 */
+ *  失败静默（ephemeral session / 旧版 pi 无 appendEntry）——内存中 activeManual 仍可用本进程。
+ *  P3：issue 字段透传到 entry——只在有值时写（undefined 不写），避免旧 entry 读出 undefined
+ *  与"未填 issue"语义混淆。 */
 function persistManualToSession(pi: ExtensionAPI, m: ActiveManual): void {
   try {
     if (typeof pi.appendEntry !== "function") return;
-    pi.appendEntry(PT_MANUAL_ENTRY, {
+    const data: { filePath: string; procedure: string; args: string; issue?: string } = {
       filePath: m.filePath,
       procedure: m.procedure,
       args: m.args,
-    });
+    };
+    if (m.issue?.trim()) {
+      data.issue = m.issue.trim();
+    }
+    pi.appendEntry(PT_MANUAL_ENTRY, data);
   } catch (e) {
     slog("", "warn", "persistManualToSession failed", { procedure: m.procedure, err: errMsg(e) });
   }
@@ -193,6 +207,7 @@ async function tryRestoreManual(ctx: ExtensionContext, session: SessionState): P
     filePath: entry.filePath,
     procedure: entry.procedure,
     args: entry.args,
+    issue: entry.issue, // P3：恢复 issue 字段（可选，无值时 undefined）
     activatedAt: Date.now(),
   };
   await refreshManualWidget(ctx.ui, session);

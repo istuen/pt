@@ -736,9 +736,28 @@ export default function (pi: ExtensionAPI): void {
       if (sub === "manual") {
         // v11.x 修复：subArgs 才是 procedure 参数（原 code 会拿到 "manual"）
         const procedureParts = subArgs.trim().split(/\s+/);
+        // P3：解析 `--issue <name>` flag 从 procedureParts 拆出，传给 buildManualDoc。
+        // 不传 --issue 时 issueName = undefined → frontmatter 无 issue 行（back-compat）。
+        let issueName: string | undefined;
+        for (let i = 0; i < procedureParts.length; i++) {
+          const p = procedureParts[i];
+          if (p === "--issue") {
+            const next = procedureParts[i + 1];
+            if (next) {
+              issueName = next;
+            }
+            procedureParts.splice(i, 2);
+            break;
+          }
+          if (p?.startsWith("--issue=")) {
+            issueName = p.slice("--issue=".length);
+            procedureParts.splice(i, 1);
+            break;
+          }
+        }
         const procedureName = procedureParts[0] ?? "";
         const procedureArgs = procedureParts.slice(1).join(" ");
-        const r = buildManualDoc(ctx.cwd, s, procedureName, procedureArgs);
+        const r = buildManualDoc(ctx.cwd, s, procedureName, procedureArgs, issueName);
         if (r.error) {
           ctx.ui.notify(r.error, "warning");
           return;
@@ -750,6 +769,7 @@ export default function (pi: ExtensionAPI): void {
           filePath: r.filePath,
           procedure: procedureName,
           args: procedureArgs,
+          issue: issueName, // P3：透传 issue 字段
           activatedAt: Date.now(),
         };
         persistManualToSession(pi, s.activeManual);
@@ -881,6 +901,14 @@ export default function (pi: ExtensionAPI): void {
           description: "Arguments for the procedure, e.g. 'req-001' or 'term my-concept'",
         })
       ),
+      // P3：manual frontmatter issue 关联字段。可选——未传则 frontmatter 无 issue 行。
+      // 单向引用：manual 自描述"为哪个 issue 服务"，不反向改 issue 文档（联动被否决）。
+      issue: Type.Optional(
+        Type.String({
+          description:
+            "Optional issue name this manual instance serves. Written to frontmatter `issue:` field for LLM to read association.",
+        })
+      ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const sessionId = getSessionIdFromCtx(ctx);
@@ -891,7 +919,7 @@ export default function (pi: ExtensionAPI): void {
         };
       }
       const s = getSessionById(sessionId);
-      const r = buildManualDoc(ctx.cwd, s, params.procedure, params.args ?? "");
+      const r = buildManualDoc(ctx.cwd, s, params.procedure, params.args ?? "", params.issue);
       if (r.error) {
         return { content: [{ type: "text", text: r.error }], details: { error: r.error } };
       }
@@ -903,6 +931,7 @@ export default function (pi: ExtensionAPI): void {
           filePath: r.filePath,
           procedure: params.procedure,
           args: params.args ?? "",
+          issue: params.issue, // P3：透传 issue 字段（可选，undefined 时不写 frontmatter）
           activatedAt: Date.now(),
         };
         persistManualToSession(pi, s.activeManual);

@@ -62,6 +62,10 @@ export interface ActiveManual {
   filePath: string; // .pt/manuals/<procedure>-<ts>.md
   procedure: string;
   args: string;
+  /** v16.x（P3）：manual 关联的 issue 名（可选）。单向引用——manual 自描述"为哪个 issue 服务"，
+   *  不反向改 issue 文档。LLM 读 manual frontmatter 知道关联，用 bash/grep 查 issue 文件即可。
+   *  未传时 undefined，frontmatter 无 issue 行（back-compat）。 */
+  issue?: string;
   activatedAt: number; // Date.now()，排序/去重用
 }
 
