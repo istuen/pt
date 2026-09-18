@@ -144,6 +144,10 @@ export function expandProfile(
  *  - blueprint：self.blueprint || useExpanded.blueprint（覆盖；空字符串=未写→继承）
  *  - tagline：self.tagline ?? useExpanded.tagline（覆盖）
  *  - domains：dedupByName([...useExpanded.domains, ...self.domains])（追加，self 优先去重）
+ *  - optionalDomains：self.optionalDomains ?? useExpanded.optionalDomains（self 优先，缺省继承 use）
+ *     注：v16 决策（issue pt-profile-optional-domains）暂不支持 use 链追加合并；self 无值则
+ *     继承 use 的，让 prj profile 能补 use profile 的 slot（如 pt-arch use @fullstack/design
+ *     继承 fullstack/design 的 3 个 slot）。
  *  - groups：mergeGroupsByName（同名 self 替换整个 use group；§5.4） */
 function mergeProfile(self: Profile, useExpanded: Profile): Profile {
   return {
@@ -151,6 +155,10 @@ function mergeProfile(self: Profile, useExpanded: Profile): Profile {
     blueprint: self.blueprint || useExpanded.blueprint, // || 而非 ??：空字符串 falsy
     tagline: self.tagline ?? useExpanded.tagline,
     domains: dedupByName([...useExpanded.domains, ...self.domains]),
+    // self.optionalDomains 缺省（undefined）→ 继承 use 的；显式空数组 self.optionalDomains=[] 则保留 self 空
+    //   区分：undefined = 未声明（继承），[] = 显式空（清除 use 的 slot）
+    optionalDomains:
+      self.optionalDomains !== undefined ? self.optionalDomains : useExpanded.optionalDomains,
     groups: mergeGroupsByName(useExpanded.groups, self.groups),
     use: undefined, // 展开后 Profile 不再带 use（已消化，避免下游重复展开）
     sourcePack: self.sourcePack, // 身份不变

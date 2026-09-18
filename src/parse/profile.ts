@@ -132,7 +132,11 @@ export async function parseProfile(
         : stripProfileSuffix(asset.name),
     blueprint,
     domains,
-    optionalDomains,
+    // v16：未写 optional-domains → undefined（与显式空数组区分）——
+    //   让 use 链合并能区分"未声明（继承 use）"vs"显式空（清除 use）"。
+    //   profile.frontmatter["optional-domains"] 缺省时 sArr 返 []，与空数组难以区分，
+    //   所以默认转 undefined（保留 use 链继承语义）。
+    optionalDomains: optionalDomains.length > 0 ? optionalDomains : undefined,
     groups,
     tagline,
     use,
