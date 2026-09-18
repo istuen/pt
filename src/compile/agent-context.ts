@@ -222,13 +222,10 @@ export function resolveDomains(
   //   必填：过滤掉（Domain.modules 不在 profileGroup.modules 白名单 → 不进聚合组）
   //   可选：同样过滤，但记录"找到但无匹配段"的 rawRef 供 scan 报 optional-domain-no-matching-section（warning）
   const mods = profileGroup?.modules ?? [];
-  const filterDomain = (d: Domain): boolean =>
-    mods.some((m) => d.modules[m.section] !== undefined);
+  const filterDomain = (d: Domain): boolean => mods.some((m) => d.modules[m.section] !== undefined);
 
   const requiredDomains = requiredResolved.map((r) => r.asset).filter(filterDomain);
-  const optionalMatched = optionalResolved
-    .filter((r) => filterDomain(r.asset))
-    .map((r) => r.asset);
+  const optionalMatched = optionalResolved.filter((r) => filterDomain(r.asset)).map((r) => r.asset);
   const optionalNoMatch = optionalResolved
     .filter((r) => !filterDomain(r.asset))
     .map((r) => r.rawRef);
