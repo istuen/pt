@@ -282,6 +282,12 @@ export interface Profile {
    *  循环检测 + 菱形处理：路径 visited（每层 new Set，§5.3.3 M4）
    *  越权校验：use 场景 error（§5.5.1 S7） */
   use?: string;
+  /**
+   * v16：可选 domain ref 列表。找不到不阻断（info 级诊断）。
+   * 用于 fullstack profile 声明 prj 可选 slot——prj 有同名 domain 则填充，无则 slot 空。
+   * 与 domains 的区别：domains 必填（找不到走 error/warning）；optional-domains 可选（找不到走 info）。
+   * 不参与 use 链合并（use 暂不支持 optional-domains 继承）。 */
+  optionalDomains?: string[];
 }
 
 // ==================== 产物层：AgentContext ====================

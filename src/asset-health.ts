@@ -27,8 +27,8 @@ import type { Blueprint, Domain, Profile, SourceAdapterContext } from "./schema.
 
 // ==================== 公共类型 ====================
 
-/** 问题严重程度。error 必须修；warning 可延后。 */
-export type IssueSeverity = "error" | "warning";
+/** 问题严重程度。error 必须修；warning 可延后；info 是预期但值得告知。 */
+export type IssueSeverity = "error" | "warning" | "info";
 
 /** 问题归属：profile / blueprint / domain。本 issue v1 范围只产 profile 类。 */
 export type IssueScope = "profile" | "blueprint" | "domain";
@@ -49,13 +49,15 @@ export interface AssetHealthIssue {
   fix?: string;
 }
 
-/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id。 */
+/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id；v16 加 2 个 optional-domains 诊断 id。 */
 export type HealthRuleId =
   | "missing-modules"
   | "dangling-blueprint-ref"
   | "orphan-h2"
   | "empty-segment"
-  | "unknown-modname";
+  | "unknown-modname"
+  | "optional-domain-unresolved" // v16：可选 ref 找不到（info）——slot 空是预期行为
+  | "optional-domain-no-matching-section"; // v16：可选 ref 找到但 H2 段全不匹配 modules（warning）
 
 /** 资产健康扫描结果（按 profile 聚合）。 */
 export interface AssetHealthReport {

@@ -96,6 +96,11 @@ export async function parseProfile(
   const useRaw = asset.frontmatter.use;
   const use = typeof useRaw === "string" && useRaw.trim().length > 0 ? useRaw.trim() : undefined;
 
+  // v16：optional-domains——可选 domain ref，与 domains 同解析路径但语义不同（找不到不阻断）
+  //   用途：fullstack profile 声明 prj 可选 slot——prj 有同名 domain 则填充，无则 slot 空（info 级诊断）
+  //   sArr 返 [] 与 undefined 语义等价（都不贡献可选 domain），下游用 optionalDomains ?? [] 处理
+  const optionalDomains = sArr(asset.frontmatter["optional-domains"]);
+
   // groups：每个 H2 = 聚合组实例化
   //   - ### Domains → 追加到本聚合组的 Domain 名列表（v9 既有）
   //   - ### Modules → 本插槽填的聚合模块列表（v9.1+），modName 解析为 ModName 对象
@@ -127,6 +132,7 @@ export async function parseProfile(
         : stripProfileSuffix(asset.name),
     blueprint,
     domains,
+    optionalDomains,
     groups,
     tagline,
     use,
