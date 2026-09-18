@@ -200,6 +200,21 @@ export function bindFlowTemplate(tpl: BoundableTemplate, args: string): string {
   lines.push(`## 步骤`);
   tpl.steps.forEach((s: FlowStep, i: number) => {
     lines.push(`${i + 1}. ${replaceVars(s.desc, bound)}`);
+    // P2：激活 step.dataSource（输入参照） + step.output（期望产出）+ observe（验证参照）。
+    // 顺序为"输入→产出→验证"——体现 step 语义流；back-compat：三字段 optional，未填不渲染。
+    if (s.dataSource) {
+      const ds = s.dataSource;
+      const name = ds.name ?? "";
+      const path = ds.path ?? "";
+      const desc = ds.desc ?? "";
+      // 同时有 name + path 时把 path 包裹括号；只一个时直接输出那个。
+      const head = name && path ? `${name}（${path}）` : name || path;
+      const tail = desc ? ` — ${desc}` : "";
+      lines.push(`   - 输入参照：${head}${tail}`);
+    }
+    if (s.output) {
+      lines.push(`   - 期望产出：${replaceVars(s.output, bound)}`);
+    }
     if (s.observe && s.observe.length > 0) {
       lines.push(`   - 验证参照：${s.observe.join(", ")}`);
     }

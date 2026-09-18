@@ -283,8 +283,11 @@ export function buildManualDoc(
       lines.push(`- [ ] ${stepMatch[2]}`);
       continue;
     }
-    // observe 行（bindFlowTemplate 渲染的 "   - 验证参照：xxx"）→ checklist 子项
-    if (line.includes("验证参照：")) {
+    // P2：观察 / 产出 / 输入三类子项行（bindFlowTemplate 渲染的 "   - 验证参照：xxx" /
+    //   "   - 期望产出：xxx" / "   - 输入参照：xxx"）→ checklist 子项。
+    // 顺序：output / dataSource 在 observe 之后渲染（输入→产出→验证），但识别时统一处理，
+    //   渲染行 trim 后跟原顺序进 manual 文件——保持与 bindFlowTemplate 输出一致。
+    if (line.includes("验证参照：") || line.includes("期望产出：") || line.includes("输入参照：")) {
       lines.push(`  ${line.trim()}`);
       continue;
     }

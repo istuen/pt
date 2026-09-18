@@ -7,7 +7,7 @@
 // 替换 parse/domain.ts 中的 switch-case 主逻辑。switch-case 仅留兜底 default fallback。
 
 import { s, sArr, type Item } from "./shared.js";
-import type { FlowStep } from "../schema.js";
+import type { ExternalRef, FlowStep } from "../schema.js";
 
 /** 单个 H2 段内容解析器。 */
 export type DomainSectionParser = (items: Item[], sectionRaw: string) => unknown;
@@ -86,24 +86,78 @@ function collectSteps(itemName: string, sectionRaw: string): FlowStep[] {
   const steps: FlowStep[] = [];
   let inItem = false;
   let cur: FlowStep | null = null;
+  // P2 状态机：累积 dataSource 块（块式 YAML 形态）。非 null 时进入子字段收集模式。
+  let dsBuffer: Partial<ExternalRef> | null = null;
+  // dataSource 起始行的缩进，用于判定子行是否仍在块内。
+  let dsBaseIndent = 0;
+
+  const flushDataSource = () => {
+    if (dsBuffer && cur) {
+      // 仅当必填字段齐了才落 ExternalRef，避免输出空对象
+      if (dsBuffer.name && dsBuffer.path) {
+        cur.dataSource = dsBuffer as ExternalRef;
+      }
+    }
+    dsBuffer = null;
+  };
+
   for (const line of lines) {
     const h3 = line.match(/^###\s+(.+)$/);
     if (h3) {
+      flushDataSource();
       if (inItem) break;
-      if (h3[1].trim() === itemName) inItem = true;
+      if (h3[1]?.trim() === itemName) inItem = true;
       continue;
     }
     if (!inItem) continue;
+
+    // dataSource 子字段累积阶段：缩进 > dsBaseIndent 的 `key: value` 行入块。
+    if (dsBuffer) {
+      const sub = line.match(/^(\s+)([a-zA-Z_][\w-]*)\s*:\s*(.+)$/);
+      if (sub?.[1] && sub[2] && sub[3] && sub[1].length > dsBaseIndent) {
+        const key = sub[2];
+        const val = sub[3].trim();
+        // 只认 ExternalRef 已知字段，避免灌入垃圾字段（如 "extra: x"）
+        if (key === "name" || key === "path" || key === "desc") {
+          (dsBuffer as Record<string, string>)[key] = val;
+        } else if (key === "protocol") {
+          // protocol 是字面量联合（"api" | "db" | "file"），未知值丢弃——避免下游 string 错配
+          if (val === "api" || val === "db" || val === "file") {
+            dsBuffer.protocol = val;
+          }
+        }
+        continue;
+      }
+      // 块结束：flush，回到正常分支让当前行重判。
+      flushDataSource();
+    }
+
     const stepMatch = line.match(/^\s*-\s+step\s*:\s*(.+)$/);
     if (stepMatch) {
+      flushDataSource();
       if (cur) steps.push(cur);
-      cur = { desc: stepMatch[1].trim() };
+      cur = { desc: stepMatch[1]?.trim() ?? "" };
       continue;
     }
+
+    // P2：dataSource 块起始（空冒号，紧随缩进的子字段）
+    const dsStart = line.match(/^\s*-\s+dataSource\s*:\s*$/);
+    if (dsStart && cur) {
+      dsBaseIndent = (line.match(/^(\s*)/)?.[1] ?? "").length;
+      dsBuffer = {};
+      continue;
+    }
+
+    // P2：output 行内值（单行文本，不支持块式——output 是简短产出说明）
+    const outputMatch = line.match(/^\s*-\s+output\s*:\s*(.+)$/);
+    if (outputMatch && cur) {
+      cur.output = outputMatch[1]?.trim();
+      continue;
+    }
+
     const observeMatch = line.match(/^\s*-\s+observe\s*:\s*(.+)$/);
     if (observeMatch && cur) {
-      const val = observeMatch[1].trim();
-      // 支持 [a, b] 数组格式 和 单值格式
+      const val = observeMatch[1]?.trim() ?? "";
       const arrMatch = val.match(/^\[(.*)\]$/);
       if (arrMatch) {
         cur.observe = arrMatch[1]
@@ -115,6 +169,7 @@ function collectSteps(itemName: string, sectionRaw: string): FlowStep[] {
       }
     }
   }
+  flushDataSource();
   if (cur) steps.push(cur);
   return steps;
 }
