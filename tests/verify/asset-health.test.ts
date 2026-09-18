@@ -323,4 +323,80 @@ domains: []
     expect(r.issues.filter((i) => i.msg.includes("不在 Blueprint")).length).toBe(1);
     expect(r.issues.filter((i) => i.msg.includes("modName「Foo」")).length).toBe(1);
   });
+
+  describe("6. optional-domain-unresolved (info)", () => {
+    it("profile.optional-domains 引用 prj 不存在的 domain → 报 info", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile({
+        optionalDomains: ["@prj/nonexistent"],
+      });
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const unresolved = r.issues.filter((i) =>
+        i.msg.includes("可选 domain「@prj/nonexistent」未创建")
+      );
+      expect(unresolved.length).toBe(1);
+      expect(unresolved[0]?.severity).toBe("info");
+      expect(unresolved[0]?.field).toBe("optional-domains");
+      // hint 提示如何填充
+      expect(unresolved[0]?.hint).toContain("nonexistent.md");
+    });
+
+    it("profile.optional-domains 含多个未解析 ref → 每个都报 info", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile({
+        optionalDomains: ["@prj/foo", "@prj/bar"],
+      });
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const unresolved = r.issues.filter((i) => i.msg.includes("未创建"));
+      expect(unresolved.length).toBe(2);
+      expect(unresolved.every((i) => i.severity === "info")).toBe(true);
+    });
+  });
+
+  describe("7. optional-domain-no-matching-section (warning)", () => {
+    it("prj 有 domain 但 H2 段全不匹配 modules → 报 warning", async () => {
+      const cwd = await makeCwd();
+      // domain d2 只有 Rules 段，但 profile 的 modules 过滤是 Scene
+      const profile = makeProfile({
+        optionalDomains: ["@prj/d2"],
+      });
+      const d2: Domain = {
+        name: "d2",
+        modules: { Rules: [{ name: "r1", type: "invariant", check: "x" }] },
+      };
+      const r = await scan(cwd, [profile], [makeBlueprint()], [d2]);
+      const noMatch = r.issues.filter((i) => i.msg.includes("无 H2 段匹配 modules"));
+      expect(noMatch.length).toBe(1);
+      expect(noMatch[0]?.severity).toBe("warning");
+      expect(noMatch[0]?.msg).toContain("@prj/d2");
+    });
+  });
+
+  describe("v16 back-compat", () => {
+    it("profile 不写 optional-domains → 不报 optional-* 规则", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile(); // 无 optionalDomains
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      expect(r.issues.filter((i) => i.field === "optional-domains")).toHaveLength(0);
+      expect(r.infos ?? 0).toBe(0);
+    });
+
+    it("profile.optional-domains=[] 空数组 → 等价不写（不报）", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile({ optionalDomains: [] });
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      expect(r.issues.filter((i) => i.field === "optional-domains")).toHaveLength(0);
+    });
+
+    it("prj 有 optional domain + H2 段匹配 modules → 解析成功不报（back-compat）", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile({
+        optionalDomains: ["@prj/d1"],
+      });
+      // makeDomain() 默认 d1.modules.Scene 有内容 + profile.modules 含 Scene → 匹配
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      // 解析成功 → 既不报 unresolved 也不报 no-match
+      expect(r.issues.filter((i) => i.field === "optional-domains")).toHaveLength(0);
+    });
+  });
 });

@@ -144,6 +144,21 @@ domains: [user-info, authoring, usage]
 ---
 ```
 
+**v16：`optional-domains` 字段（可选 domain slot）**——fullstack profile 专用，声明 prj 可选填的 slot（prj 有同名 domain 则填充，无则跳过 + info 级诊断）。
+
+```markdown
+---
+name: fullstack-dev
+blueprint: dev-knowledge
+domains: [base-terms]              # 必填
+optional-domains:                  # 可选：prj 可选填
+  - @prj/user-info
+  - @prj/product-design
+---
+```
+
+两种用法分离：fullstack profile 声明 `optional-domains` + prj 填 domain（不写 profile）vs prj 自己写 profile + `domains`（当前用法）。fullstack profile 直接激活走 `findActiveProfile` fallback，零加载机制改动。
+
 ### Agent Context — 编译后上下文
 
 Profile 编译后的产物，分两面——**Session Context**（每轮注入：会话背景、身份信息、触发索引）和 **Turn Context**（按需触发：推理时查阅的参考手册）。带 hash 缓存（`.pt/cache/agent-contexts/`），资产变了自动重编译。
