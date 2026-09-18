@@ -40,12 +40,23 @@ export function statusText(session: SessionState): string {
   const profileCount = session.cachedBundles?.reduce((acc, b) => acc + b.profiles.length, 0) ?? 0;
   // v14.x（issue pt-asset-migration-visibility Layer 2）：暴露 session_start 健康扫描结果
   const healthIssues = session.assetHealthIssues;
+  // v16：healthLine 加 info 计数（info=0 时省略，与 warning 处理一致——不刷屏）
   const healthLine =
     healthIssues === null
       ? "pt health: (not scanned)"
       : healthIssues.length === 0
         ? "pt health: ok"
-        : `pt health: ${healthIssues.length} issue${healthIssues.length > 1 ? "s" : ""} (${healthIssues.filter((i) => i.severity === "error").length} errors, ${healthIssues.filter((i) => i.severity === "warning").length} warnings)`;
+        : (() => {
+            const errors = healthIssues.filter((i) => i.severity === "error").length;
+            const warnings = healthIssues.filter((i) => i.severity === "warning").length;
+            const infos = healthIssues.filter((i) => i.severity === "info").length;
+            const parts = [
+              `${errors} errors`,
+              `${warnings} warnings`,
+              ...(infos > 0 ? [`${infos} infos`] : []),
+            ];
+            return `pt health: ${healthIssues.length} issue${healthIssues.length > 1 ? "s" : ""} (${parts.join(", ")})`;
+          })();
   // v15.x PR1（§6.7.6）：暴露 session_start pack 校验结果——每个 pack ✅ / ⚠ DEGRADED + 原因。
   // pack 健康区别于 healthLine 的 profile 配置体检：pack 健康是"加载层健康"，profile 健康是"资产内容健康"。
   const packValidation = session.packValidation;
@@ -316,10 +327,12 @@ export interface CheckOptions {
 export interface CheckResult {
   /** 格式化后的多行文本（biome 风格）。 */
   output: string;
-  /** issue 数（errors + warnings）。 */
+  /** issue 数（errors + warnings + infos）。 */
   issueCount: number;
   errors: number;
   warnings: number;
+  /** v16：info 数（optional-domains slot 空等预期行为）——缺省 0（back-compat）。 */
+  infos?: number;
 }
 
 /** /pt check 内核：从 session.assetHealthIssues（已扫）格式化输出。
@@ -345,6 +358,7 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
       issueCount: 0,
       errors: 0,
       warnings: 0,
+      infos: 0,
     };
   }
   // 过滤
@@ -358,7 +372,7 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
     const okMsg = opts.profileName
       ? `✓ Profile「${opts.profileName}」配置正常`
       : "✓ 项目所有 Profile 配置正常";
-    return { output: okMsg, issueCount: 0, errors: 0, warnings: 0 };
+    return { output: okMsg, issueCount: 0, errors: 0, warnings: 0, infos: 0 };
   }
 
   // 按 profile 分组（biome 风格：file → issues 列表）
@@ -373,8 +387,9 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
   for (const [profileName, profIssues] of byProfile) {
     lines.push(`${profileName}.profile.md`);
     for (const i of profIssues) {
-      const mark = i.severity === "error" ? "×" : "⚠";
-      const sev = i.severity === "error" ? "error" : "warning";
+      // v16：info 分支——可选 domain slot 空是预期行为，用 ℹ 标识
+      const mark = i.severity === "error" ? "×" : i.severity === "warning" ? "⚠" : "ℹ";
+      const sev = i.severity;
       const where = i.field ? ` ${i.field}` : "";
       lines.push(`  ${mark} [${sev}]${where} ${i.msg}`);
       if (i.hint) lines.push(`     hint: ${i.hint}`);
@@ -388,9 +403,13 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
   // summary
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
+  // v16：info 计数——optional-domain-unresolved 等预期行为的诊断
+  const infoCount = issues.filter((i) => i.severity === "info").length;
   lines.push("");
+  // v16：info 数 > 0 时附加（info=0 时省略，与 warning 处理一致——不刷屏）
+  const infoSuffix = infoCount > 0 ? `, ${infoCount} info${infoCount > 1 ? "s" : ""}` : "";
   lines.push(
-    `× ${errorCount} error${errorCount > 1 ? "s" : ""}, ${warningCount} warning${warningCount > 1 ? "s" : ""}`
+    `× ${errorCount} error${errorCount > 1 ? "s" : ""}, ${warningCount} warning${warningCount > 1 ? "s" : ""}${infoSuffix}`
   );
   lines.push(`  hint: 查看 .pt/docs/migrations/v9.0-to-v9.1-modules.md 修复指南`);
   if (errorCount > 0 && !opts.fix) {
@@ -401,5 +420,6 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
     issueCount: issues.length,
     errors: errorCount,
     warnings: warningCount,
+    infos: infoCount,
   };
 }

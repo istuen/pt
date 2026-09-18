@@ -19,8 +19,9 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { compileAgentContext } from "./compile/agent-context.js";
+import { compileAgentContext, resolveDomains } from "./compile/agent-context.js";
 import type { AssetPack } from "./schema.js";
+import { refName } from "./schema.js";
 import { PROFILES_DIR } from "./constants.js";
 import { KNOWN_SECTION_NAMES } from "./parse/profile.js";
 import type { Blueprint, Domain, Profile, SourceAdapterContext } from "./schema.js";
@@ -64,6 +65,8 @@ export interface AssetHealthReport {
   issues: AssetHealthIssue[];
   errors: number;
   warnings: number;
+  /** v16：info 数（optional-domain-unresolved 等预期行为的诊断）。 */
+  infos?: number;
 }
 
 // ==================== 主入口 ====================
@@ -209,6 +212,45 @@ export async function scanProjectHealth(
           hint: `检查 Profile 的 \`### Modules\` 配置、Blueprint groups 名匹配、Domain H2 段名`,
         });
       }
+
+      // v16：optional-domains 三态诊断（规则 6 + 7）
+      //   复用 empty-segment 检查已构造的 workingSet + bpGroup 遍历
+      //   - optionalMissing：可选 ref 找不到（info）—— slot 空是预期行为
+      //   - optionalNoMatch：可选 ref 找到但 H2 段全不匹配 modules（warning）
+      for (const bpGroup of blueprint.groups) {
+        const profileGroup = profile.groups.find((g) => g.name === bpGroup.name);
+        const { optionalMissing, optionalNoMatch } = resolveDomains(
+          profileForCompile,
+          profileGroup,
+          bpGroup,
+          {
+            domains: { location: domainLocWS, identity: domainIdWS },
+            blueprints: { location: blueprintLocWS, identity: blueprintIdWS },
+            profiles: { location: new Map(), identity: new Map() },
+          },
+          packs.map((p) => p.name)
+        );
+        for (const raw of optionalMissing) {
+          issues.push({
+            severity: "info",
+            scope: "profile",
+            name: profile.name,
+            field: "optional-domains",
+            msg: `Profile「${profile.name}」的可选 domain「${raw}」未创建（slot 空）`,
+            hint: `这是预期行为。如需填充：在 prj domains/ 创建 ${refName(raw)}.md`,
+          });
+        }
+        for (const raw of optionalNoMatch) {
+          issues.push({
+            severity: "warning",
+            scope: "profile",
+            name: profile.name,
+            field: "optional-domains",
+            msg: `Profile「${profile.name}」的可选 domain「${raw}」已创建但无 H2 段匹配 modules`,
+            hint: `检查 ${refName(raw)}.md 的 H2 段名 vs Profile 的 ### Modules 列表`,
+          });
+        }
+      }
     } catch (e) {
       adapterCtx?.log?.debug("scanProjectHealth:compile failed", {
         profile: profile.name,
@@ -245,13 +287,15 @@ export async function scanProjectHealth(
 
   const errors = issues.filter((i) => i.severity === "error").length;
   const warnings = issues.filter((i) => i.severity === "warning").length;
+  const infos = issues.filter((i) => i.severity === "info").length;
   adapterCtx?.log?.info("scanProjectHealth:done", {
     profileCount: profiles.length,
     issueCount: issues.length,
     errors,
     warnings,
+    infos,
   });
-  return { issues, errors, warnings };
+  return { issues, errors, warnings, infos };
 }
 
 // ==================== unknown-modname 规则辅助 ====================
