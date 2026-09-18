@@ -105,12 +105,24 @@ describe("Phase 9.9 v9 完整回归", () => {
   // ========== 3. Blueprint 复用 ==========
   describe("3. Blueprint 复用", () => {
     it("dev-knowledge Blueprint 被 ≥2 个 Profile 引用", async () => {
-      const profileFiles = (await readdir(join(cwd, ".pt/assets/profiles"))).filter((f) =>
-        f.endsWith(".profile.md")
-      );
+      // v16 (issue pt-project-profiles-refactor-optional-domains)：pt-* profile 移到 fullstack pack，
+      // 不在 .pt/assets/profiles/ 下。扫多个路径（项目 assets + fullstack packs）找所有 profile 文件。
+      const projectProfilesDir = join(cwd, ".pt/assets/profiles");
+      const fullstackProfilesDir = join(cwd, ".pt/packs/fullstack/profiles");
+      const profileFiles: string[] = [];
+      for (const dir of [projectProfilesDir, fullstackProfilesDir]) {
+        try {
+          const files = (await readdir(dir)).filter((f) => f.endsWith(".profile.md"));
+          for (const f of files) {
+            profileFiles.push(join(dir, f));
+          }
+        } catch {
+          // 目录不存在跳过
+        }
+      }
       const refCounts: Record<string, number> = {};
-      for (const f of profileFiles) {
-        const raw = await readFile(join(profilesDir(), f), "utf8");
+      for (const fp of profileFiles) {
+        const raw = await readFile(fp, "utf8");
         const m = raw.match(/^blueprint:\s+(.+)$/m);
         const bp = m ? m[1].trim() : "";
         if (bp) refCounts[bp] = (refCounts[bp] ?? 0) + 1;
@@ -123,7 +135,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("5. v9 注入点 H2", () => {
     it("pt-dev Context 含 ## 会话背景 + ## 触发索引 + ## 参考手册，不含 ## Scene / ## Manual", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
       expect(/^## 会话背景/m.test(raw)).toBe(true);
@@ -138,7 +150,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("6. pt-quality 进参考手册不污染会话背景/触发索引", () => {
     it("pt-quality Manual 段出现在 pt-dev 参考手册", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
       const canKaoIdx = raw.indexOf("## 参考手册");
@@ -162,7 +174,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("pt-quality Manual 规范 checklist 不污染会话背景段", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
       const _canKaoIdx = raw.indexOf("## 参考手册");
@@ -180,7 +192,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("7. Trigger 独立索引段", () => {
     it("pt-quality-trigger 出现在触发索引段", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
       // Phase term-naming：Trigger 拉出作独立段（不再是会话背景的一部分）
@@ -197,7 +209,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   describe("8. user-info Domain 进入会话背景", () => {
     it("user-info Domain 段出现在会话背景", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
       const huiHuaIdx = raw.indexOf("## 会话背景");
@@ -209,7 +221,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("user-info 含 user-profile/pt-goal/collab-mode + user-role-po/tl", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
       expect(raw).toContain("user-profile");
@@ -268,9 +280,18 @@ describe("Phase 9.9 v9 完整回归", () => {
     it("channels/ 目录不存在", async () => {
       await expect(readdir(join(cwd, ".pt/assets/channels"))).rejects.toThrow();
     });
-    it("profiles/ 目录存在", async () => {
-      const files = await readdir(join(cwd, ".pt/assets/profiles"));
-      expect(files.length).toBeGreaterThan(0);
+    it("profile 资源存在（项目 assets 或 fullstack pack 任一即可）", async () => {
+      // v16：pt-* profile 在 fullstack pack，不在项目 assets/profile。
+      // profile 资源总数（项目 .pt/assets/profiles/ + .pt/packs/fullstack/profiles/）≥1。
+      const dirs = [join(cwd, ".pt/assets/profiles"), join(cwd, ".pt/packs/fullstack/profiles")];
+      let total = 0;
+      for (const d of dirs) {
+        try {
+          const files = (await readdir(d)).filter((f) => f.endsWith(".profile.md"));
+          total += files.length;
+        } catch {}
+      }
+      expect(total).toBeGreaterThan(0);
     });
   });
 
@@ -575,7 +596,4 @@ describe("Phase 9.9 v9 完整回归", () => {
   });
 });
 
-// Helper（profilesDir）
-function profilesDir(): string {
-  return join(cwd, ".pt/assets/profiles");
-}
+// Helper（profilesDir）— v16 改造后已不再使用，保留空以备未来需要。

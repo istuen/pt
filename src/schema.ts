@@ -551,15 +551,21 @@ export function refName(ref: string): string {
  *  render 层（turn-inject）需要反向依赖它，放 schema.ts 避免层次倒挂。commands.ts 改 import。
  *  v15.x（issue pt-domain-abstraction-and-generic-profiles）：ref normalize——profile.domains
  *  可写 `@fullstack/dev-process`（限定来源 pack），refName 取尾段匹配 d.name。
+ *  v16（issue pt-project-profiles-refactor-optional-domains）：加 optionalDomains 考虑——
+ *  prj 通过 optional-domains slot 填的 domain 也应被选中（否则 renderTurnInject /manual:xxx 找不到）。
  *  profile 为 null 时返 domains 原样（向后兼容——无激活 Profile 时不限制）。 */
 export function filterDomainsByProfile<T extends { name: string }>(
   domains: T[],
   profile: Profile | null
 ): T[] {
   if (!profile) return domains;
-  return domains.filter((d) => {
-    const profileDomainNames = profile.domains.map(refName);
-    if (profileDomainNames.includes(d.name)) return true;
-    return profile.groups.some((g) => g.domains.map(refName).includes(d.name));
-  });
+  const profileDomainNames = new Set(profile.domains.map(refName));
+  const optionalDomainNames = new Set((profile.optionalDomains ?? []).map(refName));
+  const groupDomainNames = new Set(profile.groups.flatMap((g) => g.domains.map(refName)));
+  return domains.filter(
+    (d) =>
+      profileDomainNames.has(d.name) ||
+      optionalDomainNames.has(d.name) ||
+      groupDomainNames.has(d.name)
+  );
 }
