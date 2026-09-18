@@ -152,14 +152,20 @@ function isRecord(x: unknown): x is Record<string, unknown> {
  * 场景 A/B/C（同 fp）→ dedup 后 1 份；场景 D/E/F（不同 fp）→ 保留多份。
  *
  * 错误信息含 loadedPackNames 帮用户定位（§4.5.1）。 */
+export interface ResolveResult<T = unknown> {
+  resolved: Array<{ pack: AssetPack; asset: T; fp: string; rawRef: string }>;
+  /** collectMissing=true 时收集未解析的 ref（skipOnMissing=true 且找不到的 raw 字符串）。 */
+  missing?: string[];
+}
 export function resolveAndDedupRefs<T extends { name: string }>(
   refs: string[],
   self: Profile,
   workingSet: WorkingSet<T>,
   loadedPackNames: string[],
-  options: { skipOnMissing?: boolean } = {}
-): Array<{ pack: AssetPack; asset: T; fp: string; rawRef: string }> {
+  options: { skipOnMissing?: boolean; collectMissing?: boolean } = {}
+): ResolveResult<T> {
   const resolved: Array<{ pack: AssetPack; asset: T; fp: string; rawRef: string }> = [];
+  const missing: string[] = [];
   for (const raw of refs) {
     const { kind, pack: packName, name } = parseRef(raw, self.sourcePack ?? "");
     const ws = kind === "location" ? workingSet.location : workingSet.identity;
@@ -180,7 +186,11 @@ export function resolveAndDedupRefs<T extends { name: string }>(
     }
     if (!entry) {
       // skipOnMissing：scan 场景用——静默跳过不存在的 ref（与 dedupByNameN 旧行为一致）
-      if (options.skipOnMissing) continue;
+      if (options.skipOnMissing) {
+        // v16：collectMissing 模式收集未解析 ref（供 optional-domain-unresolved 诊断）
+        if (options.collectMissing) missing.push(raw);
+        continue;
+      }
       throw new Error(
         `Profile "${self.name}" references "@${packName}/${name}" but pack "${packName}" has no asset "${name}". ` +
           `Loaded packs: [${loadedPackNames.join(", ")}]`
@@ -195,5 +205,7 @@ export function resolveAndDedupRefs<T extends { name: string }>(
   for (const r of resolved) {
     byFp.set(r.fp, r); // 同 fp 后写覆盖前写 = 后者赢
   }
-  return [...byFp.values()]; // 保留首次插入顺序
+  const deduped = [...byFp.values()]; // 保留首次插入顺序
+  // v16：collectMissing 模式返 { resolved, missing }；否则仅返 resolved（destructuring 兼容 back-compat）
+  return options.collectMissing ? { resolved: deduped, missing } : { resolved: deduped };
 }
