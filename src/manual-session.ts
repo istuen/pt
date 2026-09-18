@@ -27,9 +27,11 @@ import type {
   ExtensionContext,
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
+import { resolve as pathResolve } from "node:path";
 import {
   checkManualCompletion,
   isManualActive,
+  manualProgressEqual,
   parseManualProgress,
   renderManualFooterSuffix,
   renderManualWidgetLines,
@@ -107,7 +109,10 @@ function renderActiveManualSuffix(session: SessionState): string {
 /** 刷新 footer 注入状态 + manual 后缀（合并写一次 setStatus）。
  *  v14.x（issue pt-asset-migration-visibility Layer 2）：assetHealthIssues.length 透传给
  *  renderInjectionFooter → footer 末尾追加 ⚠ N issues（染色）。
- *  v14.x（tagline）：从 cachedProfile.tagline 读，footer 拼 `: <tagline>`。 */
+ *  v14.x（tagline）：从 cachedProfile.tagline 读，footer 拼 `: <tagline>`。
+ *  P1：与上次 setStatus 字符串比较去重——tool_result + turn_end 双钩子刷新时，injectionState
+ *  与 activeProfile 等字段通常未变，footer 文本也不会变，跳过 setStatus 避免无变化 IPC。
+ *  字符串比较覆盖所有写入 base/suffix/healthCount/tagline 的字段。 */
 function refreshInjectionFooter(ui: ExtensionUIContext, session: SessionState): void {
   const suffix = renderActiveManualSuffix(session);
   const healthCount = session.assetHealthIssues?.length ?? 0;
@@ -120,7 +125,12 @@ function refreshInjectionFooter(ui: ExtensionUIContext, session: SessionState): 
     "auto",
     tagline
   );
-  ui.setStatus("pt", suffix ? `${base} ${suffix}` : base);
+  const text = suffix ? `${base} ${suffix}` : base;
+  if (session.lastFooterText === text) {
+    return; // 未变，跳过 setStatus IPC
+  }
+  session.lastFooterText = text;
+  ui.setStatus("pt", text);
 }
 
 /** 刷新 widget（aboveEditor）。根据 session.activeManual 决定显示/撤掉。
@@ -130,22 +140,38 @@ function refreshInjectionFooter(ui: ExtensionUIContext, session: SessionState): 
  *  - in-progress → 渲染 3 行 widget + 更新 cachedManualProgress（footer 同步读）
  *  v12.x：state 全部从 session 参数读，不再读写 module-level 单例。
  *  v15.x（issue pt-manual-completion-check-too-loose）：用 checkManualCompletion 替代 `p.status === "completed"`,
- *  让伪完成的 manual 仍 active（widget 重新挂载，提示用户步骤未全完成）。 */
+ *  让伪完成的 manual 仍 active（widget 重新挂载，提示用户步骤未全完成）。
+ *  P1：用 manualProgressEqual 浅比较去重——tool_result / turn_end 双钩子高频调用本函数，
+ *  进度未变时只更新缓存不发 setWidget IPC（节省 ~70% 无效 IPC，见 pt-workspace-boundary-calibration §2.3）。 */
 async function refreshManualWidget(ui: ExtensionUIContext, session: SessionState): Promise<void> {
   const m = session.activeManual;
   if (!m) {
+    const prev = session.cachedManualProgress;
     session.cachedManualProgress = null;
+    if (prev === null) {
+      return; // 本来就是 null，不发 setWidget(undefined) IPC
+    }
+    session.lastFooterText = null; // 重置 footer 缓存，让下次 footer 刷新重写
     ui.setWidget("pt-manual", undefined);
     return;
   }
   const p = await parseManualProgress(m.filePath);
   if (!p || !checkManualCompletion(p)) {
     session.activeManual = null;
+    const prev = session.cachedManualProgress;
     session.cachedManualProgress = null;
-    ui.setWidget("pt-manual", undefined);
+    if (prev !== null) {
+      session.lastFooterText = null;
+      ui.setWidget("pt-manual", undefined);
+    }
     return;
   }
+  const prev = session.cachedManualProgress;
   session.cachedManualProgress = p;
+  if (manualProgressEqual(prev, p)) {
+    return; // 进度未变，跳过 setWidget IPC（footer 由 caller 调，会自己走字符串去重）
+  }
+  session.lastFooterText = null; // widget 内容变了，footer 后缀也变了，重置 footer 缓存
   ui.setWidget("pt-manual", renderManualWidgetLines(m.filePath, p), {
     placement: "aboveEditor",
   });
@@ -185,7 +211,22 @@ function resetManualSession(_session: SessionState): void {
   // no-op: state 已在 session_shutdown 时通过 clearSessionById 删除
 }
 
+/** 跨平台路径归一比较（resolve 后字符串比较）。
+ *  - 绝对路径优先：path.resolve 解析 `..`/`./`/`~/` 与当前 cwd，等价字符串视为同一文件
+ *  - resolve 抛错时退化为原字符串等比（极少触发，相对路径在某些 cwd 下解析失败）
+ *  P1：tool_result 钩子按 filePath 过滤 edit/write 时调用，规避 edit 工具 input.path 给的是
+ *  绝对/相对/cwd-相对混合形态时漏刷。 */
+function pathEquals(a: string, b: string): boolean {
+  if (a === b) return true;
+  try {
+    return pathResolve(a) === pathResolve(b);
+  } catch {
+    return a === b;
+  }
+}
+
 export {
+  pathEquals,
   persistManualToSession,
   refreshInjectionFooter,
   refreshManualWidget,

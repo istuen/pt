@@ -65,6 +65,7 @@ import {
 import { loadAndTranspile } from "./transpile.js";
 import type { AgentAPI } from "./schema.js";
 import {
+  pathEquals,
   persistManualToSession,
   refreshInjectionFooter,
   refreshManualWidget,
@@ -93,11 +94,13 @@ interface PiToolCallEvent {
   toolName?: string;
 }
 
-/** pi.on("tool_result", handler) event 形状。 */
+/** pi.on("tool_result", handler) event 形状。
+ *  P1：扩展 input 字段（edit/write 工具含 `path`，详见 pi extensions.md tool_result 段）。 */
 interface PiToolResultEvent {
   name?: string;
   toolName?: string;
   isError?: boolean;
+  input?: { path?: string; [k: string]: unknown };
 }
 
 /** 从 ExtensionContext 拿 sessionId（tool / command handler ctx 形态）。 */
@@ -517,6 +520,15 @@ export default function (pi: ExtensionAPI): void {
       reason: e.reason,
       messageCount: e.messageCount,
     });
+    // P1 兜底：turn 结束时刷 manual（捕获 bash/powershell 改 manual + tool_result 漏检场景）。
+    // refreshManualWidget 内部浅比较去重，进度未变时不发 IPC。频率 ~60/h，远低于 tool_result，
+    // 作为兜底可接受。
+    const sessionId = getSessionIdFromCtx(ctx);
+    const s = sessionId ? getSessionById(sessionId) : null;
+    if (s?.activeManual) {
+      await refreshManualWidget(ctx.ui, s);
+      refreshInjectionFooter(ctx.ui, s);
+    }
   });
   pi.on("agent_settled", async (_event, ctx) => {
     slog(getSessionIdFromCtx(ctx), "debug", "agent:settled");
@@ -527,10 +539,24 @@ export default function (pi: ExtensionAPI): void {
   });
   pi.on("tool_result", async (event, ctx) => {
     const e = event as PiToolResultEvent;
+    const toolName = e.name ?? e.toolName;
     slog(getSessionIdFromCtx(ctx), "debug", "tool:result", {
-      name: e.name ?? e.toolName,
+      name: toolName,
       isError: e.isError,
     });
+    // P1：edit/write 命中 activeManual 文件 → 刷新 widget（精准过滤，不全量刷 edit/write）。
+    // 设计文档：pt-workspace-boundary-calibration §1 / §2.3 方案 1a + 浅比较去重。
+    // edit 工具 schema 含 `path` 字段（pi dist/core/tools/edit.d.ts EditSchema.path: TString），
+    // write 工具同样含 path。
+    const sessionId = getSessionIdFromCtx(ctx);
+    const s = sessionId ? getSessionById(sessionId) : null;
+    if (s?.activeManual && (toolName === "edit" || toolName === "write")) {
+      const changedPath = e.input?.path;
+      if (changedPath && pathEquals(changedPath, s.activeManual.filePath)) {
+        await refreshManualWidget(ctx.ui, s);
+        refreshInjectionFooter(ctx.ui, s);
+      }
+    }
   });
 
   // ========== /pt-profile 命令：即时切换 ==========

@@ -92,6 +92,9 @@ export interface SessionState {
   activeManual: ActiveManual | null;
   /** v12.x：当前 manual widget 的 async parse 缓存（替代原 module-level `cachedManualProgress`）。 */
   cachedManualProgress: ManualProgress | null;
+  /** P1：上次 setStatus("pt", ...) 写入的字符串（refreshInjectionFooter 字符串去重缓存）。
+   *  进度/injection/profile 都未变时跳过 setStatus IPC，null 表示待首次写入或刚重置。 */
+  lastFooterText: string | null;
   /** v14.x（issue pt-asset-migration-visibility Layer 2）：
    *  session_start 批量体检结果——footer 追加 ⚠ N issues + /pt status 暴露。
    *  null = 未扫描（用户加载内置 profile 后才扫描过项目 profile）。 */
@@ -123,6 +126,7 @@ export function createSessionState(): SessionState {
     injectionError: null,
     activeManual: null,
     cachedManualProgress: null,
+    lastFooterText: null,
     assetHealthIssues: null,
     packValidation: null,
     projectPackDegraded: false,

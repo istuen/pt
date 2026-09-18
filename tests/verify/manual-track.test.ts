@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest";
 import { join } from "node:path";
 import {
   isManualActive,
+  manualProgressEqual,
   parseManualProgress,
   parseManualProgressFromContent,
   renderManualFooterSuffix,
@@ -192,5 +193,64 @@ describe("isManualActive", () => {
 
   it("文件不存在 → false", async () => {
     expect(await isManualActive(join(FIX, "nope.md"))).toBe(false);
+  });
+});
+
+describe("manualProgressEqual（P1：浅比较去重核心）", () => {
+  const baseProgress = {
+    procedure: "feature-lifecycle",
+    stepDone: 2,
+    stepTotal: 6,
+    status: "in-progress",
+    nextStep: "step3",
+    stepOutcomes: [],
+    hasUnfinishedOutcome: false,
+    pseudoComplete: false,
+  };
+
+  it("两个 null → true", () => {
+    expect(manualProgressEqual(null, null)).toBe(true);
+  });
+
+  it("一个 null 一个非 null → false", () => {
+    expect(manualProgressEqual(null, baseProgress)).toBe(false);
+    expect(manualProgressEqual(baseProgress, null)).toBe(false);
+  });
+
+  it("5 字段全同（含派生字段差异）→ true", () => {
+    // stepOutcomes / hasUnfinishedOutcome / pseudoComplete 故意不同，但 5 字段全同应判等
+    const other = {
+      ...baseProgress,
+      stepOutcomes: [{ stepIndex: 1, outcome: "COMPLETED" as const }],
+      hasUnfinishedOutcome: true,
+      pseudoComplete: true,
+    };
+    expect(manualProgressEqual(baseProgress, other)).toBe(true);
+  });
+
+  it("procedure 不同 → false", () => {
+    expect(
+      manualProgressEqual(baseProgress, { ...baseProgress, procedure: "issue-lifecycle" })
+    ).toBe(false);
+  });
+
+  it("stepDone 不同 → false", () => {
+    expect(manualProgressEqual(baseProgress, { ...baseProgress, stepDone: 3 })).toBe(false);
+  });
+
+  it("stepTotal 不同 → false", () => {
+    expect(manualProgressEqual(baseProgress, { ...baseProgress, stepTotal: 7 })).toBe(false);
+  });
+
+  it("status 不同 → false", () => {
+    expect(manualProgressEqual(baseProgress, { ...baseProgress, status: "completed" })).toBe(false);
+  });
+
+  it("nextStep 不同 → false", () => {
+    expect(manualProgressEqual(baseProgress, { ...baseProgress, nextStep: "step4" })).toBe(false);
+  });
+
+  it("同一引用 → true（短路引用相等）", () => {
+    expect(manualProgressEqual(baseProgress, baseProgress)).toBe(true);
   });
 });
