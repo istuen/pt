@@ -366,7 +366,7 @@ blueprint: bp
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 `
     );
@@ -476,14 +476,14 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
   });
 
   it("不限定 foo + selfPack=prj 但 prj 缺 → fallback 到 pt 命中（核心场景：fix warn false-positive）", () => {
-    const ws = makeWS([["pt/dev-knowledge", { pack: pt, asset: makeBlueprint("dev-knowledge") }]]);
+    const ws = makeWS([["pt/pt-default", { pack: pt, asset: makeBlueprint("pt-default") }]]);
     const result = resolveBlueprint(
-      { blueprint: "dev-knowledge", sourcePack: "prj" },
+      { blueprint: "pt-default", sourcePack: "prj" },
       ws,
       packNames
     );
     expect(result?.pack.name).toBe("pt");
-    expect(result?.asset.name).toBe("dev-knowledge");
+    expect(result?.asset.name).toBe("pt-default");
   });
 
   it("不限定 foo + prj 命中 → 返 prj entry（前者赢，不 fallback）", () => {

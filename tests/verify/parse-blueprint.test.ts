@@ -22,12 +22,12 @@ describe("parseBlueprint", () => {
   it("groups 项解析", async () => {
     const bp = await parseBlueprint(FIXTURE_DIR, "blueprint.yaml");
     const groupNames = bp.groups.map((g) => g.name).sort();
-    expect(groupNames).toEqual(["会话背景", "参考手册", "触发索引"]);
+    expect(groupNames).toEqual(["session-context", "reference-manual", "trigger-index"]);
   });
 
   it("聚合组字段：inject + mode（v9.1 modules 迁移到 Profile）", async () => {
     const bp = await parseBlueprint(FIXTURE_DIR, "blueprint.yaml");
-    const sessionGroup = bp.groups.find((g) => g.name === "会话背景");
+    const sessionGroup = bp.groups.find((g) => g.name === "session-context");
     expect(sessionGroup?.inject).toBe("session");
     expect(sessionGroup?.mode).toBe("hybrid");
     // v9.1：BlueprintGroup.modules 已删除——modules 由 ProfileGroup 提供

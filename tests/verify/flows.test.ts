@@ -9,9 +9,9 @@ import { loadAndTranspile } from "../../src/transpile.js";
 import { getAgentAdapter } from "../../src/agent/index.js";
 
 describe("Profile 触发手册（listManuals）", () => {
-  it("pt-design Profile 包含参考手册注入点（Phase term-P9.2：Rules/Flows/Checklists 三段）", async () => {
+  it("pt-design Profile 包含reference-manual注入点（Phase term-P9.2：Rules/Flows/Checklists 三段）", async () => {
     // pt-design 是设计型 profile（user-info + agent-info + product-design + asset-workflow + pt-collab）
-    // —— 当前未含 Rules/Flows/Checklists 段内容，但 Blueprint 的"参考手册"注入点已声明三段 schema。
+    // —— 当前未含 Rules/Flows/Checklists 段内容，但 Blueprint 的"reference-manual"注入点已声明三段 schema。
     // 验证：listManuals 返空（domain 没装手册内容时） + 注入点结构完整。
     const r = await loadAndTranspile(process.cwd(), "pt-design");
     const b = r.bundles[0];
@@ -26,7 +26,7 @@ describe("Profile 触发手册（listManuals）", () => {
     expect(flows).toEqual([]);
 
     // Blueprint 注入点声明 inject=turn——modules 由 ProfileGroup 提供（v9.1）
-    const manualIp = r.blueprint.groups.find((ip) => ip.name === "参考手册");
+    const manualIp = r.blueprint.groups.find((ip) => ip.name === "reference-manual");
     expect(manualIp?.inject).toBe("turn");
   });
 

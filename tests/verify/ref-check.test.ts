@@ -53,7 +53,7 @@ describe("P2: 引用完整性校验", () => {
     };
     const blueprint: Blueprint = {
       name: "bp1",
-      groups: [{ name: "会话背景", inject: "session" }],
+      groups: [{ name: "session-context", inject: "session" }],
     };
     const result = checkProfileRefs(profile, [blueprint], []);
     expect(result.ok).toBe(false);
@@ -69,7 +69,7 @@ describe("P2: 引用完整性校验", () => {
     };
     const blueprint: Blueprint = {
       name: "bp1",
-      groups: [{ name: "会话背景", inject: "session" }],
+      groups: [{ name: "session-context", inject: "session" }],
     };
     const result = checkProfileRefs(profile, [blueprint], []);
     expect(result.ok).toBe(true); // 无错误
@@ -88,8 +88,8 @@ describe("P2: 引用完整性校验", () => {
     const blueprint: Blueprint = {
       name: "bp1",
       groups: [
-        { name: "会话背景", inject: "session" },
-        { name: "参考手册", inject: "turn" },
+        { name: "session-context", inject: "session" },
+        { name: "reference-manual", inject: "turn" },
       ],
     };
     const d1 = { name: "d1", type: "term" as const, modules: {} };

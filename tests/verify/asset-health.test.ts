@@ -33,7 +33,7 @@ afterEach(async () => {
 function makeBlueprint(): Blueprint {
   return {
     name: "bp-bb",
-    groups: [{ name: "会话背景", inject: "session", mode: "hybrid" }],
+    groups: [{ name: "session-context", inject: "session", mode: "hybrid" }],
   };
 }
 
@@ -42,7 +42,7 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
     name: "ok-profile",
     blueprint: "bp-bb",
     domains: ["d1"],
-    groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
+    groups: [{ name: "session-context", domains: [], modules: [{ section: "Scene" }] }],
     ...overrides,
   };
 }
@@ -62,7 +62,7 @@ describe("scanProjectHealth", () => {
     it("ProfileGroup.modules 为空 → 报 error", async () => {
       const cwd = await makeCwd();
       const profile = makeProfile({
-        groups: [{ name: "会话背景", domains: [], modules: [] }],
+        groups: [{ name: "session-context", domains: [], modules: [] }],
       });
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       // missing-modules (error) + empty-segment (error，modules 空产出空段) = 2 errors
@@ -70,7 +70,7 @@ describe("scanProjectHealth", () => {
       const missing = r.issues.filter((i) => i.msg.includes("缺 ### Modules"));
       expect(missing.length).toBe(1);
       expect(missing[0]?.severity).toBe("error");
-      expect(missing[0]?.field).toBe("groups.会话背景.modules");
+      expect(missing[0]?.field).toBe("groups.session-context.modules");
     });
 
     it("ProfileGroup.modules 非空 → 不报", async () => {
@@ -110,7 +110,7 @@ describe("scanProjectHealth", () => {
       const cwd = await makeCwd();
       const profile = makeProfile({
         groups: [
-          { name: "会话背景", domains: [], modules: [{ section: "Scene" }] },
+          { name: "session-context", domains: [], modules: [{ section: "Scene" }] },
           { name: "未知聚合组", domains: [], modules: [{ section: "Trigger" }] },
         ],
       });
@@ -134,7 +134,7 @@ describe("scanProjectHealth", () => {
       const profile = makeProfile({
         domains: [],
         groups: [
-          { name: "会话背景", domains: ["nonexistent-domain"], modules: [{ section: "Scene" }] },
+          { name: "session-context", domains: ["nonexistent-domain"], modules: [{ section: "Scene" }] },
         ],
       });
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
@@ -172,7 +172,7 @@ blueprint: bp-bb
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 - Foo
@@ -183,7 +183,7 @@ domains: []
         name: "bad",
         blueprint: "bp-bb",
         domains: [],
-        groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
+        groups: [{ name: "session-context", domains: [], modules: [{ section: "Scene" }] }],
       };
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       const unknowns = r.issues.filter((i) => i.msg.includes("modName「"));
@@ -206,7 +206,7 @@ blueprint: bp-bb
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 - User.user-profile
@@ -216,7 +216,7 @@ domains: []
         name: "ok",
         blueprint: "bp-bb",
         domains: [],
-        groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
+        groups: [{ name: "session-context", domains: [], modules: [{ section: "Scene" }] }],
       };
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       expect(r.issues.filter((i) => i.msg.includes("modName「"))).toHaveLength(0);
@@ -243,7 +243,7 @@ blueprint: bp-bb
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 `
@@ -252,7 +252,7 @@ domains: []
         name: "empty-mods",
         blueprint: "bp-bb",
         domains: [],
-        groups: [{ name: "会话背景", domains: [], modules: [] }], // missing-modules
+        groups: [{ name: "session-context", domains: [], modules: [] }], // missing-modules
       };
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       // unknown-modname 不报（Scene 合法）
@@ -270,7 +270,7 @@ describe("scanProjectHealth integration", () => {
     const cwd = await makeCwd();
     const p1 = makeProfile({
       name: "p1",
-      groups: [{ name: "会话背景", domains: [], modules: [] }], // missing-modules + empty-segment
+      groups: [{ name: "session-context", domains: [], modules: [] }], // missing-modules + empty-segment
     });
     const p2 = makeProfile({ name: "p2", blueprint: "ghost" }); // dangling only
     const p3 = makeProfile({ name: "p3" }); // ok
@@ -299,7 +299,7 @@ blueprint: bp-bb
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 - Foo
@@ -313,7 +313,7 @@ domains: []
       blueprint: "bp-bb",
       domains: [],
       groups: [
-        { name: "会话背景", domains: [], modules: [{ section: "Scene" }] },
+        { name: "session-context", domains: [], modules: [{ section: "Scene" }] },
         { name: "未知聚合组", domains: [], modules: [{ section: "Scene" }] },
       ],
     };
@@ -352,12 +352,12 @@ domains: []
 
     it("domain 部分贡献（只匹配部分 bpGroup）→ 不警告", async () => {
       const cwd = await makeCwd();
-      // blueprint 2 个 bpGroup：会话背景 (Scene/User) + 触发索引 (Trigger)
+      // blueprint 2 个 bpGroup：session-context (Scene/User) + trigger-index (Trigger)
       const blueprint: Blueprint = {
         name: "bp-multi",
         groups: [
-          { name: "会话背景", inject: "session", mode: "hybrid" },
-          { name: "触发索引", inject: "session" },
+          { name: "session-context", inject: "session", mode: "hybrid" },
+          { name: "trigger-index", inject: "session" },
         ],
       };
       // profile 同时实例化两个 bpGroup，modules 列表明确
@@ -366,12 +366,12 @@ domains: []
         blueprint: "bp-multi",
         domains: [],
         groups: [
-          { name: "会话背景", domains: [], modules: [{ section: "Scene" }, { section: "User" }] },
-          { name: "触发索引", domains: [], modules: [{ section: "Trigger" }] },
+          { name: "session-context", domains: [], modules: [{ section: "Scene" }, { section: "User" }] },
+          { name: "trigger-index", domains: [], modules: [{ section: "Trigger" }] },
         ],
         optionalDomains: ["@prj/d3"],
       };
-      // d3 只贡献会话背景（User 段），不贡献触发索引
+      // d3 只贡献session-context（User 段），不贡献trigger-index
       const d3: Domain = {
         name: "d3",
         modules: { User: [{ name: "u1", profile: "dev" }] },

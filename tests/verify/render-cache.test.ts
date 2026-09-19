@@ -26,7 +26,7 @@ function makeContext(overrides?: Partial<AgentContext>): AgentContext {
     blueprint: "test-bp",
     sourceHash: "abc12345-00000000",
     modules: {
-      会话背景: "some rendered content",
+      session-context: "some rendered content",
     },
     // v15.x PR2（§8.3）：cache 文件名用
     packName: "prj",
@@ -52,7 +52,7 @@ describe("saveAgentContext + loadAgentContext round-trip", () => {
     expect(loaded).not.toBeNull();
     expect(loaded?.name).toBe(ctx.name);
     expect(loaded?.sourceHash).toBe(ctx.sourceHash);
-    expect(loaded?.modules.会话背景).toBe("some rendered content");
+    expect(loaded?.modules.session-context).toBe("some rendered content");
   });
 
   it("hash mismatch 降级 → 返 null", async () => {
@@ -88,7 +88,7 @@ describe("saveAgentContext + loadAgentContext round-trip", () => {
     const file = join(dir, "test-ctx.agent-context.md");
     writeFileSync(
       file,
-      `---\nprofile: test-ctx\nblueprint: test-bp\n---\n\n## 会话背景\n\nbody\n`,
+      `---\nprofile: test-ctx\nblueprint: test-bp\n---\n\n## session-context\n\nbody\n`,
       "utf8"
     );
     const loaded = await loadAgentContext(tmpDir, "prj", "test-ctx", "any-hash");
@@ -105,14 +105,14 @@ describe("saveAgentContext + loadAgentContext round-trip", () => {
   it("多注入点 modules 完整 round-trip", async () => {
     const ctx = makeContext({
       modules: {
-        会话背景: "scene + trigger content",
-        参考手册: "manual content",
+        session-context: "scene + trigger content",
+        reference-manual: "manual content",
       },
     });
     await saveAgentContext(tmpDir, ctx);
     const loaded = await loadAgentContext(tmpDir, ctx.packName, ctx.name, ctx.sourceHash);
-    expect(loaded?.modules.会话背景).toBe("scene + trigger content");
-    expect(loaded?.modules.参考手册).toBe("manual content");
+    expect(loaded?.modules.session-context).toBe("scene + trigger content");
+    expect(loaded?.modules.reference-manual).toBe("manual content");
   });
 
   it("PR2 §8.3：save 写入文件名 = <pack>__<profile>.agent-context.md", async () => {

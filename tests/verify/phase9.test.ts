@@ -104,7 +104,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 3. Blueprint 复用 ==========
   describe("3. Blueprint 复用", () => {
-    it("dev-knowledge Blueprint 被 ≥2 个 Profile 引用", async () => {
+    it("pt-default Blueprint 被 ≥2 个 Profile 引用", async () => {
       // v16 (issue pt-project-profiles-refactor-optional-domains)：pt-* profile 移到 fullstack pack，
       // 不在 .pt/assets/profiles/ 下。扫多个路径（项目 assets + fullstack packs）找所有 profile 文件。
       const projectProfilesDir = join(cwd, ".pt/assets/profiles");
@@ -127,33 +127,33 @@ describe("Phase 9.9 v9 完整回归", () => {
         const bp = m ? m[1].trim() : "";
         if (bp) refCounts[bp] = (refCounts[bp] ?? 0) + 1;
       }
-      expect(refCounts["dev-knowledge"] ?? 0).toBeGreaterThanOrEqual(2);
+      expect(refCounts["pt-default"] ?? 0).toBeGreaterThanOrEqual(2);
     });
   });
 
   // ========== 5. v9 注入点 H2 ==========
   describe("5. v9 注入点 H2", () => {
-    it("pt-dev Context 含 ## 会话背景 + ## 触发索引 + ## 参考手册，不含 ## Scene / ## Manual", async () => {
+    it("pt-dev Context 含 ## session-context + ## trigger-index + ## reference-manual，不含 ## Scene / ## Manual", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
-      expect(/^## 会话背景/m.test(raw)).toBe(true);
-      expect(/^## 触发索引/m.test(raw)).toBe(true);
-      expect(/^## 参考手册/m.test(raw)).toBe(true);
+      expect(/^## session-context/m.test(raw)).toBe(true);
+      expect(/^## trigger-index/m.test(raw)).toBe(true);
+      expect(/^## reference-manual/m.test(raw)).toBe(true);
       expect(/^## Scene\b/m.test(raw)).toBe(false);
       expect(/^## Manual\b/m.test(raw)).toBe(false);
     });
   });
 
   // ========== 6. pt-quality Manual ==========
-  describe("6. pt-quality 进参考手册不污染会话背景/触发索引", () => {
-    it("pt-quality Manual 段出现在 pt-dev 参考手册", async () => {
+  describe("6. pt-quality 进 reference-manual 不污染 session-context / trigger-index", () => {
+    it("pt-quality Manual 段出现在 pt-dev reference-manual", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
-      const canKaoIdx = raw.indexOf("## 参考手册");
+      const canKaoIdx = raw.indexOf("## reference-manual");
       let qualityManualIdx = -1;
       let searchFrom = canKaoIdx;
       while (searchFrom !== -1) {
@@ -165,20 +165,20 @@ describe("Phase 9.9 v9 完整回归", () => {
         }
         searchFrom = next + 1;
       }
-      // 必须在 ## 参考手册 之后（pt-quality Manual 段进参考手册段）
+      // 必须在 ## reference-manual 之后（pt-quality Manual 段进 reference-manual 段）
       expect(qualityManualIdx).toBeGreaterThan(canKaoIdx);
       // 且是文件中最后一个 ### pt-quality（Manual 唯一）
       const lastIdx = raw.lastIndexOf("### pt-quality");
       expect(qualityManualIdx).toBe(lastIdx);
     });
 
-    it("pt-quality Manual 规范 checklist 不污染会话背景段", async () => {
+    it("pt-quality Manual 规范 checklist 不污染session-context段", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
-      const _canKaoIdx = raw.indexOf("## 参考手册");
-      const huiHuaIdx = raw.indexOf("## 会话背景");
+      const _canKaoIdx = raw.indexOf("## reference-manual");
+      const huiHuaIdx = raw.indexOf("## session-context");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
       const modulesTypeSafetyIdx = raw.indexOf("- modules-type-safety:");
       expect(
@@ -190,13 +190,13 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 7. Trigger 索引段 ==========
   describe("7. Trigger 独立索引段", () => {
-    it("pt-quality-trigger 出现在触发索引段", async () => {
+    it("pt-quality-trigger 出现在trigger-index段", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
-      // Phase term-naming：Trigger 拉出作独立段（不再是会话背景的一部分）
-      const triggerIdxH2 = raw.indexOf("## 触发索引");
+      // Phase term-naming：Trigger 拉出作独立段（不再是session-context的一部分）
+      const triggerIdxH2 = raw.indexOf("## trigger-index");
       const nextH2AfterTrigger = raw.slice(triggerIdxH2 + 1).search(/^## /m);
       const triggerIdx = raw.indexOf("pt-quality-trigger");
       expect(triggerIdxH2).toBeGreaterThan(-1);
@@ -206,13 +206,13 @@ describe("Phase 9.9 v9 完整回归", () => {
   });
 
   // ========== 8. user-info Domain ==========
-  describe("8. user-info Domain 进入会话背景", () => {
-    it("user-info Domain 段出现在会话背景", async () => {
+  describe("8. user-info Domain 进入session-context", () => {
+    it("user-info Domain 段出现在session-context", async () => {
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
-      const huiHuaIdx = raw.indexOf("## 会话背景");
+      const huiHuaIdx = raw.indexOf("## session-context");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
       const userInfoIdx = raw.indexOf("### user-info");
       expect(userInfoIdx).toBeGreaterThan(huiHuaIdx);
@@ -370,9 +370,9 @@ describe("Phase 9.9 v9 完整回归", () => {
       const r = await loadAndTranspile("/Users/issac/pro/pt-writing", "writing");
       expect(r.segment.length).toBeGreaterThan(0);
     });
-    it("pt-writing 含 参考手册 注入点", async () => {
+    it("pt-writing 含 reference-manual 注入点", async () => {
       const r = await loadAndTranspile("/Users/issac/pro/pt-writing", "writing");
-      expect(r.agentContext.modules.参考手册).toBeDefined();
+      expect(r.agentContext.modules.reference-manual).toBeDefined();
     });
   });
 
@@ -410,7 +410,7 @@ describe("Phase 9.9 v9 完整回归", () => {
     it("内建 guide profile 加载成功", async () => {
       const r = await loadAndTranspile(cwd, "guide");
       expect(r.profile.name).toBe("guide");
-      expect(r.blueprint.name).toBe("dev-knowledge");
+      expect(r.blueprint.name).toBe("pt-default");
     });
 
     it("内建 guide profile 含 user-info / agent-info / project-analysis / authoring / usage", async () => {
@@ -436,10 +436,10 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(r.segment).not.toContain("### project-analysis");
     });
 
-    it("项目资产覆盖内建（dev-knowledge 不重复）", async () => {
+    it("项目资产覆盖内建（pt-default 不重复）", async () => {
       const r = await loadAndTranspile(cwd, "guide");
       const blueprintNames = r.bundles[0].blueprints.map((b) => b.name);
-      const devCount = blueprintNames.filter((n) => n === "dev-knowledge").length;
+      const devCount = blueprintNames.filter((n) => n === "pt-default").length;
       expect(devCount).toBe(1); // 项目覆盖内建，不重复
     });
   });
@@ -631,7 +631,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/workflow\/release-workflow/m);
     });
 
-    it("pt-arch 产物含 issue-workflow 段（issue 分析定位进入会话背景/参考手册）", () => {
+    it("pt-arch 产物含 issue-workflow 段（issue 分析定位进入session-context/reference-manual）", () => {
       const r = loadedProfiles["pt-arch"].segment;
       expect(r).toContain("issue-workflow");
     });
