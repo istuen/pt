@@ -61,7 +61,7 @@ export function renderTurnInject(
   if (!m) return null;
   const [, name, rest] = m;
 
-  // 阶段 2：算 turn 聚合组的 modules 白名单（Profile "参考手册"聚合组的 ### Modules）
+  // Stage 2: compute modules whitelist for turn aggregation group (Profile "reference-manual" aggregation group's ### Modules)
   const mods = turnGroupModules(blueprint, profile);
 
   // /manual:<domain-name> 触发（v9 新增）—— name 可能是 "manual:pt-quality"
@@ -94,7 +94,7 @@ export function renderTurnInject(
 
 /** 找 turn 聚合组的 modules 白名单（Profile 同名 ProfileGroup 的 ### Modules）。
  *  返 null = 不限制（profile 为 null / 无 turn 聚合组 / ProfileGroup 未填 modules——向后兼容）。
- *  这是阶段 2 的核心：让 Profile "参考手册"### Modules 的段选择真正影响 turn 触发渲染范围。 */
+ *  This is the core of stage 2: let Profile "reference-manual" ### Modules section selection actually affect turn-triggered render scope. */
 function turnGroupModules(blueprint: Blueprint, profile: Profile | null): ModName[] | null {
   if (!profile) return null;
   const turnGroupName = blueprint.groups.find((g) => g.inject === "turn")?.name;
@@ -259,7 +259,7 @@ function replaceVars(text: string, bound: Map<string, string>): string {
 
 /** 在 Blueprint 聚合组（inject=turn）的引用域中按名查找 FlowTemplate（跨 Domain）。
  *  v13.x（issue pt-turn-inject-not-profile-scoped）：加 profile 参数——内部算 mods 白名单，
- *  白名单不含 Flows 段时返 undefined（Profile "参考手册"### Modules 未声明 Flows 则 /<flow-name> 触发失效）。
+ *  Returns undefined when whitelist has no Flows section (Profile "reference-manual" ### Modules didn't declare Flows → /<flow-name> trigger fails).
  *  Phase term-P4.3 + term-final：inject 语义值 turn（原 context_message → turn → 现聚合组 inject=turn）。 */
 export function findFlowInBlueprint(
   blueprint: Blueprint,

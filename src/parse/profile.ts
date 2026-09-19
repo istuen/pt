@@ -14,10 +14,10 @@
 //   domains: [d1, d2, ...]
 //   ---
 //
-//   ## 会话背景
+//   ## session-context
 //   ### Modules
-//   - Scene                  ← 段名（跨所有引用域该段）
-//   - User.user-profile      ← 段.项（跨所有引用域该段下 H3 项）
+//   - Scene                  ← Section name (across all referenced domains, this section)
+//   - User.user-profile      ← Section.item (across all referenced domains, this H3 item)
 //   - Agent.senior-developer
 //   ### Domains
 //   - d3

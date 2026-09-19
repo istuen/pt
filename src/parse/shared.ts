@@ -279,8 +279,8 @@ export function extractDomainsList(section: Section | undefined): string[] {
 }
 
 /** 从一个 H2 段下取指定 H3 名下的所有裸名列表项（`- name`）。
- *  用途：Blueprint `## 会话背景` → `### Modules` 列 Domain Schema Name；
- *        Profile `## 会话背景` → `### Domains` 列参与本聚合组的 Domain 名。
+ *  Usage: Blueprint `## session-context` → `### Modules` lists Domain Schema Names;
+ *          Profile `## session-context` → `### Domains` lists Domain names participating in this aggregation group.
  *
  *  行为：扫描 section.raw，找到 `### <h3Name>` 行后收集紧随其后的 `- name` 行
  *        （无 `key: value`），遇下一个 H3 或段尾终止。

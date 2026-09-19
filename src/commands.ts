@@ -363,7 +363,7 @@ export interface CheckResult {
  *  输出风格（biome/tsc 同源）：
  *
  *      ysl-developer.profile.md
- *        × [error] ## 会话背景 缺 ### Modules
+ *        × [error] ## session-context 缺 ### Modules
  *           hint: 在 H2 段下加 `### Modules: [Scene, ...]`
  *
  *      × 6 errors, 0 warnings

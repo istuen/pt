@@ -435,7 +435,7 @@ function renderTriggerModule(_d: Domain, content: unknown): string {
   return lines.join("\n");
 }
 
-// ==================== Manual module renderer（聚合参考手册，P9.2 拆三段） ====================
+// ==================== Manual module renderer (aggregated into reference-manual, P9.2 split into 3 sections) ====================
 
 /** Phase term-P9.2：从 renderManualModule 拆出 Rules/Flows/Checklists 三段。
  *  每个 renderer 内部直接调对应 type guard（不再依赖 d.type——P9.3 后 type 字段删除）。 */

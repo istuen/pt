@@ -158,7 +158,7 @@ export type InjectTarget = "session" | "turn" | string;
  *  （name + inject + mode），modules 由 ProfileGroup 提供。Profile 通过 H2 匹配插槽名，用
  *  `### Modules` 段填 modules 列表。Blueprint 加新插槽向后兼容（旧 Profile 无 H2 → 产出空段）。 */
 export interface BlueprintGroup {
-  /** 聚合组名（语义名，Blueprint 配置项，如 "会话背景"/"参考手册"）。 */
+  /** Aggregation group name (semantic, configured in Blueprint, e.g. "session-context" / "reference-manual"). */
   name: string;
   /** 注入位置（session / turn / 扩展）——值语义名，经由 AgentAdapter 映射到具体 Agent Runtime API。 */
   inject: InjectTarget;

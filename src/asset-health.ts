@@ -48,7 +48,7 @@ export interface AssetHealthIssue {
   scope: IssueScope;
   /** 问题所在资产名（profile.name / blueprint.name / domain.name）。 */
   name: string;
-  /** 可选字段路径（如 "groups.会话背景.modules"），便于精确指向。 */
+  /** Optional field path (e.g. "groups.session-context.modules"), for precise pointing. */
   field?: string;
   /** 人类可读问题描述。 */
   msg: string;
