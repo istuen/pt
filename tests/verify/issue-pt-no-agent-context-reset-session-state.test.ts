@@ -22,7 +22,7 @@ function makePopulatedSessionState(): SessionState {
     name: "pt-dev",
     blueprint: "pt-default",
     sourceHash: "abc",
-    modules: { session-context: "content" },
+    modules: { "session-context": "content" },
   };
   s.cachedBlueprint = {
     name: "pt-default",

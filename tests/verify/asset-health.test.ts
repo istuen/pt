@@ -134,7 +134,11 @@ describe("scanProjectHealth", () => {
       const profile = makeProfile({
         domains: [],
         groups: [
-          { name: "session-context", domains: ["nonexistent-domain"], modules: [{ section: "Scene" }] },
+          {
+            name: "session-context",
+            domains: ["nonexistent-domain"],
+            modules: [{ section: "Scene" }],
+          },
         ],
       });
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
@@ -366,7 +370,11 @@ domains: []
         blueprint: "bp-multi",
         domains: [],
         groups: [
-          { name: "session-context", domains: [], modules: [{ section: "Scene" }, { section: "User" }] },
+          {
+            name: "session-context",
+            domains: [],
+            modules: [{ section: "Scene" }, { section: "User" }],
+          },
           { name: "trigger-index", domains: [], modules: [{ section: "Trigger" }] },
         ],
         optionalDomains: ["@prj/d3"],

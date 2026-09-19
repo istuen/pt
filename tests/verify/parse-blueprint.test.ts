@@ -22,7 +22,7 @@ describe("parseBlueprint", () => {
   it("groups 项解析", async () => {
     const bp = await parseBlueprint(FIXTURE_DIR, "blueprint.yaml");
     const groupNames = bp.groups.map((g) => g.name).sort();
-    expect(groupNames).toEqual(["session-context", "reference-manual", "trigger-index"]);
+    expect(groupNames).toEqual(["reference-manual", "session-context", "trigger-index"]);
   });
 
   it("聚合组字段：inject + mode（v9.1 modules 迁移到 Profile）", async () => {

@@ -26,7 +26,7 @@ function makeContext(overrides?: Partial<AgentContext>): AgentContext {
     blueprint: "test-bp",
     sourceHash: "abc12345-00000000",
     modules: {
-      session-context: "some rendered content",
+      "session-context": "some rendered content",
     },
     // v15.x PR2（§8.3）：cache 文件名用
     packName: "prj",
@@ -52,7 +52,7 @@ describe("saveAgentContext + loadAgentContext round-trip", () => {
     expect(loaded).not.toBeNull();
     expect(loaded?.name).toBe(ctx.name);
     expect(loaded?.sourceHash).toBe(ctx.sourceHash);
-    expect(loaded?.modules.session-context).toBe("some rendered content");
+    expect(loaded?.modules["session-context"]).toBe("some rendered content");
   });
 
   it("hash mismatch 降级 → 返 null", async () => {
@@ -105,14 +105,14 @@ describe("saveAgentContext + loadAgentContext round-trip", () => {
   it("多注入点 modules 完整 round-trip", async () => {
     const ctx = makeContext({
       modules: {
-        session-context: "scene + trigger content",
-        reference-manual: "manual content",
+        "session-context": "scene + trigger content",
+        "reference-manual": "manual content",
       },
     });
     await saveAgentContext(tmpDir, ctx);
     const loaded = await loadAgentContext(tmpDir, ctx.packName, ctx.name, ctx.sourceHash);
-    expect(loaded?.modules.session-context).toBe("scene + trigger content");
-    expect(loaded?.modules.reference-manual).toBe("manual content");
+    expect(loaded?.modules["session-context"]).toBe("scene + trigger content");
+    expect(loaded?.modules["reference-manual"]).toBe("manual content");
   });
 
   it("PR2 §8.3：save 写入文件名 = <pack>__<profile>.agent-context.md", async () => {

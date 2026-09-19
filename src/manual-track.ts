@@ -100,7 +100,7 @@ export function parseManualProgressFromContent(content: string): ManualProgress 
   // 5. 抽 ## 执行状态 表的每行 outcome
   const stepOutcomes: StepOutcome[] = [];
   // 表格行格式 `| N | <outcome> | <message> |`，message 列可空（`\s*` 兼容末列前的 0+ 空格）
-  const tableRe = /^\| (\d+) \| (.+?) \| [^\|]*\s*\|$/gm;
+  const tableRe = /^\| (\d+) \| (.+?) \| [^|]*\s*\|$/gm;
   for (const m of content.matchAll(tableRe)) {
     const idxStr = m[1] ?? "";
     const rawOutcome = m[2] ?? "";

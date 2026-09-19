@@ -372,7 +372,7 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
     it("pt-writing 含 reference-manual 注入点", async () => {
       const r = await loadAndTranspile("/Users/issac/pro/pt-writing", "writing");
-      expect(r.agentContext.modules.reference-manual).toBeDefined();
+      expect(r.agentContext.modules["reference-manual"]).toBeDefined();
     });
   });
 
