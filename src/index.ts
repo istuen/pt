@@ -24,6 +24,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { FULL_DIR, MANUAL_DIR, PROFILES_DIR, RAW_DIR } from "./constants.js";
@@ -328,7 +329,18 @@ export default function (pi: ExtensionAPI): void {
           `⚠ Pt: project pack 校验失败（${firstErr?.msg ?? "未知错误"}）。已降级到 builtin guide。`,
           "warning"
         );
-        ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+        // issue pt-pack-repair-cwd-home-edge-case：cwd=~ 时附加决策引导——
+        // ~/.pt/assets/ 在 home 通常无项目上下文，prj pack 无意义；引导用户三选一
+        // （切到项目目录 / 临时 mkdir 骨架 / 啥都不做）。
+        const isCwdHome = ctx.cwd === homedir();
+        if (isCwdHome) {
+          ctx.ui.notify(
+            `  ⚠ 检测到 cwd=~（${homedir()}）—— project pack 在 home 无项目上下文（pack 落点 ${projectPack.rootDir} 曾是 global pack 路径，v15.x PR7 移除）。建议：1) 切到项目目录后再跑（pack-repair 在项目目录才有意义）；2) 仅临时调试可 mkdir -p ${projectPack.rootDir}/{domains,blueprints,profiles} 创建空骨架；3) 啥都不做（builtin guide 已可用）`,
+            "info"
+          );
+        } else {
+          ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+        }
       }
 
       // v15.x PR4（§6.7.5）：settings pack 校验失败预警——跳过该 pack，不阻断其他

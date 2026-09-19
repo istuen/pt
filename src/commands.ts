@@ -14,6 +14,7 @@
 //   - 加 checkText() 内核 + CheckOptions：/pt check + pt_check tool 共享
 //   - 同步格式化 6 列 biome/tsc 风格 + hint/fix 展示
 
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { MANUAL_DIR, MOD_FLOWS } from "./constants.js";
 import { bindFlowTemplate, findFlowInBlueprint } from "./render/turn-inject.js";
@@ -60,7 +61,7 @@ export function statusText(session: SessionState): string {
   // v15.x PR1（§6.7.6）：暴露 session_start pack 校验结果——每个 pack ✅ / ⚠ DEGRADED + 原因。
   // pack 健康区别于 healthLine 的 profile 配置体检：pack 健康是"加载层健康"，profile 健康是"资产内容健康"。
   const packValidation = session.packValidation;
-  const packLine = formatPackHealthLine(packValidation);
+  const packLine = formatPackHealthLine(packValidation, session.lastCwd);
   // v14.x（tagline）：statusText 显式展开 tagline（不受 footer 35 字符限制）
   const tagline = session.cachedProfile?.tagline;
   const taglineLine = tagline ? `pt tagline: ${tagline}` : "pt tagline: (none)";
@@ -86,9 +87,14 @@ export function statusText(session: SessionState): string {
  *  降级时附加原因：`[@prj] ⚠ DEGRADED — <errors[0].msg 截断 60 字符>`。
  *  packValidation=null → `pt packs: (not validated)`（尚未 session_start）。
  *  packValidation=[] → `pt packs: (none loaded)`（不应出现——session_start 总构造 3 个 pack）。 */
-function formatPackHealthLine(packValidation: SessionState["packValidation"]): string {
+function formatPackHealthLine(
+  packValidation: SessionState["packValidation"],
+  lastCwd?: string
+): string {
   if (packValidation === null) return "pt packs: (not validated)";
   if (packValidation.length === 0) return "pt packs: (none loaded)";
+  // issue pt-pack-repair-cwd-home-edge-case：project pack 失效 + cwd=home 时附加决策引导
+  const isCwdHome = lastCwd === homedir();
   const items = packValidation.map((r) => {
     // v15.x §4.4.4（缺口 4）：reserved 显位置别名（reservedAlias），非 reserved 显 pack（manifest.name）
     // 砍 desc——pack 详情走 /pt packs（缺口 5）
@@ -98,7 +104,9 @@ function formatPackHealthLine(packValidation: SessionState["packValidation"]): s
       return `[@${label}]${version} ✅`;
     }
     const reason = r.errors[0]?.msg ?? "unknown";
-    return `[@${label}]${version} ⚠ DEGRADED — ${truncate(reason, 60)}`;
+    // cwd=home + project 失效时附加 "| 建议切到项目目录"（总长不超 60）
+    const guidance = r.source === "project" && isCwdHome ? " | 建议切到项目目录" : "";
+    return `[@${label}]${version} ⚠ DEGRADED — ${truncate(reason + guidance, 60)}`;
   });
   const okCount = packValidation.filter((r) => r.ok).length;
   const summary =
