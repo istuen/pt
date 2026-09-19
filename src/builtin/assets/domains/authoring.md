@@ -15,7 +15,7 @@ name: authoring
 - desc: frontmatter（name: 域路径名——根目录写裸名 `user-info`，多级目录写 path 形式 `workflow/dev-workflow`，与加载路径一致；无 type 字段——Module/H2 段名即 schema 选择器）+ Module（## Scene / ## Trigger / ## Rules / ## Flows / ## Checklists / ## Participant / ## User / ## Agent / ...，按需写）+ H3 项（### 项名 + - desc: 描述 / - path: 路径 / - check: 规则 / - fields: 字段清单 / - note: 补充说明）。文件放 .pt/assets/domains/<name>.md 或 .pt/assets/domains/<subdir>/<name>.md。
 
 ### blueprint-format
-- desc: YAML 格式（.blueprint.yaml）。字段：name + groups（聚合组列表，每个含 name + inject: session/turn + mode）。**v9.1+：Blueprint 不带 modules 字段**——Blueprint 退化为插槽契约（声明有哪些插槽 + inject + mode），modules 由 Profile H2 下的 ### Modules 列表填。无 agent 字段（Blueprint Agent-agnostic，运行时硬编码 "pi"）。无 Compilation 段（cacheDir 用 CACHE_DIR 常量）。文件放 .pt/assets/blueprints/<name>.blueprint.yaml（v9.1+ 可省略——`src/parse/index.ts` 的 `dedupByName` 机制保证项目优先 + 内建补充，profile 引 `blueprint: dev-knowledge` 自动 fallback 到 builtin）。
+- desc: YAML 格式（.blueprint.yaml）。字段：name + groups（聚合组列表，每个含 name + inject: session/turn + mode）。**v9.1+：Blueprint 不带 modules 字段**——Blueprint 退化为插槽契约（声明有哪些插槽 + inject + mode），modules 由 Profile H2 下的 ### Modules 列表填。无 agent 字段（Blueprint Agent-agnostic，运行时硬编码 "pi"）。无 Compilation 段（cacheDir 用 CACHE_DIR 常量）。文件放 .pt/assets/blueprints/<name>.blueprint.yaml（v9.1+ 可省略——`src/parse/index.ts` 的 `dedupByName` 机制保证项目优先 + 内建补充，profile 引 `blueprint: pt-default` 自动 fallback 到 builtin）。
 
 ### profile-format
 - desc: frontmatter（name + blueprint: 引用名 + domains: [全局 Domain 列表，**多级目录用 path 形式**如 `workflow/dev-workflow`，自动分发到所有聚合组]）+ H2 聚合组实例化（## 聚合组名 与 Blueprint.groups[].name 同名）+ H3 段下两类追加列表：(a) `### Domains` 追加到本聚合组的 Domain 名列表；(b) `### Modules` 本插槽填的 modName 列表（v9.1+）。**v9.1+ 的 modules 形态 2 种**：段名（`Scene` / `User`）和 段.项（`Agent.senior-developer`），无形态 3。domains 顺序影响 LLM attention——身份类放前，约束类放后。文件放 .pt/assets/profiles/<name>.profile.md。
@@ -29,21 +29,21 @@ name: authoring
 ### profile-role-isolation
 - desc: v9.1+ Profile 角色隔离配置示例（共享 agent-info Domain，各 profile 只看自己角色 + active-role-rule）：
 - sample-pt-arch: |
-    ## 会话背景
+    ## session-context
     ### Modules
     - Scene
     - User
     - Agent.agent-role-architect
     - Agent.active-role-rule
 - sample-pt-design: |
-    ## 会话背景
+    ## session-context
     ### Modules
     - Scene
     - User
     - Agent.agent-role-architect
     - Agent.active-role-rule
 - sample-pt-dev: |
-    ## 会话背景
+    ## session-context
     ### Modules
     - Scene
     - User
@@ -52,7 +52,7 @@ name: authoring
     - Agent.agent-role-code-reviewer
     - Agent.active-role-rule
 - sample-pt-devops: |
-    ## 会话背景
+    ## session-context
     ### Modules
     - Scene
     - User
@@ -64,7 +64,7 @@ name: authoring
 - desc: 多级目录引用（v9.1+）——Profile frontmatter `domains:` 列表用 path 形式引用多级目录的 Domain。例：`.pt/assets/domains/workflow/dev-workflow.md` → `domains: [user-info, agent-info, workflow/dev-workflow, workflow/issue-workflow, workflow/testing-workflow, ...]`。**同目录不重名**（硬约束，文件系统约束）；不同子目录可同名（path 天然区分——`meta/login` 和 `auth/login` 不冲突）。Domain frontmatter.name 也用 path 形式（与加载路径一致）。
 
 ### profile-h2-sections
-- desc: Profile 范本必加 H2 聚合组段——即使无追加也保留段让配置入口可见。具体格式：YAML 后用 H2 标题写出 Blueprint.groups[].name 同名的段；段下用 `### Domains` 追加（如有）+ `### Modules` 列本插槽的 modules 列表（v9.1+）。例如 pt-dev 范本保留 ## 会话背景 + ## 触发索引 + ## 参考手册 三段（与 dev-knowledge 的 groups 对齐）。配置可观测性：parseProfile groups 数 > 0，用户能看出本 Profile 覆盖哪些聚合组 + 每个聚合组的 modules 选择。
+- desc: Profile 范本必加 H2 聚合组段——即使无追加也保留段让配置入口可见。具体格式：YAML 后用 H2 标题写出 Blueprint.groups[].name 同名的段；段下用 `### Domains` 追加（如有）+ `### Modules` 列本插槽的 modules 列表（v9.1+）。例如 pt-dev 范本保留 ## session-context + ## trigger-index + ## reference-manual 三段（与 pt-default 的 groups 对齐）。配置可观测性：parseProfile groups 数 > 0，用户能看出本 Profile 覆盖哪些聚合组 + 每个聚合组的 modules 选择。
 
 ### term-domain-pattern
 - desc: 概念/术语/规则类 Domain 写法：## Scene 下 ### 概念名 + - desc: 定义；## Rules 下 ### 规则名 + - check: 不变量描述。适合概念/术语/架构知识。（注：v9 已删 type 字段，不再有 term/workflow/stack 分类——H2 段名决定 schema。）
@@ -76,7 +76,7 @@ name: authoring
 - desc: 身份类 Domain 写法（v9.1+ 重命名）——user-info Domain 用 `## User` 段下 H3 角色项（user-profile / pt-goal / collab-mode / ...）；agent-info Domain 用 `## Agent` 段下 H3 角色项（agent-role-architect / agent-role-senior-developer / ...）。**段名 = 命名空间**：`User` 限定 user-info、`Agent` 限定 agent-info。Profile 通过 `### Modules: [User]` 聚合 user-info 整段；通过 `### Modules: [Agent.agent-role-architect]` 精确选单角色——角色隔离的"开关"。
 
 ### build-roadmap
-- desc: 从零构建 Pt 资产的顺序：（1）分析项目知识结构（参考 project-analysis 的 analyze-steps + section-as-namespace + role-isolation）→ 识别概念/流程/工具栈；（2）创建 Pt Domain 资产（每个知识单元一个 .md，H2 段名决定 schema）→ create-domain-procedure；（3）选 Blueprint（优先复用内建 dev-knowledge，聚合组需求不同才 create-blueprint-procedure——v9.1+ 通常省略，dedupByName 自动 fallback 到 builtin）→（4）创建 Pt Profile 组装 Domain 列表 + ### Modules 填 H3 粒度 → create-profile-procedure；（5）/pt-profile 验证产物 + 检查角色隔离。执行 procedure 时用 /pt manual <procedure-name> <args> 创建实例文档跟踪。
+- desc: 从零构建 Pt 资产的顺序：（1）分析项目知识结构（参考 project-analysis 的 analyze-steps + section-as-namespace + role-isolation）→ 识别概念/流程/工具栈；（2）创建 Pt Domain 资产（每个知识单元一个 .md，H2 段名决定 schema）→ create-domain-procedure；（3）选 Blueprint（优先复用内建 pt-default，聚合组需求不同才 create-blueprint-procedure——v9.1+ 通常省略，dedupByName 自动 fallback 到 builtin）→（4）创建 Pt Profile 组装 Domain 列表 + ### Modules 填 H3 粒度 → create-profile-procedure；（5）/pt-profile 验证产物 + 检查角色隔离。执行 procedure 时用 /pt manual <procedure-name> <args> 创建实例文档跟踪。
 
 ### minimal-example
 - desc: 从零上手的最小样本——两个 Domain（user-info + agent-info）+ 一个 Profile，照抄改即可跑通
@@ -102,19 +102,19 @@ name: authoring
 - sample-profile: |
     ---
     name: my-guide
-    blueprint: dev-knowledge
+    blueprint: pt-default
     domains: [user-info, agent-info, project-analysis, authoring, usage]
     ---
     # my-guide (profile)
-    ## 会话背景
+    ## session-context
     ### Modules
     - Scene
     - User
     - Agent
-    ## 触发索引
+    ## trigger-index
     ### Modules
     - Trigger
-    ## 参考手册
+    ## reference-manual
     ### Modules
     - Rules
     - Flows
@@ -142,16 +142,16 @@ name: authoring
 - intent: 创建新 Pt Profile 的步骤指引（LLM 读完后用 write 工具执行，非 Pi 注册命令）
 - vars: [name]
 - step: 用 write 工具创建 .pt/assets/profiles/{{name}}.profile.md
-- step: 写 frontmatter（name: {{name}} + blueprint: dev-knowledge 优先复用内建 + domains: [按需列，多级目录用 path 形式]）
-- step: 为每个 Blueprint 插槽加 H2 段（## 会话背景 / ## 触发索引 / ## 参考手册 等），段下加 `### Modules` 列表（v9.1+）填本插槽的 modName（段名 / 段.项两种形态）
+- step: 写 frontmatter（name: {{name}} + blueprint: pt-default 优先复用内建 + domains: [按需列，多级目录用 path 形式]）
+- step: 为每个 Blueprint 插槽加 H2 段（## session-context / ## trigger-index / ## reference-manual 等），段下加 `### Modules` 列表（v9.1+）填本插槽的 modName（段名 / 段.项两种形态）
 - step: 角色隔离配置——身份域用专用段名 + 段.项精确选单角色（详见 profile-role-isolation 的 sample-pt-arch / pt-dev / pt-devops）
 - step: 删 .pt/cache/agent-contexts/*.agent-context.md + /pt-profile {{name}} 验证产物 + 检查角色隔离
 
 ### create-blueprint-procedure
 - argument-hint: <name>
-- intent: 创建新 Blueprint 的步骤指引（v9.1+ 通常省略——优先复用内建；仅当聚合组需求与内建 dev-knowledge 不同时新建；LLM 读完后用 write 工具执行）
+- intent: 创建新 Blueprint 的步骤指引（v9.1+ 通常省略——优先复用内建；仅当聚合组需求与内建 pt-default 不同时新建；LLM 读完后用 write 工具执行）
 - vars: [name]
-- step: 确认需要新聚合组——dev-knowledge 有会话背景/触发索引/参考手册三个聚合组（session×2 + turn×1），不够才新建
+- step: 确认需要新聚合组——pt-default 有session-context/trigger-index/reference-manual三个聚合组（session×2 + turn×1），不够才新建
 - step: 用 write 工具创建 .pt/assets/blueprints/{{name}}.blueprint.yaml
 - step: 写 YAML（name: {{name}}，无 agent 字段，**无 modules 字段**——v9.1+ Blueprint 是插槽契约）
 - step: 写 groups（每个聚合组：name + inject: session/turn + mode 可选）——**modules 字段不再存在**
@@ -175,7 +175,7 @@ name: authoring
 - check: 主题聚焦才建新 Domain——一个 Domain 承载一个知识单元；同主题扩内容加 Module，不新建 Domain
 
 ### when-new-blueprint
-- check: 聚合组需求不同才建 Blueprint——优先复用内建 dev-knowledge（会话背景/触发索引/参考手册三组）；加新聚合组才新建。**v9.1+：Blueprint 不带 modules，创建后无需同步 modules 字段到 Profile——Profile 填 ### Modules 独立维护**
+- check: 聚合组需求不同才建 Blueprint——优先复用内建 pt-default（session-context/trigger-index/reference-manual三组）；加新聚合组才新建。**v9.1+：Blueprint 不带 modules，创建后无需同步 modules 字段到 Profile——Profile 填 ### Modules 独立维护**
 
 ### when-add-module
 - check: 同主题扩内容加 Module（Domain 内加 ## 新 Module 名）；不同主题才新建 Domain
@@ -195,7 +195,7 @@ name: authoring
 - items: [frontmatter name 对齐加载路径（多级目录用 path 形式）, H2 段名是标准段（Scene/Trigger/Rules/Flows/Checklists）或已注册专用段（User/Agent/...）, H3 项有 desc 字段, 同段内 H3 项名唯一（跨段可重名靠专用段名避免）, 无 type 字段]
 
 ### profile-quality-checklist
-- items: [blueprint 引用名存在（优先内建 dev-knowledge）, domains 顺序合理（身份类前约束类后）, 聚合组段对齐 Blueprint groups（每个 group 一个 H2）, ### Modules 段存在且填了 modName（v9.1+ 必填）, modName 是合法 2 形态（段名 / 段.项），不含形态 3, 角色隔离正确：专用段（User/Agent）按设计填充，段.项精确选单角色, 无追加时保留 H2 段让配置入口可见, 多级目录引用用 path 形式（如 `workflow/dev-workflow`）]
+- items: [blueprint 引用名存在（优先内建 pt-default）, domains 顺序合理（身份类前约束类后）, 聚合组段对齐 Blueprint groups（每个 group 一个 H2）, ### Modules 段存在且填了 modName（v9.1+ 必填）, modName 是合法 2 形态（段名 / 段.项），不含形态 3, 角色隔离正确：专用段（User/Agent）按设计填充，段.项精确选单角色, 无追加时保留 H2 段让配置入口可见, 多级目录引用用 path 形式（如 `workflow/dev-workflow`）]
 
 ### role-isolation-checklist
 - items: [4 profile（pt-arch / pt-design / pt-dev / pt-devops）共用同一 agent-info Domain 但各自 ### Modules 列出不同 Agent 角色, pt-dev `### Modules` 含 `Agent.agent-role-senior-developer` + `Agent.agent-role-qa-engineer` + `Agent.agent-role-code-reviewer` + `Agent.active-role-rule`（不含 architect / devops-engineer）, pt-arch / pt-design 含 `Agent.agent-role-architect` + `Agent.active-role-rule`（不含 dev / devops 角色）, pt-devops 含 `Agent.agent-role-devops-engineer` + `Agent.active-role-rule`（不含其他角色）, 跑 transpile 后 /pt raw 检查产物——`### agent-info.senior-developer` 等 H3 粒度输出仅在应见 profile 中出现]
