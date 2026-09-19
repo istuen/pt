@@ -53,7 +53,7 @@ beforeAll(async () => {
     }
   } catch {}
 
-  for (const name of ["pt-design", "pt-dev"]) {
+  for (const name of ["pt-design", "pt-dev", "pt-arch"]) {
     const r = await loadAndTranspile(cwd, name);
     loadedProfiles[name] = {
       name,
@@ -592,6 +592,104 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(src).toContain('name: "pt_flows"');
       expect(src).toContain('name: "pt_manual"');
       expect(src).toContain("withFileMutationQueue");
+    });
+  });
+
+  // ========== 20. v17 4 profile 角色边界明确化 ==========
+  // issue pt-profile-role-boundary-clarification：pt-arch 含 issue-workflow + 5 个 optional slot
+  describe("20. v17 pt-arch 角色边界", () => {
+    it("pt-arch Profile 加载成功", () => {
+      expect(loadedProfiles["pt-arch"]).toBeDefined();
+    });
+
+    it("pt-arch tagline 含 'Tech architect' + 'workflow design'", async () => {
+      const r = await readFile(
+        join(cwd, ".pt/packs/fullstack/profiles/pt-arch.profile.md"),
+        "utf8"
+      );
+      expect(r).toContain("tagline: Tech architect");
+      expect(r).toContain("workflow design");
+    });
+
+    it("pt-arch domains 含 @fullstack/workflow/issue-workflow", async () => {
+      const r = await readFile(
+        join(cwd, ".pt/packs/fullstack/profiles/pt-arch.profile.md"),
+        "utf8"
+      );
+      expect(r).toMatch(/^domains:[\s\S]*workflow\/issue-workflow/m);
+    });
+
+    it("pt-arch optional-domains 完整声明 5 个 slot（含 deployment + release-workflow）", async () => {
+      const r = await readFile(
+        join(cwd, ".pt/packs/fullstack/profiles/pt-arch.profile.md"),
+        "utf8"
+      );
+      expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/user-info/m);
+      expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/product-design/m);
+      expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/workflow\/asset-workflow/m);
+      expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/workflow\/deployment/m);
+      expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/workflow\/release-workflow/m);
+    });
+
+    it("pt-arch 产物含 issue-workflow 段（issue 分析定位进入会话背景/参考手册）", () => {
+      const r = loadedProfiles["pt-arch"].segment;
+      expect(r).toContain("issue-workflow");
+    });
+
+    it("pt-arch 产物含 agent-role-architect 双重视角 desc", () => {
+      const r = loadedProfiles["pt-arch"].segment;
+      expect(r).toContain("辅佐产品决策");
+      expect(r).toContain("主导技术方案");
+    });
+
+    it("pt-design tagline 含 '(business × product)'", async () => {
+      const r = await readFile(
+        join(cwd, ".pt/packs/fullstack/profiles/pt-design.profile.md"),
+        "utf8"
+      );
+      expect(r).toContain("Product owner + architect (business × product)");
+    });
+
+    it("user-info product-owner 描述只主导 pt-design（不含 pt-arch）", async () => {
+      const r = await readFile(join(cwd, ".pt/assets/domains/user-info.md"), "utf8");
+      const m = r.match(/### user-role-product-owner[\s\S]*?- desc:\s*(.+)/);
+      expect(m).not.toBeNull();
+      expect(m![1]).toContain("pt-design");
+      expect(m![1]).not.toMatch(/pt-arch/);
+    });
+
+    it("user-info tech-lead 描述主导 pt-arch / pt-dev / pt-devops", async () => {
+      const r = await readFile(join(cwd, ".pt/assets/domains/user-info.md"), "utf8");
+      const m = r.match(/### user-role-tech-lead[\s\S]*?- desc:\s*(.+)/);
+      expect(m).not.toBeNull();
+      expect(m![1]).toContain("pt-arch");
+      expect(m![1]).toContain("pt-dev");
+      expect(m![1]).toContain("pt-devops");
+    });
+
+    it("agent-info agent-role-architect desc 涵盖 design 辅佐 + arch 主导 + 不做开发/发版/产品决策", async () => {
+      const r = await readFile(join(cwd, ".pt/packs/fullstack/domains/agent-info.md"), "utf8");
+      const m = r.match(/### agent-role-architect[\s\S]*?- desc:\s*(.+)/);
+      expect(m).not.toBeNull();
+      const desc = m![1];
+      expect(desc).toContain("辅佐产品决策");
+      expect(desc).toContain("主导技术方案");
+      expect(desc).toContain("不写业务代码");
+      expect(desc).toContain("不执行发版");
+    });
+
+    it("agent-info agent-role-senior-developer desc 明确'执行层'", async () => {
+      const r = await readFile(join(cwd, ".pt/packs/fullstack/domains/agent-info.md"), "utf8");
+      const m = r.match(/### agent-role-senior-developer[\s\S]*?- desc:\s*(.+)/);
+      expect(m).not.toBeNull();
+      expect(m![1]).toContain("执行层");
+    });
+
+    it("agent-info agent-role-devops-engineer desc 明确'执行层'", async () => {
+      const r = await readFile(join(cwd, ".pt/packs/fullstack/domains/agent-info.md"), "utf8");
+      const m = r.match(/### agent-role-devops-engineer[\s\S]*?- desc:\s*(.+)/);
+      expect(m).not.toBeNull();
+      expect(m![1]).toContain("执行层");
     });
   });
 });
