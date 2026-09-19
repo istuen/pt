@@ -324,39 +324,13 @@ domains: []
     expect(r.issues.filter((i) => i.msg.includes("modName「Foo」")).length).toBe(1);
   });
 
-  describe("6. optional-domain-unresolved (info)", () => {
-    it("profile.optional-domains 引用 prj 不存在的 domain → 报 info", async () => {
-      const cwd = await makeCwd();
-      const profile = makeProfile({
-        optionalDomains: ["@prj/nonexistent"],
-      });
-      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
-      const unresolved = r.issues.filter((i) =>
-        i.msg.includes("可选 domain「@prj/nonexistent」未创建")
-      );
-      expect(unresolved.length).toBe(1);
-      expect(unresolved[0]?.severity).toBe("info");
-      expect(unresolved[0]?.field).toBe("optional-domains");
-      // hint 提示如何填充
-      expect(unresolved[0]?.hint).toContain("nonexistent.md");
-    });
+  // 规则 6 (optional-domain-unresolved) 删除：optional slot 空是设计意图，不推 issue
+  // 关联：issue pt-optional-domains-no-match-per-domain-aggregation
 
-    it("profile.optional-domains 含多个未解析 ref → 每个都报 info", async () => {
+  describe("7. optional-domain-no-matching-section (warning) — per-domain 聚合", () => {
+    it("prj 有 domain 但 H2 段全不匹配任一 bpGroup 的 modules → 报 1 条 warning（不是 N 条）", async () => {
       const cwd = await makeCwd();
-      const profile = makeProfile({
-        optionalDomains: ["@prj/foo", "@prj/bar"],
-      });
-      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
-      const unresolved = r.issues.filter((i) => i.msg.includes("未创建"));
-      expect(unresolved.length).toBe(2);
-      expect(unresolved.every((i) => i.severity === "info")).toBe(true);
-    });
-  });
-
-  describe("7. optional-domain-no-matching-section (warning)", () => {
-    it("prj 有 domain 但 H2 段全不匹配 modules → 报 warning", async () => {
-      const cwd = await makeCwd();
-      // domain d2 只有 Rules 段，但 profile 的 modules 过滤是 Scene
+      // domain d2 只有 Rules 段，profile 的 modules 过滤是 Scene（不匹配）
       const profile = makeProfile({
         optionalDomains: ["@prj/d2"],
       });
@@ -365,10 +339,82 @@ domains: []
         modules: { Rules: [{ name: "r1", type: "invariant", check: "x" }] },
       };
       const r = await scan(cwd, [profile], [makeBlueprint()], [d2]);
-      const noMatch = r.issues.filter((i) => i.msg.includes("无 H2 段匹配 modules"));
-      expect(noMatch.length).toBe(1);
-      expect(noMatch[0]?.severity).toBe("warning");
+      const noMatch = r.issues.filter(
+        (i) => i.field === "optional-domains" && i.severity === "warning"
+      );
+      expect(noMatch.length).toBe(1); // per-domain 聚合：1 条而非 N 条
       expect(noMatch[0]?.msg).toContain("@prj/d2");
+      expect(noMatch[0]?.msg).toContain("已加载但未对任何聚合组产生贡献"); // 新措辞
+      // hint 改为 actionable 两条路径
+      expect(noMatch[0]?.hint).toContain("加匹配段");
+      expect(noMatch[0]?.hint).toContain("从 optional-domains 移除该引用");
+    });
+
+    it("domain 部分贡献（只匹配部分 bpGroup）→ 不警告", async () => {
+      const cwd = await makeCwd();
+      // blueprint 2 个 bpGroup：会话背景 (Scene/User) + 触发索引 (Trigger)
+      const blueprint: Blueprint = {
+        name: "bp-multi",
+        groups: [
+          { name: "会话背景", inject: "session", mode: "hybrid" },
+          { name: "触发索引", inject: "session" },
+        ],
+      };
+      // profile 同时实例化两个 bpGroup，modules 列表明确
+      const profile: Profile = {
+        name: "multi",
+        blueprint: "bp-multi",
+        domains: [],
+        groups: [
+          { name: "会话背景", domains: [], modules: [{ section: "Scene" }, { section: "User" }] },
+          { name: "触发索引", domains: [], modules: [{ section: "Trigger" }] },
+        ],
+        optionalDomains: ["@prj/d3"],
+      };
+      // d3 只贡献会话背景（User 段），不贡献触发索引
+      const d3: Domain = {
+        name: "d3",
+        modules: { User: [{ name: "u1", profile: "dev" }] },
+      };
+      const r = await scan(cwd, [profile], [blueprint], [d3]);
+      const noMatch = r.issues.filter((i) => i.field === "optional-domains");
+      expect(noMatch).toHaveLength(0); // 部分贡献 → 不警告
+    });
+
+    it("profile 含多个不贡献 bpGroup 的 optional-domain → 每个 domain 报 1 条（per-domain 聚合）", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile({
+        optionalDomains: ["@prj/d2", "@prj/d3"],
+      });
+      const d2: Domain = {
+        name: "d2",
+        modules: { Rules: [{ name: "r1", type: "invariant", check: "x" }] },
+      };
+      const d3: Domain = {
+        name: "d3",
+        modules: { Checklists: [{ name: "c1", steps: ["x"] }] },
+      };
+      const r = await scan(cwd, [profile], [makeBlueprint()], [d2, d3]);
+      const noMatch = r.issues.filter(
+        (i) => i.field === "optional-domains" && i.severity === "warning"
+      );
+      expect(noMatch.length).toBe(2); // 每个 domain 1 条（共 2 条，不是 4 条 per-bpGroup 旧行为）
+      const refs = noMatch.map((i) => i.msg).join(" ");
+      expect(refs).toContain("@prj/d2");
+      expect(refs).toContain("@prj/d3");
+    });
+
+    it("unresolved optional ref（prj 无 domain）→ 不推 issue（规则 6 静默化）", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile({
+        optionalDomains: ["@prj/nonexistent-domain"],
+      });
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      // 规则 6 已删除——unresolved 不推 info
+      const optionalIssues = r.issues.filter((i) => i.field === "optional-domains");
+      expect(optionalIssues).toHaveLength(0);
+      // r.infos 应为 0（未生成任何 info issue）
+      expect(r.infos ?? 0).toBe(0);
     });
   });
 

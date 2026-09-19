@@ -12,6 +12,13 @@
 //   4. empty-segment          (error)   compileAgentContext 产出为空段
 //   5. unknown-modname        (warning) `### Modules` 项不在 KNOWN_SECTION_NAMES
 //
+// v16+（issue pt-optional-domains-no-match-per-domain-aggregation）：
+//   6. optional-domain-unresolved  移除——optional slot 空是设计意图，不推 issue
+//   7. optional-domain-no-matching-section (warning) 改为 per-domain 聚合：
+//      - 一个 domain 不贡献任一 bpGroup 才 warning 一条（不再 per-bpGroup × domain 嵌套）
+//      - 部分贡献不警告（已在某 slot 有用即视为有效）
+//      - warning 措辞改 actionable（点明"加载了但没效果"+ 两条处置路径）
+//
 // 边界纪律：
 //   - 不替代运行时检测（transpile 内的 reportWarn）——两层互补：运行时按 profile 切，scan 按全集
 //   - 不写资产——只检测 + 报告；修复走 `/pt check --fix`（v2 范围，本 issue 不实现）
@@ -19,7 +26,8 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { compileAgentContext, resolveDomains } from "./compile/agent-context.js";
+import { compileAgentContext } from "./compile/agent-context.js";
+import { resolveAndDedupRefs } from "./parse/ref-resolver.js";
 import type { AssetPack } from "./schema.js";
 import { refName } from "./schema.js";
 import { PROFILES_DIR } from "./constants.js";
@@ -50,15 +58,14 @@ export interface AssetHealthIssue {
   fix?: string;
 }
 
-/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id；v16 加 2 个 optional-domains 诊断 id。 */
+/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id；v16+ optional-domains 诊断。 */
 export type HealthRuleId =
   | "missing-modules"
   | "dangling-blueprint-ref"
   | "orphan-h2"
   | "empty-segment"
   | "unknown-modname"
-  | "optional-domain-unresolved" // v16：可选 ref 找不到（info）——slot 空是预期行为
-  | "optional-domain-no-matching-section"; // v16：可选 ref 找到但 H2 段全不匹配 modules（warning）
+  | "optional-domain-no-matching-section"; // v16+：可选 ref 加载但 H2 段全不匹配任一 bpGroup 的 modules（warning，per-domain 聚合）
 
 /** 资产健康扫描结果（按 profile 聚合）。 */
 export interface AssetHealthReport {
@@ -213,43 +220,44 @@ export async function scanProjectHealth(
         });
       }
 
-      // v16：optional-domains 三态诊断（规则 6 + 7）
-      //   复用 empty-segment 检查已构造的 workingSet + bpGroup 遍历
-      //   - optionalMissing：可选 ref 找不到（info）—— slot 空是预期行为
-      //   - optionalNoMatch：可选 ref 找到但 H2 段全不匹配 modules（warning）
-      for (const bpGroup of blueprint.groups) {
-        const profileGroup = profile.groups.find((g) => g.name === bpGroup.name);
-        const { optionalMissing, optionalNoMatch } = resolveDomains(
+      // v16+：optional-domain 诊断改为 per-domain 视角（issue pt-optional-domains-no-match-per-domain-aggregation）
+      //   规则 6 (optional-domain-unresolved) 完全静默——optional slot 空是设计意图（pack-repair flow 含创建引导）
+      //   规则 7 (optional-domain-no-matching-section) 改为 per-domain 聚合——
+      //     - 一个 domain 不贡献任一 bpGroup 才 warning 一条
+      //     - 部分贡献不警告（已在某 slot 有用即视为有效）
+      //     - warning 措辞改 actionable：明确"加载了但没效果"+ 两条处置路径（加 H2 / 删引用）
+      const optionalRefs = profileForCompile.optionalDomains ?? [];
+      if (optionalRefs.length > 0) {
+        const { resolved: optionalResolved } = resolveAndDedupRefs<Domain>(
+          optionalRefs,
           profileForCompile,
-          profileGroup,
-          bpGroup,
-          {
-            domains: { location: domainLocWS, identity: domainIdWS },
-            blueprints: { location: blueprintLocWS, identity: blueprintIdWS },
-            profiles: { location: new Map(), identity: new Map() },
-          },
-          packs.map((p) => p.name)
+          { location: domainLocWS, identity: domainIdWS },
+          packs.map((p) => p.name),
+          { skipOnMissing: true }
         );
-        for (const raw of optionalMissing) {
-          issues.push({
-            severity: "info",
-            scope: "profile",
-            name: profile.name,
-            field: "optional-domains",
-            msg: `Profile「${profile.name}」的可选 domain「${raw}」未创建（slot 空）`,
-            hint: `这是预期行为。如需填充：在 prj domains/ 创建 ${refName(raw)}.md`,
-          });
+        for (const entry of optionalResolved) {
+          const d = entry.asset;
+          let contributed = false;
+          for (const bpGroup of blueprint.groups) {
+            const profileGroup = profile.groups.find((g) => g.name === bpGroup.name);
+            const mods = profileGroup?.modules ?? [];
+            if (mods.some((m) => d.modules[m.section] !== undefined)) {
+              contributed = true;
+              break;
+            }
+          }
+          if (!contributed) {
+            issues.push({
+              severity: "warning",
+              scope: "profile",
+              name: profile.name,
+              field: "optional-domains",
+              msg: `Profile「${profile.name}」的 optional-domain「${entry.rawRef}」已加载但未对任何聚合组产生贡献`,
+              hint: `该 domain 加载了但 H2 段不匹配 Profile 的 ### Modules。可选处置：1) 在 ${refName(entry.rawRef)}.md 加匹配段（Scene/User/Trigger/Rules/Flows/Checklists 等）；2) 从 optional-domains 移除该引用`,
+            });
+          }
         }
-        for (const raw of optionalNoMatch) {
-          issues.push({
-            severity: "warning",
-            scope: "profile",
-            name: profile.name,
-            field: "optional-domains",
-            msg: `Profile「${profile.name}」的可选 domain「${raw}」已创建但无 H2 段匹配 modules`,
-            hint: `检查 ${refName(raw)}.md 的 H2 段名 vs Profile 的 ### Modules 列表`,
-          });
-        }
+        // 规则 6 静默：未解析的 ref 不推 issue（optional slot 空是设计意图）
       }
     } catch (e) {
       adapterCtx?.log?.debug("scanProjectHealth:compile failed", {
