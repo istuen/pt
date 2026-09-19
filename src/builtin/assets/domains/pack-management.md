@@ -84,13 +84,18 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 - intent: Manifest 缺失/错误时自描述修复——按错误码分类处置后重启 session 验证
 - vars: []
 - step: `/pt status` 查看 pack 健康状态 + manifest warnings（如果有 `[repair-required]` 前缀，说明需要修复）
+- step: **cwd 边界判断**（issue pt-pack-repair-cwd-home-edge-case）：若 cwd=`$HOME` 且 pack-root 落在 `~/.pt/assets/`（曾 v15.x PR7 前 global pack 路径），先确认用户意图——prj pack 在 home 通常无项目上下文，盲目创建无意义。三选一：
+- step:   - (a) 用户想进入正常项目开发 → 建议切换到项目目录后再跑 pi（project pack 自然落到 `<cwd>/.pt/assets/`，激活项目级 pack），pack-repair 在项目目录才有意义
+- step:   - (b) 用户想临时调试 home → `mkdir -p ~/.pt/assets/{domains,blueprints,profiles}` 创建空骨架（无 manifest 走 back-compat fallback，name 退到位置别名 `prj`）
+- step:   - (c) 用户仅调研规范 → 啥都不做，builtin guide 已可用，无需落地 pack
 - step: 按错误码分类处置：
 - step:   - manifest 缺失：走 `pack-create` flow 创建 `pt-asset-pack.yaml`（保留现有 assets 子目录）
 - step:   - manifest 解析失败：检查 YAML 语法（top-level 必须是 mapping）
 - step:   - name 非 kebab-case：改名满足 `[a-z0-9-]{1,64}`
 - step:   - name 是保留字：改用其他身份 alias（不能是 prj/pt/project/builtin；v15.x PR7 后删除 gbl/global）
 - step:   - version 非 semver：改成 `^\d+\.\d+\.\d+` 格式
-- step:   - dir-not-found：`mkdir -p <pack-root>/{domains,blueprints,profiles}`
+- step:   - dir-not-found（路径在 `~/.pt/` 下）：先做上面 cwd 边界判断；确认用户意图后处置——(a) 切到项目目录，(b) `mkdir -p ~/.pt/assets/{domains,blueprints,profiles}` 创建临时骨架
+- step:   - dir-not-found（其他路径）：`mkdir -p <pack-root>/{domains,blueprints,profiles}`
 - step:   - no-asset-subdir：至少创建一个 asset 子目录
 - step:   - load-failed：检查资产文件格式（`.md` frontmatter 合法 / `.blueprint.yaml` 语法正确）
 - step: 修复后重启 pi session（`projectPackDegraded` 在 session_start 重新校验时清零）
@@ -150,6 +155,9 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 
 ### global-pack-removed
 - check: 全局 Pack 已删除（v15.x PR7，issue pt-remove-global-pack）——跨项目共享走 settings pack 显式声明路径（如 `~/.pt/packs/foo`），无"首次创建"隐式引导。原来的 §7.5 / §7.5.1 全局 Pack 初始化引导整节删除。
+
+### cwd-boundary-for-project-pack
+- check: Project pack 在 cwd=`$HOME` 时无意义——`~/.pt/assets/` 曾是 global pack 路径（v15.x PR7 删除），现被 project pack 自动接管，但 home 通常无项目上下文。`pack-repair` flow 在走 `dir-not-found` 处置前必须先做 cwd 边界判断（issue pt-pack-repair-cwd-home-edge-case）：(a) 切到项目目录 / (b) 临时 mkdir 骨架 / (c) 啥都不做——三选一由用户决定，flow 主动询问，不要无脑推荐 `mkdir`。会话层（session_start notify + `/pt status`）已实现 cwd=home 检测并附加决策引导
 
 ## Checklists
 
