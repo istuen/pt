@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 // .pt/ 目录布局规范（v11 重排）：
 //   .pt/assets/   入 git — 转译资产（domains / blueprints / profiles）
 //   .pt/docs/     入 git — 文档（designs 设计与执行 / issues 问题跟踪）
-//   .pt/manuals/  gitignore — pt_manual 工作文档
+//   .pt/manuals/  gitignore — pt_make_manual 工作文档
 //   .pt/cache/    gitignore — 运行产物（contexts 编译 / fulls 完整 prompt / raws segment）
 //   .pt/logs/     gitignore — NDJSON trace
 //
@@ -46,7 +46,7 @@ export const RAW_DIR = ".pt/cache/raws";
 /** /pt full 输出目录（完整 systemPrompt dump） */
 export const FULL_DIR = ".pt/cache/fulls";
 
-/** /pt manual 输出目录（手册实例文档） */
+/** /pt make-manual 输出目录（手册实例文档） */
 export const MANUAL_DIR = ".pt/manuals";
 
 /** 内建资产根目录（随 npm 包发布，跨项目复用）。

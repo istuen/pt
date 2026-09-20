@@ -187,7 +187,7 @@ export function flowsText(session: SessionState): string {
     return "当前 Profile 无可触发手册（turn 聚合组无含 Flows 段的 Domain）";
   }
   const lines = flows.map((f) => `  ${f.name} ${f.hint ?? ""}  ← ${f.domain}`);
-  return `可用手册（输入 /手册名 参数 或 /manual:<domain-name> 触发 Turn Inject）:\n${lines.join("\n")}`;
+  return `可用手册（输入 /手册名 参数 或 /pt_turn_inject <domain-name> 触发 Turn Inject）:\n${lines.join("\n")}`;
 }
 
 /** /pt full 内核：构建写入 .pt/cache/fulls/ 的完整 systemPrompt 字符串（v10.x 修复 pt-full-duplicate-segment）。
@@ -222,7 +222,7 @@ export function buildFullPrompt(
   return baseSystemPrompt;
 }
 
-/** /pt manual 内核：构建手册实例文档内容 + 目标文件路径。不写文件（写文件由壳负责）。 */
+/** /pt make-manual 内核：构建手册实例文档内容 + 目标文件路径。不写文件（写文件由壳负责）。 */
 export interface ManualDocResult {
   content: string;
   filePath: string;
@@ -241,13 +241,13 @@ export function buildManualDoc(
   issue?: string
 ): ManualDocResult {
   if (!procedure) {
-    return { content: "", filePath: "", error: "用法: /pt manual <procedure-name> [args...]" };
+    return { content: "", filePath: "", error: "用法: /pt make-manual <procedure-name> [args...]" };
   }
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.cachedBlueprint) {
     return { content: "", filePath: "", error: "无激活 Profile，先用 /pt-profile <name> 激活" };
   }
   // v13.x（issue pt-turn-inject-not-profile-scoped）：按 Profile scope 过滤 + 传 profile
-  //   让 /pt manual 在未引用该 domain 的 Profile 下找不到手册（与 /pt flows 一致）
+  //   让 /pt make-manual 在未引用该 domain 的 Profile 下找不到手册（与 /pt flows 一致）
   const scoped = filterDomainsByProfile(session.cachedBundles[0].domains, session.cachedProfile);
   const tpl = findFlowInBlueprint(
     session.cachedBlueprint,

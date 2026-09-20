@@ -2,7 +2,7 @@
 //
 // Phase 9.5：v9 后端入口。
 //   - session-inject.ts : AgentContext 聚合组 → Session Inject 字符串（按 Blueprint inject=session 聚合）
-//   - turn-inject.ts    : FlowTemplate + 参数 → Turn Inject（/manual:xxx + /<flow-name>）
+//   - turn-inject.ts    : FlowTemplate + 参数 → Turn Inject（/pt_turn_inject 触发）
 //                          AgentAdapter 内部映射到 Pi 的 system_prompt/context_message
 //   - cache.ts          : AgentContext 文件读写 + hash 校验（用 constants.CACHE_DIR 常量，P4.2）
 //

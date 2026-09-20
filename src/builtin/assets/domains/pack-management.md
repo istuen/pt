@@ -5,7 +5,7 @@ name: pack-management
 # pack-management
 
 Pack 全生命周期管理 domain——创建 / 调整 / 迭代 / 迁移 / 修复。builtin profile
-`guide` 引用本 domain，用户 `/manual:pack-management` 触发任意 FlowTemplate，
+`guide` 引用本 domain，用户 `/pt_turn_inject pack-management` 触发任意 FlowTemplate，
 LLM 跟着 Scene + Rules + Flow + Checklist 走即可。
 
 **核心立场**：manifest 是 pack 的**身份证 + 说明书**——没有 manifest 的目录只是
@@ -115,7 +115,7 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 - argument-hint: <pack-root>
 - intent: Pt schema 升级时 pack 内容迁移——按迁移指南更新 asset 格式
 - vars: [pack-root]
-- step: 读迁移指南（`.pt/docs/migrations/<from>-to-<to>-*.md` 或 `/manual:pt-asset-migration`）
+- step: 读迁移指南（`.pt/docs/migrations/<from>-to-<to>-*.md` 或 `/pt_turn_inject pt-asset-migration`）
 - step: 按指南转换每个 asset 文件（如 v9.0 → v9.1 modules-to-profile-complete：Blueprint `modules` 字段删除，迁到 Profile `### Modules`）
 - step: 跑 `pt_check` LLM 工具检查 pack 健康（missing-modules / dangling-blueprint-ref / empty-segment / orphan-h2 等）
 - step: 修完所有报错后 bump version（breaking change 升 major）

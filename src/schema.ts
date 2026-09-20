@@ -497,7 +497,7 @@ export interface AgentAdapter {
   ): void;
   /** 清理 session 上下文；handler 仍可由当前 Pi runtime 复用。 */
   resetInjection?(): void;
-  /** 查询可用手册（/pt flows 命令 + /manual:xxx 触发 共同消费）。
+  /** 查询可用手册（/pt flows 命令 + /pt_turn_inject 触发 共同消费）。
    *
    * 参数语义：
    *  - `ctx`：当前激活的 AgentContext IR（含缓存 sourceHash / 各聚合组 modules 内容）
@@ -507,7 +507,7 @@ export interface AgentAdapter {
    *    调用方无需预过滤
    *
    * 返回值：可触发手册列表。每项含 name（FlowTemplate.name / Rule.name）+ hint（argumentHint）+ domain（来源 Domain）。
-   *  - term-Domain 的 Rule[] 也作为 /manual:<domain> 暴露
+   *  - term-Domain 的 Rule[] 也作为 /pt_turn_inject <domain> 暴露
    *  - workflow-Domain 的 FlowTemplate[] 作为 /<flow-name> 暴露
    *
    * 可选方法——Adapter 不实现时 /pt flows 返空。 */
@@ -548,7 +548,7 @@ export function refName(ref: string): string {
  *  v15.x（issue pt-domain-abstraction-and-generic-profiles）：ref normalize——profile.domains
  *  可写 `@fullstack/dev-process`（限定来源 pack），refName 取尾段匹配 d.name。
  *  v16（issue pt-project-profiles-refactor-optional-domains）：加 optionalDomains 考虑——
- *  prj 通过 optional-domains slot 填的 domain 也应被选中（否则 renderTurnInject /manual:xxx 找不到）。
+ *  prj 通过 optional-domains slot 填的 domain 也应被选中（否则 renderTurnInject /pt_turn_inject xxx 找不到）。
  *  profile 为 null 时返 domains 原样（向后兼容——无激活 Profile 时不限制）。 */
 export function filterDomainsByProfile<T extends { name: string }>(
   domains: T[],

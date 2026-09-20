@@ -64,7 +64,8 @@ import {
   statusText,
 } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
-import type { AgentAPI } from "./schema.js";
+import { renderTurnInject } from "./render/turn-inject.js";
+import { filterDomainsByProfile, type AgentAPI } from "./schema.js";
 import {
   pathEquals,
   persistManualToSession,
@@ -339,7 +340,7 @@ export default function (pi: ExtensionAPI): void {
             "info"
           );
         } else {
-          ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+          ctx.ui.notify(`  修复：/pt_turn_inject pack-repair`, "info");
         }
       }
 
@@ -351,7 +352,7 @@ export default function (pi: ExtensionAPI): void {
             `⚠ Pt: settings pack [@${r.pack}] 校验失败（${firstErr?.msg ?? "未知"}）。已跳过该 pack。`,
             "warning"
           );
-          ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+          ctx.ui.notify(`  修复：/pt_turn_inject pack-repair`, "info");
         }
       }
 
@@ -617,8 +618,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerCommand("pt", {
     description: "查看 Pt 转译产物 / 状态（无参=显示当前 segment）",
     handler: async (args, ctx) => {
-      // v11.x 修复：原来 `sub = args.trim()` 会把整个 args 作为 sub，导致 `/pt manual <proc>` 时
-      //   `sub === "manual"` 永远不成立。改为：sub = 第一词，subArgs = 剩余。
+      // v11.x 修复：原来 `sub = args.trim()` 会把整个 args 作为 sub，导致 `/pt make-manual <proc>` 时
+      //   `sub === "make-manual"` 永远不成立。改为：sub = 第一词，subArgs = 剩余。
       //   兼容现有 logs:clear / status / flows 等单子命令（不带额外参数）行为不变。
       const firstSpace = args.indexOf(" ");
       const head = firstSpace === -1 ? args : args.slice(0, firstSpace);
@@ -745,7 +746,7 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
-      if (sub === "manual") {
+      if (sub === "make-manual") {
         // v11.x 修复：subArgs 才是 procedure 参数（原 code 会拿到 "manual"）
         const procedureParts = subArgs.trim().split(/\s+/);
         // P3：解析 `--issue <name>` flag 从 procedureParts 拆出，传给 buildManualDoc。
@@ -895,13 +896,13 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "pt_manual",
-    label: "Pt Manual",
+    name: "pt_make_manual",
+    label: "Pt Make Manual",
     description:
       "Create a manual instance document (.pt/manuals/<procedure>-<ts>.md) with checklist + artifact log. Use when starting a multi-step procedure like feature-lifecycle. Returns the file path.",
     promptSnippet: "Instantiate a Pt manual document with checklist for tracking",
     promptGuidelines: [
-      "Use pt_manual when starting a multi-step procedure (e.g., feature-lifecycle, issue-lifecycle, regression-verify) to get a persistent checklist + artifact log.",
+      "Use pt_make_manual when starting a multi-step procedure (e.g., feature-lifecycle, issue-lifecycle, regression-verify) to get a persistent checklist + artifact log.",
     ],
     parameters: Type.Object({
       procedure: Type.String({
@@ -954,6 +955,73 @@ export default function (pi: ExtensionAPI): void {
           details: { path: r.filePath },
         };
       });
+    },
+  });
+
+  // v18.x (issue pt-turncontext-llm-call-trigger decision 4): pt_turn_inject tool.
+  // Lets LLM trigger TurnContext injection on demand; execute calls renderTurnInject.
+  // In-memory IR (decision 7): reads session.cachedBundles/cachedBlueprint/cachedProfile/cachedAgentContext,
+  // does NOT read .pt/cache/agent-contexts/ files. Returns compiled manual detail in tool_result.
+  pi.registerTool({
+    name: "pt_turn_inject",
+    label: "Pt Turn Inject",
+    description:
+      "Inject TurnContext (compiled manual detail) for a Domain on demand. " +
+      "Returns the Rules/Flows/Checklists content of the Domain. " +
+      "Use when reasoning needs a Domain's manual detail referenced in SessionContext's trigger-index. " +
+      "Input: domain name (from /pt flows or trigger-index).",
+    promptSnippet: "Inject a Domain's TurnContext (manual detail) on demand",
+    promptGuidelines: [
+      "Use pt_turn_inject to fetch a Domain's manual detail (Rules/Flows/Checklists) on demand. " +
+        "Consult SessionContext's trigger-index to decide which Domain to query.",
+    ],
+    parameters: Type.Object({
+      domain: Type.String({
+        description:
+          "Domain name to inject, e.g. 'dev-process' or 'pt-quality'. Use /pt flows to list available domains.",
+      }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const sessionId = getSessionIdFromCtx(ctx);
+      if (!sessionId) {
+        return {
+          content: [{ type: "text", text: "no session" }],
+          details: { error: "no session" },
+        };
+      }
+      const s = getSessionById(sessionId);
+      if (
+        !s.cachedBundles ||
+        s.cachedBundles.length === 0 ||
+        !s.cachedAgentContext ||
+        !s.cachedBlueprint
+      ) {
+        return {
+          content: [{ type: "text", text: "无激活 Profile，先用 /pt-profile 激活" }],
+          details: { error: "no active profile" },
+        };
+      }
+      const scoped = filterDomainsByProfile(s.cachedBundles[0].domains, s.cachedProfile);
+      // Reuse renderTurnInject dispatch (/pt_turn_inject form, step 3 unified command).
+      const content = renderTurnInject(
+        s.cachedAgentContext,
+        s.cachedBlueprint,
+        scoped,
+        s.cachedProfile,
+        `/pt_turn_inject ${params.domain}`
+      );
+      if (content === null) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `未找到 Domain 或无手册段: ${params.domain}（用 /pt flows 查可用手册）`,
+            },
+          ],
+          details: { error: "not found", domain: params.domain },
+        };
+      }
+      return { content: [{ type: "text", text: content }], details: { domain: params.domain } };
     },
   });
 

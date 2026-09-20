@@ -997,7 +997,7 @@ describe("MdFilePack.create notify 分流（reserved silent / settings 提示）
       expect(notifs.length).toBe(1);
       expect(notifs[0].level).toBe("warning");
       expect(notifs[0].msg).toContain("无 manifest");
-      expect(notifs[0].msg).toContain("/manual:pack-management#pack-create");
+      expect(notifs[0].msg).toContain("/pt_turn_inject pack-management#pack-create");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -117,7 +117,7 @@ describe("manual profile switch and Session Inject", () => {
 
     const inputResult = (await inputHandler({
       type: "input",
-      text: "/switch-test-flow",
+      text: "/pt_turn_inject switch-test-flow",
     })) as { action: string; text: string };
     expect(inputResult.action).toBe("transform");
     expect(inputResult.text).toContain("FLOW-B");

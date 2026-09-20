@@ -49,4 +49,4 @@ name: project-analysis
 - step: 激活内建 guide Profile——pi --pt-profile guide，或不设配置装包即自动激活
 - step: /pt 查看当前编译状态（profile + segment 长度 + cache hit）
 - step: 读 project-analysis 的 analyze-steps + section-as-namespace + role-isolation 分析自己项目的知识结构
-- step: /pt flows 列出可触发手册，试 /manual:authoring 查看创作手册
+- step: /pt flows 列出可触发手册，试 /pt_turn_inject authoring 查看创作手册

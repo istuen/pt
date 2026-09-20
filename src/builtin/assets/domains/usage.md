@@ -6,8 +6,8 @@ name: usage
 
 ## Trigger
 ### usage-trigger
-- desc: 操作 Pt 时参考；含 /pt 命令族（含 /pt manual 实例化手册）+ --pt-profile flag（--pt-context 为旧 flag，backward-compat 保留）+ /pt-profile 切换
-- hint: /manual:usage 查看完整命令列表
+- desc: 操作 Pt 时参考；含 /pt 命令族（含 /pt make-manual 实例化手册）+ --pt-profile flag（--pt-context 为旧 flag，backward-compat 保留）+ /pt-profile 切换
+- hint: /pt_turn_inject usage 查看完整命令列表
 
 ## Scene
 
@@ -18,16 +18,22 @@ name: usage
 - desc: /pt-profile（列出所有可用 Profile）+ /pt-profile <name>（切换到指定 Profile，下一轮生效）。旧命令 /pt-context 保留为 backward-compat fallback。
 
 ### manual-trigger
-- desc: /manual:<domain-name>（注入该 Domain 的 Rules/Flows/Checklists 段到 Turn Inject）+ /<flow-name> <args>（触发 Domain 的 FlowTemplate）
+- desc: /pt_turn_inject <domain>（注入该 Domain 的 Rules/Flows/Checklists 段到 Turn Inject）+ /pt_turn_inject <flow-name> <args>（触发 Domain 的 FlowTemplate）
 
 ### pt-profile-flag
 - desc: --pt-profile <name>（Pi 启动时激活指定 Profile，CLI 优先级高于 session_start 默认逻辑）。旧 flag --pt-context 保留为 backward-compat fallback。
 
-### pt-manual-command
-- desc: /pt manual <procedure-name> [args...]（创建手册实例文档到 .pt/manuals/，含 checklist + 产物区，用于跟踪执行）。与 /manual:<domain>（ephemeral 参考）互补——前者持久化，后者即时注入。
+### pt-make-manual-command
+- desc: pt_make_manual LLM tool（创建 Manual 实例文档，用于多步过程跟踪）
+
+### pt-turn-inject-command
+- desc: pt_turn_inject LLM tool（按需注入 Domain 的 TurnContext 手册详情，LLM 推理触发）
+
+### manual-create-command
+- desc: /pt make-manual <procedure-name> [args...]（创建手册实例文档到 .pt/manuals/，含 checklist + 产物区，用于跟踪执行）。与 /pt_turn_inject <domain>（ephemeral 参考）互补——前者持久化，后者即时注入。
 
 ### pt-tools-llm
-- desc: pt_status / pt_flows / pt_manual 三个 LLM tool（pi.registerTool）。与 /pt 命令族共享纯函数内核——人类打 /pt status，LLM 调 pt_status，结果一致。/pt-profile 不做 tool（切换 Profile 改 Session Context 不该让 LLM 触发，见 .pt/docs/designs/pt-command-tool-dual-registration.md §2.4）。
+- desc: pt_status / pt_flows / pt_make_manual / pt_turn_inject 四个 LLM tool（pi.registerTool）。与 /pt 命令族共享纯函数内核——人类打 /pt status，LLM 调 pt_status，结果一致。/pt-profile 不做 tool（切换 Profile 改 Session Context 不该让 LLM 触发，见 .pt/docs/designs/pt-command-tool-dual-registration.md §2.4）。
 
 ### settings-pack
 - desc: v15.x settings 声明 Pack——在 .pi/settings.json 的 pt.asset-packs[] 声明第三方 / 团队 Pack（只 path 字段，name 从 manifest 读）。路径支持 ~（home dir）/ 绝对 / 相对 cwd。多个 settings pack 按声明顺序后者赢（npm 风格）。pt.project-pack-dir 可改 project pack 路径（默认 .pt/assets，支持项目外路径）

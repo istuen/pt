@@ -3,7 +3,7 @@
 // 验证：
 //   - buildManualDoc 接受 issue 参数 → frontmatter 含 `issue: <name>`
 //   - issue=undefined / "" / 空白 → frontmatter 无 `issue:` 行（back-compat）
-//   - pt_manual tool 把 issue 传给 buildManualDoc + activeManual
+//   - pt_make_manual tool 把 issue 传给 buildManualDoc + activeManual
 //   - persistManualToSession 写入 entry 含 issue 字段（旧 entry 无 issue 也兼容）
 //   - tryRestoreManual 恢复时把 issue 写回 activeManual
 //   - /pt manual <proc> [args] --issue <name> 命令解析（拆出 flag，不污染 args）
@@ -200,7 +200,7 @@ describe("P3 buildManualDoc：issue 关联字段", () => {
   });
 });
 
-describe("P3 pt_manual tool：issue 参数链路", () => {
+describe("P3 pt_make_manual tool：issue 参数链路", () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
@@ -229,8 +229,8 @@ describe("P3 pt_manual tool：issue 参数链路", () => {
     m.widgetCalls.length = 0;
     m.appendedEntries.length = 0;
 
-    const ptManualTool = m.tools.get("pt_manual");
-    if (!ptManualTool) throw new Error("pt_manual tool not registered");
+    const ptManualTool = m.tools.get("pt_make_manual");
+    if (!ptManualTool) throw new Error("pt_make_manual tool not registered");
 
     const result = (await ptManualTool.execute(
       "call-1",
@@ -276,7 +276,7 @@ describe("P3 pt_manual tool：issue 参数链路", () => {
 
     m.appendedEntries.length = 0;
 
-    const ptManualTool = m.tools.get("pt_manual")!;
+    const ptManualTool = m.tools.get("pt_make_manual")!;
     const result = (await ptManualTool.execute(
       "call-1",
       { procedure: "feature-lifecycle", args: "req-002" },
@@ -383,7 +383,7 @@ status: in-progress
   });
 });
 
-describe("P3 /pt manual command：--issue flag 解析", () => {
+describe("P3 /pt make-manual command：--issue flag 解析", () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
@@ -394,7 +394,7 @@ describe("P3 /pt manual command：--issue flag 解析", () => {
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
-  it("/pt manual feature-lifecycle req-003 --issue pt-foo → frontmatter 含 issue: pt-foo", async () => {
+  it("/pt make-manual feature-lifecycle req-003 --issue pt-foo → frontmatter 含 issue: pt-foo", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "p3-cmd-"));
     tempDirs.push(tempDir);
     await mkdir(join(tempDir, ".pt", "manuals"), { recursive: true });
@@ -409,7 +409,7 @@ describe("P3 /pt manual command：--issue flag 解析", () => {
 
     m.appendedEntries.length = 0;
     const ptCmd = m.commands.get("pt")!;
-    await ptCmd.handler("manual feature-lifecycle req-003 --issue pt-foo", m.ctx);
+    await ptCmd.handler("make-manual feature-lifecycle req-003 --issue pt-foo", m.ctx);
 
     const session = getSessionById(TEST_SESSION_ID);
     expect(session.activeManual?.issue).toBe("pt-foo");
@@ -420,7 +420,7 @@ describe("P3 /pt manual command：--issue flag 解析", () => {
     expect((manualEntries[0]?.[1] as { issue?: string }).issue).toBe("pt-foo");
   });
 
-  it("/pt manual feature-lifecycle req --issue=pt-bar（= 形式）→ 也支持", async () => {
+  it("/pt make-manual feature-lifecycle req --issue=pt-bar（= 形式）→ 也支持", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "p3-cmd-"));
     tempDirs.push(tempDir);
     await mkdir(join(tempDir, ".pt", "manuals"), { recursive: true });
@@ -434,13 +434,13 @@ describe("P3 /pt manual command：--issue flag 解析", () => {
     m.ctx.cwd = tempDir;
 
     const ptCmd = m.commands.get("pt")!;
-    await ptCmd.handler("manual feature-lifecycle req --issue=pt-bar", m.ctx);
+    await ptCmd.handler("make-manual feature-lifecycle req --issue=pt-bar", m.ctx);
 
     const session = getSessionById(TEST_SESSION_ID);
     expect(session.activeManual?.issue).toBe("pt-bar");
   });
 
-  it("/pt manual feature-lifecycle req（不传 --issue）→ activeManual.issue = undefined（back-compat）", async () => {
+  it("/pt make-manual feature-lifecycle req（不传 --issue）→ activeManual.issue = undefined（back-compat）", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "p3-cmd-"));
     tempDirs.push(tempDir);
     await mkdir(join(tempDir, ".pt", "manuals"), { recursive: true });
@@ -454,7 +454,7 @@ describe("P3 /pt manual command：--issue flag 解析", () => {
     m.ctx.cwd = tempDir;
 
     const ptCmd = m.commands.get("pt")!;
-    await ptCmd.handler("manual feature-lifecycle req-005", m.ctx);
+    await ptCmd.handler("make-manual feature-lifecycle req-005", m.ctx);
 
     const session = getSessionById(TEST_SESSION_ID);
     expect(session.activeManual?.issue).toBeUndefined();
@@ -476,7 +476,7 @@ describe("P3 /pt manual command：--issue flag 解析", () => {
 
     const ptCmd = m.commands.get("pt")!;
     // 缺少 --issue 的值（紧跟 procedure）
-    await ptCmd.handler("manual feature-lifecycle req --issue", m.ctx);
+    await ptCmd.handler("make-manual feature-lifecycle req --issue", m.ctx);
 
     const session = getSessionById(TEST_SESSION_ID);
     expect(session.activeManual?.issue).toBeUndefined();

@@ -55,7 +55,7 @@ export type ProfileLoadSource =
  *  - failed：本轮 before_agent_start catch 异常 */
 export type InjectionState = "idle" | "pending" | "injected" | "failed";
 
-/** 当前追踪的 Manual 实例（LLM 调 pt_manual 写入后触发）。
+/** 当前追踪的 Manual 实例（LLM 调 pt_make_manual 写入后触发）。
  *  进度（stepDone/stepTotal）不存 session——文件是 single source of truth，
  *  每次 widget 渲染时 parse 文件重新计算。 */
 export interface ActiveManual {
@@ -145,7 +145,7 @@ const sessionMap = new Map<string, SessionState>();
  *  v13.x（issue pt-no-agent-context-reset-session-state 修复）：
  *  - transpile/session_start/switchProfile 三处 catch 调用本函数
  *  - 避免 stale cachedAgentContext/cachedBlueprint/cachedDomains/cachedProfile/activeAdapter
- *    误导 /pt flows / /pt manual 返回旧 Profile 的手册列表（掩盖真实失败）
+ *    误导 /pt flows / /pt make-manual 返回旧 Profile 的手册列表（掩盖真实失败）
  *  - 不清 sessionId/logger/lastCwd/activeProfile/loadedFrom/activeManual（生命周期不同：
  *    session_id 标识当前会话、logger 持续写日志、lastCwd 是项目根、activeProfile 是用户意图、
  *    loadedFrom 是来源、activeManual 是手动追踪）

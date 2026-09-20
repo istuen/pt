@@ -2,7 +2,7 @@
 //
 // Phase 9.6：v9 新增 — AgentAdapter 的 Pi 实现。
 //   - system_prompt 注入：api.on("before_agent_start") 每轮追加 segment
-//   - context_message 触发：api.on("input") 拦截 /manual:xxx 和 /<flow-name>
+//   - context_message 触发：api.on("input") 拦截 /pt_turn_inject
 //   - 这些是 Agent Runtime 层（Pi API），本 Adapter 在该层做 session→system_prompt、turn→context_message 映射
 //
 // Pt 核心只调 AgentAdapter 接口，不直接调 Pi API。加新 Agent 只加 Adapter。
@@ -223,7 +223,7 @@ export class PiAdapter implements AgentAdapter {
       }
     });
 
-    // context_message 触发：/manual:xxx + /<flow-name>
+    // context_message 触发：/pt_turn_inject
     // v10.x：包 try/catch，renderTurnInject 抛错不再 swallow
     api.on("input", async (...args: unknown[]) => {
       const t0 = Date.now();
@@ -233,7 +233,7 @@ export class PiAdapter implements AgentAdapter {
         if (!isInputEvent(event)) return { action: "continue" };
         // Phase term-P4.3：renderContextMessage → renderTurnInject
         // v13.x（issue pt-turn-inject-not-profile-scoped）：按 Profile scope 过滤 domains + 传 profile
-        //   让 /manual:<domain> 在未引用该 domain 的 Profile 下返 null（与 /pt flows 列表一致）
+        //   让 /pt_turn_inject <domain> 在未引用该 domain 的 Profile 下返 null（与 /pt flows 列表一致）
         const scoped = filterDomainsByProfile(this.domains, this.profile);
         const result = renderTurnInject(this.ctx, this.blueprint, scoped, this.profile, event.text);
         const durationMs = Date.now() - t0;
@@ -289,14 +289,14 @@ export class PiAdapter implements AgentAdapter {
         }
         const rulesContent = d.modules[MOD_RULES];
         if (isRuleArray(rulesContent) && rulesContent.length > 0) {
-          // term-Domain 的 Rule[] 作为 /manual:<domain> 暴露
+          // term-Domain 的 Rule[] 作为 /pt_turn_inject <domain> 暴露
           flows.push({
             name: `/manual:${d.name}`,
             hint: `${rulesContent.length} 条规范`,
             domain: d.name,
           });
         }
-        // Checklist[] 暂不单独暴露——/manual:<domain> 命令会统一处理（renderDomainManual）
+        // Checklist[] 暂不单独暴露——/pt_turn_inject <domain> 命令会统一处理（renderDomainManual）
       }
     }
 

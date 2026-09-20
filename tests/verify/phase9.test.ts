@@ -5,7 +5,7 @@
 // - Profile 是业务端实例（blueprint + YAML domains + 各注入点 ### Domains 追加）
 // - modName 注册表（替代 v8 domainSceneRenderers）
 // - Trigger 索引段（Domain 内 H2 段）
-// - /manual:xxx 触发（renderTurnInject 实现）
+// - /pt_turn_inject 触发（renderTurnInject 实现）
 // - AgentAdapter 抽象（PiAdapter 封装 before_agent_start + input）
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -295,9 +295,9 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
   });
 
-  // ========== 12. /manual:xxx 触发 ==========
-  describe("12. /manual:xxx 触发", () => {
-    it("/manual:pt-quality 触发返非 null（pt-dev 引用 pt-quality）", () => {
+  // ========== 12. /pt_turn_inject 触发 ==========
+  describe("12. /pt_turn_inject 触发", () => {
+    it("/pt_turn_inject pt-quality 触发返非 null（pt-dev 引用 pt-quality）", () => {
       const r9 = loadedProfiles["pt-dev"];
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
@@ -309,12 +309,12 @@ describe("Phase 9.9 v9 完整回归", () => {
         ptDevBlueprint,
         scoped,
         ptDevProfile,
-        "/manual:pt-quality"
+        "/pt_turn_inject pt-quality"
       );
       expect(result).not.toBeNull();
     });
 
-    it("/manual:pt-quality 含 9 条规范", () => {
+    it("/pt_turn_inject pt-quality 含 9 条规范", () => {
       const r9 = loadedProfiles["pt-dev"];
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
@@ -325,13 +325,13 @@ describe("Phase 9.9 v9 完整回归", () => {
         ptDevBlueprint,
         scoped,
         ptDevProfile,
-        "/manual:pt-quality"
+        "/pt_turn_inject pt-quality"
       );
       expect(result).toContain("modules-type-safety");
     });
 
     // v13.x（issue pt-turn-inject-not-profile-scoped）：反向用例——Profile scope 过滤生效
-    it("/manual:pt-quality 在 pt-design（未引用 pt-quality）下返 null", () => {
+    it("/pt_turn_inject pt-quality 在 pt-design（未引用 pt-quality）下返 null", () => {
       const r9 = loadedProfiles["pt-design"];
       const ptDesignBundle = r9.bundles[0];
       const ptDesignProfile = findProfile(ptDesignBundle.profiles, "pt-design")!;
@@ -345,7 +345,7 @@ describe("Phase 9.9 v9 完整回归", () => {
         ptDesignBlueprint,
         scoped,
         ptDesignProfile,
-        "/manual:pt-quality"
+        "/pt_turn_inject pt-quality"
       );
       expect(result).toBeNull();
     });
@@ -444,8 +444,8 @@ describe("Phase 9.9 v9 完整回归", () => {
     });
   });
 
-  // ========== 18. /pt manual 手册实例化 ==========
-  describe("18. /pt manual 手册实例化", () => {
+  // ========== 18. /pt make-manual 手册实例化 ==========
+  describe("18. /pt make-manual 手册实例化", () => {
     it("bindFlowTemplate 输出含步骤 + 变量绑定", async () => {
       const { bindFlowTemplate } = await import("../../src/render/turn-inject.js");
       const r = await loadAndTranspile(cwd, "guide");
@@ -465,7 +465,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const r = await loadAndTranspile(cwd, "guide");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       const bound = bindFlowTemplate(tpl!, "my-concept");
-      // 模拟 /pt manual 的文档包装逻辑
+      // 模拟 /pt make-manual 的文档包装逻辑
       const lines: string[] = ["---", "procedure: create-domain-procedure", "---", ""];
       for (const line of bound.split("\n")) {
         if (line.startsWith("#")) continue;
@@ -487,7 +487,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const r = await loadAndTranspile(cwd, "guide");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       const bound = bindFlowTemplate(tpl!, "my-concept");
-      // 模拟 /pt manual 的文档包装逻辑
+      // 模拟 /pt make-manual 的文档包装逻辑
       const lines: string[] = ["---", "procedure: create-domain-procedure", "---", ""];
       for (const line of bound.split("\n")) {
         if (line.startsWith("#")) continue;
@@ -515,9 +515,9 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(constants.MANUAL_DIR).toBe(".pt/manuals");
     });
 
-    it("index.ts 注册了 /pt manual 子命令", async () => {
+    it("index.ts 注册了 /pt make-manual 子命令", async () => {
       const src = await readFile("src/index.ts", "utf8");
-      expect(src).toContain('sub === "manual"');
+      expect(src).toContain('sub === "make-manual"');
       expect(src).toContain("MANUAL_DIR");
     });
   });
@@ -586,11 +586,12 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(doc.filePath).toContain("feature-lifecycle-");
     });
 
-    it("index.ts 注册了 3 个 tool", async () => {
+    it("index.ts 注册了 4 个 tool", async () => {
       const src = await readFile("src/index.ts", "utf8");
       expect(src).toContain('name: "pt_status"');
       expect(src).toContain('name: "pt_flows"');
-      expect(src).toContain('name: "pt_manual"');
+      expect(src).toContain('name: "pt_make_manual"');
+      expect(src).toContain('name: "pt_turn_inject"');
       expect(src).toContain("withFileMutationQueue");
     });
   });

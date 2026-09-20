@@ -208,10 +208,10 @@ describe("multi-session isolation（v12.x）", () => {
     expect(getSessionById("session-B").activeProfile).toBe("profile-B");
   });
 
-  it("pt_manual tool 写 activeManual 不跨 session 串（widget / footer / cachedManualProgress 隔离）", async () => {
+  it("pt_make_manual tool 写 activeManual 不跨 session 串（widget / footer / cachedManualProgress 隔离）", async () => {
     // issue module-state-pi-web-multisession 回归断言：
-    // tab A 调 pt_manual → tab B 不应显示 tab A 的 widget / footer 后缀 / cachedManualProgress。
-    // 走真实 pt_manual tool 路径（先 /pt-profile 加载 profile 让 buildManualDoc 能找到 FlowTemplate）。
+    // tab A 调 pt_make_manual → tab B 不应显示 tab A 的 widget / footer 后缀 / cachedManualProgress。
+    // 走真实 pt_make_manual tool 路径（先 /pt-profile 加载 profile 让 buildManualDoc 能找到 FlowTemplate）。
     const tempDirA = await mkdtemp(join(tmpdir(), "pt-multi-manual-a-"));
     tempDirs.push(tempDirA);
     await mkdir(join(tempDirA, ".pt", "manuals"), { recursive: true });
@@ -227,9 +227,9 @@ describe("multi-session isolation（v12.x）", () => {
     await piA.commands.get("pt-profile")!.handler("pt-dev", piA.ctx);
     await piB.commands.get("pt-profile")!.handler("pt-dev", piB.ctx);
 
-    // tab A 切到独立 cwd 调 pt_manual（避免写真实仓库）
+    // tab A 切到独立 cwd 调 pt_make_manual（避免写真实仓库）
     piA.ctx.cwd = tempDirA;
-    const ptManualTool = piA.tools.get("pt_manual")!;
+    const ptManualTool = piA.tools.get("pt_make_manual")!;
     await ptManualTool.execute(
       "call-a",
       { procedure: "feature-lifecycle", args: "tab-a" },
