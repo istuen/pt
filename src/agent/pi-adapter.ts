@@ -291,7 +291,7 @@ export class PiAdapter implements AgentAdapter {
         if (isRuleArray(rulesContent) && rulesContent.length > 0) {
           // term-Domain 的 Rule[] 作为 /pt_turn_inject <domain> 暴露
           flows.push({
-            name: `/manual:${d.name}`,
+            name: `/pt_turn_inject ${d.name}`,
             hint: `${rulesContent.length} 条规范`,
             domain: d.name,
           });

@@ -42,4 +42,27 @@ describe("Profile 触发手册（listManuals）", () => {
     // pt-dev 包含 dev-workflow（Flows）+ pt-quality（Rules）+ pt-collab（Checklists）—— 至少 3 个手册项
     expect(flows.length).toBeGreaterThanOrEqual(3);
   });
+
+  // v18.x（#7）：listManuals 的 term-Domain name 格式是 /pt_turn_inject <domain>（非 /manual:<domain>）
+  // #1 改名遗留：原 code name 字段是 /manual:xxx，与 renderTurnInject dispatch 命令名 /pt_turn_inject 不一致——
+  // 用户/LLM 看 /pt flows 输出 /manual:xxx 打这个命令会 passthrough 不触发注入。此断言防 regression（#7 闭合）。
+  it("v18.x（#7）：listManuals 的 term-Domain name 格式是 /pt_turn_inject <domain>", async () => {
+    const r = await loadAndTranspile(process.cwd(), "pt-dev");
+    const b = r.bundles[0];
+    expect(b).toBeDefined();
+
+    const adapter = getAgentAdapter({} as never, "pi");
+    adapter.setAgentContext(r.agentContext, r.blueprint, b.domains, r.profile);
+    const flows = adapter.listManuals?.(r.agentContext, r.blueprint, b.domains) ?? [];
+
+    // 找 term-Domain 项（hint 含"条规范"——pt-quality 的 Rules 段）
+    const termDomain = flows.find((f) => typeof f.hint === "string" && f.hint.includes("条规范"));
+    expect(termDomain).toBeDefined();
+    expect(termDomain?.name).toMatch(/^\/pt_turn_inject \S+$/);
+    expect(termDomain?.name).not.toMatch(/^\/manual:/); // 防回退
+
+    // 全 listManuals 输出无 /manual: 残留
+    const anyManual = flows.find((f) => f.name.startsWith("/manual:"));
+    expect(anyManual).toBeUndefined();
+  });
 });
