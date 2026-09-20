@@ -39,9 +39,7 @@ export interface Term {
    *  renderer 在 desc 后追加 ` — note`。
    *  v9.2 扩展：与 fields 同步，让作者写在 Scene 段的 purpose/rule 不再被丢。 */
   note?: string;
-  /** Phase term-P9.1：外部数据源路径（替代 workflow Scene 的 ExternalRef）。
-   *  Scene 段统一为 Term[] 后，workflow 的 externals 用带 path 的 Term 表示；
-   *  渲染：有 path 输出 `- name: path — desc`，无 path 输出 `- name: desc`。 */
+  /** 外部数据源路径（用于渲染 `- name: path — desc`；无 path 时降级为 `- name: desc`）。 */
   path?: string;
 }
 
@@ -113,8 +111,6 @@ export interface FlowTemplate {
   intent: string;
   /** 手册结构层：步骤 + 数据源 + 期望产出 */
   steps: FlowStep[];
-  /** 数据语义层：引用知识库的数据源 */
-  externals: ExternalRef[];
 }
 
 /** Phase term-P9.2：验收清单（Domain.## Checklists 段内容）。

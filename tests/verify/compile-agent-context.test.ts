@@ -528,13 +528,13 @@ describe("mergeSectionContent（PR3b §4.5.2）", () => {
     const d1 = makeDomain({
       name: "foo",
       modules: {
-        Flows: [{ name: "flow-a", intent: "from prj", steps: [], externals: [] }],
+        Flows: [{ name: "flow-a", intent: "from prj", steps: [] }],
       },
     });
     const d2 = makeDomain({
       name: "foo",
       modules: {
-        Flows: [{ name: "flow-b", intent: "from pt", steps: [], externals: [] }],
+        Flows: [{ name: "flow-b", intent: "from pt", steps: [] }],
       },
     });
     const out = mergeSectionContent([d1, d2], "Flows") as Array<{ name: string }>;

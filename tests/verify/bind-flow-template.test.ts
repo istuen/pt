@@ -136,7 +136,6 @@ describe("P2 bindFlowTemplate 渲染", () => {
     argumentHint: "<topic>",
     intent: "P2 I/O 渲染示范",
     _vars: ["topic"],
-    externals: [],
   } as const;
 
   let parsedSteps: FlowStep[];

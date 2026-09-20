@@ -63,7 +63,6 @@ function makeFixture(marker: string): {
     name: "switch-test-flow",
     intent: "switch test",
     steps: [{ desc: `FLOW-${marker}`, output: "done" }],
-    externals: [],
   };
   const domains: Domain[] = [
     // Phase term-P9.2：FlowTemplate 在 ## Flows 段（不是 ## Manual）

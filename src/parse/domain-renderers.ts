@@ -54,7 +54,6 @@ const domainSectionRenderers: Record<string, DomainSectionParser> = {
         argumentHint: s(item.fields["argument-hint"]) || undefined,
         intent: s(item.fields.intent),
         steps: collectSteps(item.name, sectionRaw),
-        externals: [],
       };
       const vars = sArr(item.fields.vars);
       if (vars.length > 0) tpl._vars = vars;
