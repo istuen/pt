@@ -94,6 +94,11 @@ export interface SessionState {
   injectionError: string | null;
   /** 当前追踪的 Manual 实例（widget + footer 后缀 + 持久化恢复）。 */
   activeManual: ActiveManual | null;
+  /** v18.x（issue pt-turncontext-llm-call-trigger 决策 6）：compaction 后重注入线索。
+   *  引用指针（domain 名 + 文件路径），非内容缓存——Manual 文件在磁盘（compaction 不影响），
+   *  TurnContext 内容靠 domain 名重新触发 pt_turn_inject 获取。
+   *  compaction 只裁 messages 不裁 extension state（sessionMap 不进 messages），自然存活。 */
+  lastTurnRef: { turnInjectDomain: string; manualPath: string | null } | null;
   /** v12.x：当前 manual widget 的 async parse 缓存（替代原 module-level `cachedManualProgress`）。 */
   cachedManualProgress: ManualProgress | null;
   /** P1：上次 setStatus("pt", ...) 写入的字符串（refreshInjectionFooter 字符串去重缓存）。
@@ -129,6 +134,7 @@ export function createSessionState(): SessionState {
     injectionState: "idle",
     injectionError: null,
     activeManual: null,
+    lastTurnRef: null,
     cachedManualProgress: null,
     lastFooterText: null,
     assetHealthIssues: null,

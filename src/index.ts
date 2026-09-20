@@ -72,6 +72,8 @@ import {
   refreshInjectionFooter,
   refreshManualWidget,
   tryRestoreManual,
+  tryRestoreLastTurnRef,
+  persistLastTurnRef,
 } from "./manual-session.js";
 import { writeProbeResult } from "./manual-writeback.js";
 import { slog } from "./slog.js";
@@ -308,6 +310,11 @@ export default function (pi: ExtensionAPI): void {
 
     s.lastCwd = ctx.cwd;
 
+    // v18.x（决策 6）：先试恢复 lastTurnRef——compaction 线索是 session lifecycle 维度，
+    // 独立于 profile 链（profile 失败也能恢复）。即使从未调过 pt_turn_inject / pt_make_manual
+    // 也会快速返回（无 entry）。
+    tryRestoreLastTurnRef(ctx, s);
+
     // v15.x PR4（§6.7.1 + §6.7.5）：pack 校验 + settings pack 接通
     // 两段独立 try/catch 兑底——任一异常都不能阻塞 session_start。
     // v15.x PR7（issue pt-remove-global-pack 移除）：globalPack 槽位删除，3 类 pack。
@@ -500,6 +507,49 @@ export default function (pi: ExtensionAPI): void {
       s.logger?.error("session:start failed", { err: errMsg(e) });
       // v11.x：profile 失败但 manual 仍可能独立恢复（手动追踪不依赖 profile）
       await tryRestoreManual(ctx, s);
+    }
+  });
+
+  // ========== session_compact：compaction 后重注入 TurnContext 线索 ==========
+  // v18.x（issue pt-turncontext-llm-call-trigger 决策 6）：
+  //  线索 = TurnContext domain 名 + Manual 路径（引用指针，非内容缓存）。
+  //  session_compact 事件触发 → 读 s.lastTurnRef → 通过 pi.sendMessage({ triggerTurn: true })
+  //  注入固定线索作为 custom message → LLM 读到后据线索重新调 pt_turn_inject / read Manual。
+  //  无条件重注入——线索很轻（domain 名 + 路径），多注一次不撑窗口，简化逻辑。
+  //  session_compact 事件在 src/index.ts 注册而非 pi-adapter.ts——因为：
+  //   1) pi.sendMessage 是 Pi 专属 API，AgentAPI 不暴露（保持 AgentAdapter 抽象纯净）
+  //   2) 与 session_start / session_shutdown 同寿命周期事件归位一致
+  pi.on("session_compact", async (event, ctx) => {
+    const sessionId = getSessionIdFromCtx(ctx);
+    if (!sessionId) return;
+    const s = getSessionById(sessionId);
+    if (!s.lastTurnRef) return; // 无线索可重注入（从未调过 pt_turn_inject / pt_make_manual）
+    const { turnInjectDomain, manualPath } = s.lastTurnRef;
+    // 空 lastTurnRef（两字段都空）也不注入
+    if (!turnInjectDomain && !manualPath) return;
+    const lines: string[] = [
+      "[pt] 上次 TurnContext 线索（compaction 后恢复）：",
+      `- TurnContext Domain: ${turnInjectDomain || "(未调 pt_turn_inject)"}（调 pt_turn_inject ${turnInjectDomain || "<domain>"} 重新获取详情）`,
+    ];
+    if (manualPath) {
+      lines.push(`- Manual 实例: ${manualPath}（用 read 工具读取继续执行）`);
+    }
+    try {
+      await pi.sendMessage(
+        {
+          customType: "pt-compaction-clue",
+          content: lines.join("\n"),
+          display: true,
+        },
+        { triggerTurn: true }
+      );
+      s.logger?.info("compaction:clue-injected", {
+        turnInjectDomain,
+        manualPath,
+        reason: event.reason,
+      });
+    } catch (e) {
+      s.logger?.warn("compaction:sendMessage failed", { err: String(e) });
     }
   });
 
@@ -947,6 +997,13 @@ export default function (pi: ExtensionAPI): void {
           issue: params.issue, // P3：透传 issue 字段（可选，undefined 时不写 frontmatter）
           activatedAt: Date.now(),
         };
+        // v18.x（决策 6）：记录 compaction 重注入线索——Manual 文件路径
+        // 保留已有 turnInjectDomain（若之前已调 pt_turn_inject，不覆盖）
+        s.lastTurnRef = {
+          turnInjectDomain: s.lastTurnRef?.turnInjectDomain ?? "",
+          manualPath: r.filePath,
+        };
+        persistLastTurnRef(pi, s.lastTurnRef);
         persistManualToSession(pi, s.activeManual);
         await refreshManualWidget(ctx.ui, s);
         refreshInjectionFooter(ctx.ui, s);
@@ -1021,6 +1078,13 @@ export default function (pi: ExtensionAPI): void {
           details: { error: "not found", domain: params.domain },
         };
       }
+      // v18.x（决策 6）：记录 compaction 重注入线索——TurnContext domain 名
+      // 保留已有 manualPath（若之前已创建 Manual，不覆盖）
+      s.lastTurnRef = {
+        turnInjectDomain: params.domain,
+        manualPath: s.lastTurnRef?.manualPath ?? null,
+      };
+      persistLastTurnRef(pi, s.lastTurnRef);
       return { content: [{ type: "text", text: content }], details: { domain: params.domain } };
     },
   });

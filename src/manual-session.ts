@@ -45,6 +45,16 @@ import type { ActiveManual, SessionState } from "./session.js";
 /** session JSONL 中持久化 ActiveManual 的 custom entry customType。 */
 const PT_MANUAL_ENTRY = "pt:active-manual";
 
+/** v18.x（issue pt-turncontext-llm-call-trigger 决策 6）：lastTurnRef 持久化 entry。
+ *  与 PT_MANUAL_ENTRY 同寿命周期——session_start 读恢复 / 调 pt_turn_inject + pt_make_manual 写。 */
+const PT_LAST_TURN_REF_ENTRY = "pt:last-turn-ref";
+
+/** TurnContext 线索结构（引用指针，非内容缓存）。 */
+export interface LastTurnRef {
+  turnInjectDomain: string;
+  manualPath: string | null;
+}
+
 /** 从 session JSONL 读上次保存的 ActiveManual。读出后由 caller 校验（isManualActive）。
  *  静默 fallback：异常 / 无 entry → undefined。
  *  P3：加 issue 可选字段——读时用 typeof === "string" ? issue : undefined 兜底，
@@ -191,6 +201,54 @@ async function refreshManualWidget(ui: ExtensionUIContext, session: SessionState
   });
 }
 
+/** v18.x（决策 6）：把 lastTurnRef 写入 session JSONL。
+ *  resume / --session 启动时读出恢复（与 persistManualToSession 同机制）。
+ *  失败静默（ephemeral session / 旧版 pi 无 appendEntry）。 */
+function persistLastTurnRef(pi: ExtensionAPI, ref: LastTurnRef): void {
+  try {
+    if (typeof pi.appendEntry !== "function") return;
+    pi.appendEntry(PT_LAST_TURN_REF_ENTRY, {
+      turnInjectDomain: ref.turnInjectDomain,
+      manualPath: ref.manualPath,
+    });
+  } catch (e) {
+    slog("", "warn", "persistLastTurnRef failed", { err: errMsg(e) });
+  }
+}
+
+/** v18.x（决策 6）：session_start 时试恢复 lastTurnRef。
+ *  独立于 manual 恢复链——compaction 线索是 session lifecycle 维度，
+ *  无 manual 时也能有线索（只调过 pt_turn_inject 没调 pt_make_manual）。 */
+function tryRestoreLastTurnRef(ctx: ExtensionContext, session: SessionState): void {
+  const sm = ctx.sessionManager;
+  if (!sm || typeof sm.getEntries !== "function") return;
+  try {
+    const entries = sm.getEntries();
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (e && e.type === "custom" && e.customType === PT_LAST_TURN_REF_ENTRY) {
+        const data = (e as { data?: unknown }).data;
+        if (data && typeof data === "object") {
+          const d = data as Record<string, unknown>;
+          const turnInjectDomain = typeof d.turnInjectDomain === "string" ? d.turnInjectDomain : "";
+          const manualPath = typeof d.manualPath === "string" ? d.manualPath : null;
+          // 只要 turnInjectDomain 或 manualPath 至少一个有效就恢复
+          if (turnInjectDomain || manualPath) {
+            session.lastTurnRef = { turnInjectDomain, manualPath };
+            session.logger?.info("lastTurnRef:restored", {
+              turnInjectDomain,
+              manualPath,
+            });
+          }
+        }
+        return; // 取最近一条即可
+      }
+    }
+  } catch (e) {
+    slog("", "warn", "tryRestoreLastTurnRef failed", { err: errMsg(e) });
+  }
+}
+
 /** session_start 时试恢复 manual：读 pt:active-manual entry → 校验文件存在 + status !== completed。
  *  独立于 profile 加载链——profile 失败 / 无 profile 也能恢复 manual 追踪。 */
 async function tryRestoreManual(ctx: ExtensionContext, session: SessionState): Promise<void> {
@@ -247,4 +305,7 @@ export {
   refreshManualWidget,
   resetManualSession,
   tryRestoreManual,
+  tryRestoreLastTurnRef,
+  persistLastTurnRef,
+  PT_LAST_TURN_REF_ENTRY,
 };
