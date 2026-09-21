@@ -14,6 +14,7 @@
 //   - 不做 settings pack 之间冲突报错（PR4 接通 settings 加载时一起做）
 
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { errMsg } from "../diagnostics.js";
 import type { AssetPack } from "../schema.js";
@@ -74,10 +75,17 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
 
   // 层 1：pack 结构——目录存在
   if (!existsSync(pack.rootDir)) {
+    // issue pt-pack-repair-cwd-home-edge-case：路径语义提示
+    // ~/.pt/ 下的路径曾是 global pack（v15.x PR7 移除），现被 project pack 接管。
+    // 其他路径直接给 mkdir 指引。
+    const wasGlobalPath = pack.rootDir.startsWith(join(homedir(), ".pt"));
+    const hint = wasGlobalPath
+      ? `路径语义：此路径曾是 global pack 路径（v15.x PR7 移除，issue pt-remove-global-pack），现被 project pack 接管。若 cwd=~ 时创建 project pack 无项目上下文，建议切换到项目目录后再跑（pack-repair 在项目目录才有意义）。临时调试可 mkdir -p <pack-root>/{domains,blueprints,profiles} 创建空骨架（back-compat fallback，name 退到位置别名 prj）。`
+      : `创建目录：mkdir -p <pack-root>/{domains,blueprints,profiles}。参考 /pt_turn_inject pack-repair`;
     errors.push({
       code: "dir-not-found",
       msg: `pack 目录不存在: ${pack.rootDir}`,
-      hint: "检查路径配置，或创建该目录（参考 /manual:pack-repair）",
+      hint,
     });
     return {
       pack: pack.name,
@@ -99,7 +107,7 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
     errors.push({
       code: "no-asset-subdir",
       msg: `pack "${pack.name}" 无任何 asset 子目录（domains/blueprints/profiles）`,
-      hint: "至少创建一个 asset 子目录（参考 /manual:pack-repair）",
+      hint: "至少创建一个 asset 子目录（参考 /pt_turn_inject pack-repair）",
     });
     return {
       pack: pack.name,
@@ -126,7 +134,7 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
     errors.push({
       code: "load-failed",
       msg: `pack "${pack.name}" 加载失败: ${errMsg(e)}`,
-      hint: "检查资产文件格式（参考 /manual:pack-repair）",
+      hint: "检查资产文件格式（参考 /pt_turn_inject pack-repair）",
     });
   }
 

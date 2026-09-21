@@ -20,20 +20,20 @@ function makePopulatedSessionState(): SessionState {
   s.cachedBundles = [{ domains: [], blueprints: [], profiles: [], activeProfile: "pt-dev" }];
   s.cachedAgentContext = {
     name: "pt-dev",
-    blueprint: "dev-knowledge",
+    blueprint: "pt-default",
     sourceHash: "abc",
-    modules: { 会话背景: "content" },
+    modules: { "session-context": "content" },
   };
   s.cachedBlueprint = {
-    name: "dev-knowledge",
+    name: "pt-default",
     agent: "pi",
-    groups: [{ name: "会话背景", inject: "session" }],
+    groups: [{ name: "session-context", inject: "session" }],
     compilation: { cacheDir: ".pt/cache/agent-contexts", split: "single-file" },
   };
   s.cachedDomains = [{ name: "user-info", modules: {} }];
   s.cachedProfile = {
     name: "pt-dev",
-    blueprint: "dev-knowledge",
+    blueprint: "pt-default",
     domains: ["user-info"],
     groups: [],
   };

@@ -24,6 +24,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { FULL_DIR, MANUAL_DIR, PROFILES_DIR, RAW_DIR } from "./constants.js";
@@ -63,12 +64,16 @@ import {
   statusText,
 } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
-import type { AgentAPI } from "./schema.js";
+import { renderTurnInject } from "./render/turn-inject.js";
+import { filterDomainsByProfile, type AgentAPI } from "./schema.js";
 import {
+  pathEquals,
   persistManualToSession,
   refreshInjectionFooter,
   refreshManualWidget,
   tryRestoreManual,
+  tryRestoreLastTurnRef,
+  persistLastTurnRef,
 } from "./manual-session.js";
 import { writeProbeResult } from "./manual-writeback.js";
 import { slog } from "./slog.js";
@@ -93,11 +98,13 @@ interface PiToolCallEvent {
   toolName?: string;
 }
 
-/** pi.on("tool_result", handler) event 形状。 */
+/** pi.on("tool_result", handler) event 形状。
+ *  P1：扩展 input 字段（edit/write 工具含 `path`，详见 pi extensions.md tool_result 段）。 */
 interface PiToolResultEvent {
   name?: string;
   toolName?: string;
   isError?: boolean;
+  input?: { path?: string; [k: string]: unknown };
 }
 
 /** 从 ExtensionContext 拿 sessionId（tool / command handler ctx 形态）。 */
@@ -303,6 +310,11 @@ export default function (pi: ExtensionAPI): void {
 
     s.lastCwd = ctx.cwd;
 
+    // v18.x（决策 6）：先试恢复 lastTurnRef——compaction 线索是 session lifecycle 维度，
+    // 独立于 profile 链（profile 失败也能恢复）。即使从未调过 pt_turn_inject / pt_make_manual
+    // 也会快速返回（无 entry）。
+    tryRestoreLastTurnRef(ctx, s);
+
     // v15.x PR4（§6.7.1 + §6.7.5）：pack 校验 + settings pack 接通
     // 两段独立 try/catch 兑底——任一异常都不能阻塞 session_start。
     // v15.x PR7（issue pt-remove-global-pack 移除）：globalPack 槽位删除，3 类 pack。
@@ -325,7 +337,18 @@ export default function (pi: ExtensionAPI): void {
           `⚠ Pt: project pack 校验失败（${firstErr?.msg ?? "未知错误"}）。已降级到 builtin guide。`,
           "warning"
         );
-        ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+        // issue pt-pack-repair-cwd-home-edge-case：cwd=~ 时附加决策引导——
+        // ~/.pt/assets/ 在 home 通常无项目上下文，prj pack 无意义；引导用户三选一
+        // （切到项目目录 / 临时 mkdir 骨架 / 啥都不做）。
+        const isCwdHome = ctx.cwd === homedir();
+        if (isCwdHome) {
+          ctx.ui.notify(
+            `  ⚠ 检测到 cwd=~（${homedir()}）—— project pack 在 home 无项目上下文（pack 落点 ${projectPack.rootDir} 曾是 global pack 路径，v15.x PR7 移除）。建议：1) 切到项目目录后再跑（pack-repair 在项目目录才有意义）；2) 仅临时调试可 mkdir -p ${projectPack.rootDir}/{domains,blueprints,profiles} 创建空骨架；3) 啥都不做（builtin guide 已可用）`,
+            "info"
+          );
+        } else {
+          ctx.ui.notify(`  修复：/pt_turn_inject pack-repair`, "info");
+        }
       }
 
       // v15.x PR4（§6.7.5）：settings pack 校验失败预警——跳过该 pack，不阻断其他
@@ -336,7 +359,7 @@ export default function (pi: ExtensionAPI): void {
             `⚠ Pt: settings pack [@${r.pack}] 校验失败（${firstErr?.msg ?? "未知"}）。已跳过该 pack。`,
             "warning"
           );
-          ctx.ui.notify(`  修复：/manual:pack-repair`, "info");
+          ctx.ui.notify(`  修复：/pt_turn_inject pack-repair`, "info");
         }
       }
 
@@ -487,6 +510,49 @@ export default function (pi: ExtensionAPI): void {
     }
   });
 
+  // ========== session_compact：compaction 后重注入 TurnContext 线索 ==========
+  // v18.x（issue pt-turncontext-llm-call-trigger 决策 6）：
+  //  线索 = TurnContext domain 名 + Manual 路径（引用指针，非内容缓存）。
+  //  session_compact 事件触发 → 读 s.lastTurnRef → 通过 pi.sendMessage({ triggerTurn: true })
+  //  注入固定线索作为 custom message → LLM 读到后据线索重新调 pt_turn_inject / read Manual。
+  //  无条件重注入——线索很轻（domain 名 + 路径），多注一次不撑窗口，简化逻辑。
+  //  session_compact 事件在 src/index.ts 注册而非 pi-adapter.ts——因为：
+  //   1) pi.sendMessage 是 Pi 专属 API，AgentAPI 不暴露（保持 AgentAdapter 抽象纯净）
+  //   2) 与 session_start / session_shutdown 同寿命周期事件归位一致
+  pi.on("session_compact", async (event, ctx) => {
+    const sessionId = getSessionIdFromCtx(ctx);
+    if (!sessionId) return;
+    const s = getSessionById(sessionId);
+    if (!s.lastTurnRef) return; // 无线索可重注入（从未调过 pt_turn_inject / pt_make_manual）
+    const { turnInjectDomain, manualPath } = s.lastTurnRef;
+    // 空 lastTurnRef（两字段都空）也不注入
+    if (!turnInjectDomain && !manualPath) return;
+    const lines: string[] = [
+      "[pt] 上次 TurnContext 线索（compaction 后恢复）：",
+      `- TurnContext Domain: ${turnInjectDomain || "(未调 pt_turn_inject)"}（调 pt_turn_inject ${turnInjectDomain || "<domain>"} 重新获取详情）`,
+    ];
+    if (manualPath) {
+      lines.push(`- Manual 实例: ${manualPath}（用 read 工具读取继续执行）`);
+    }
+    try {
+      await pi.sendMessage(
+        {
+          customType: "pt-compaction-clue",
+          content: lines.join("\n"),
+          display: true,
+        },
+        { triggerTurn: true }
+      );
+      s.logger?.info("compaction:clue-injected", {
+        turnInjectDomain,
+        manualPath,
+        reason: event.reason,
+      });
+    } catch (e) {
+      s.logger?.warn("compaction:sendMessage failed", { err: String(e) });
+    }
+  });
+
   // ========== session_shutdown：flush logger + 清内存态 ==========
   // v10.x：先 flush 避免丢尾，再 reset 清状态
   // v11.x：resetSession 覆盖 injectionState / activeManual / cachedManualProgress（widget 不持久）
@@ -517,6 +583,15 @@ export default function (pi: ExtensionAPI): void {
       reason: e.reason,
       messageCount: e.messageCount,
     });
+    // P1 兜底：turn 结束时刷 manual（捕获 bash/powershell 改 manual + tool_result 漏检场景）。
+    // refreshManualWidget 内部浅比较去重，进度未变时不发 IPC。频率 ~60/h，远低于 tool_result，
+    // 作为兜底可接受。
+    const sessionId = getSessionIdFromCtx(ctx);
+    const s = sessionId ? getSessionById(sessionId) : null;
+    if (s?.activeManual) {
+      await refreshManualWidget(ctx.ui, s);
+      refreshInjectionFooter(ctx.ui, s);
+    }
   });
   pi.on("agent_settled", async (_event, ctx) => {
     slog(getSessionIdFromCtx(ctx), "debug", "agent:settled");
@@ -527,10 +602,24 @@ export default function (pi: ExtensionAPI): void {
   });
   pi.on("tool_result", async (event, ctx) => {
     const e = event as PiToolResultEvent;
+    const toolName = e.name ?? e.toolName;
     slog(getSessionIdFromCtx(ctx), "debug", "tool:result", {
-      name: e.name ?? e.toolName,
+      name: toolName,
       isError: e.isError,
     });
+    // P1：edit/write 命中 activeManual 文件 → 刷新 widget（精准过滤，不全量刷 edit/write）。
+    // 设计文档：pt-workspace-boundary-calibration §1 / §2.3 方案 1a + 浅比较去重。
+    // edit 工具 schema 含 `path` 字段（pi dist/core/tools/edit.d.ts EditSchema.path: TString），
+    // write 工具同样含 path。
+    const sessionId = getSessionIdFromCtx(ctx);
+    const s = sessionId ? getSessionById(sessionId) : null;
+    if (s?.activeManual && (toolName === "edit" || toolName === "write")) {
+      const changedPath = e.input?.path;
+      if (changedPath && pathEquals(changedPath, s.activeManual.filePath)) {
+        await refreshManualWidget(ctx.ui, s);
+        refreshInjectionFooter(ctx.ui, s);
+      }
+    }
   });
 
   // ========== /pt-profile 命令：即时切换 ==========
@@ -579,8 +668,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerCommand("pt", {
     description: "查看 Pt 转译产物 / 状态（无参=显示当前 segment）",
     handler: async (args, ctx) => {
-      // v11.x 修复：原来 `sub = args.trim()` 会把整个 args 作为 sub，导致 `/pt manual <proc>` 时
-      //   `sub === "manual"` 永远不成立。改为：sub = 第一词，subArgs = 剩余。
+      // v11.x 修复：原来 `sub = args.trim()` 会把整个 args 作为 sub，导致 `/pt make-manual <proc>` 时
+      //   `sub === "make-manual"` 永远不成立。改为：sub = 第一词，subArgs = 剩余。
       //   兼容现有 logs:clear / status / flows 等单子命令（不带额外参数）行为不变。
       const firstSpace = args.indexOf(" ");
       const head = firstSpace === -1 ? args : args.slice(0, firstSpace);
@@ -707,12 +796,31 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
-      if (sub === "manual") {
+      if (sub === "make-manual") {
         // v11.x 修复：subArgs 才是 procedure 参数（原 code 会拿到 "manual"）
         const procedureParts = subArgs.trim().split(/\s+/);
+        // P3：解析 `--issue <name>` flag 从 procedureParts 拆出，传给 buildManualDoc。
+        // 不传 --issue 时 issueName = undefined → frontmatter 无 issue 行（back-compat）。
+        let issueName: string | undefined;
+        for (let i = 0; i < procedureParts.length; i++) {
+          const p = procedureParts[i];
+          if (p === "--issue") {
+            const next = procedureParts[i + 1];
+            if (next) {
+              issueName = next;
+            }
+            procedureParts.splice(i, 2);
+            break;
+          }
+          if (p?.startsWith("--issue=")) {
+            issueName = p.slice("--issue=".length);
+            procedureParts.splice(i, 1);
+            break;
+          }
+        }
         const procedureName = procedureParts[0] ?? "";
         const procedureArgs = procedureParts.slice(1).join(" ");
-        const r = buildManualDoc(ctx.cwd, s, procedureName, procedureArgs);
+        const r = buildManualDoc(ctx.cwd, s, procedureName, procedureArgs, issueName);
         if (r.error) {
           ctx.ui.notify(r.error, "warning");
           return;
@@ -724,6 +832,7 @@ export default function (pi: ExtensionAPI): void {
           filePath: r.filePath,
           procedure: procedureName,
           args: procedureArgs,
+          issue: issueName, // P3：透传 issue 字段
           activatedAt: Date.now(),
         };
         persistManualToSession(pi, s.activeManual);
@@ -837,13 +946,13 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "pt_manual",
-    label: "Pt Manual",
+    name: "pt_make_manual",
+    label: "Pt Make Manual",
     description:
       "Create a manual instance document (.pt/manuals/<procedure>-<ts>.md) with checklist + artifact log. Use when starting a multi-step procedure like feature-lifecycle. Returns the file path.",
     promptSnippet: "Instantiate a Pt manual document with checklist for tracking",
     promptGuidelines: [
-      "Use pt_manual when starting a multi-step procedure (e.g., feature-lifecycle, issue-lifecycle, regression-verify) to get a persistent checklist + artifact log.",
+      "Use pt_make_manual when starting a multi-step procedure (e.g., feature-lifecycle, issue-lifecycle, regression-verify) to get a persistent checklist + artifact log.",
     ],
     parameters: Type.Object({
       procedure: Type.String({
@@ -853,6 +962,14 @@ export default function (pi: ExtensionAPI): void {
       args: Type.Optional(
         Type.String({
           description: "Arguments for the procedure, e.g. 'req-001' or 'term my-concept'",
+        })
+      ),
+      // P3：manual frontmatter issue 关联字段。可选——未传则 frontmatter 无 issue 行。
+      // 单向引用：manual 自描述"为哪个 issue 服务"，不反向改 issue 文档（联动被否决）。
+      issue: Type.Optional(
+        Type.String({
+          description:
+            "Optional issue name this manual instance serves. Written to frontmatter `issue:` field for LLM to read association.",
         })
       ),
     }),
@@ -865,7 +982,7 @@ export default function (pi: ExtensionAPI): void {
         };
       }
       const s = getSessionById(sessionId);
-      const r = buildManualDoc(ctx.cwd, s, params.procedure, params.args ?? "");
+      const r = buildManualDoc(ctx.cwd, s, params.procedure, params.args ?? "", params.issue);
       if (r.error) {
         return { content: [{ type: "text", text: r.error }], details: { error: r.error } };
       }
@@ -877,8 +994,16 @@ export default function (pi: ExtensionAPI): void {
           filePath: r.filePath,
           procedure: params.procedure,
           args: params.args ?? "",
+          issue: params.issue, // P3：透传 issue 字段（可选，undefined 时不写 frontmatter）
           activatedAt: Date.now(),
         };
+        // v18.x（决策 6）：记录 compaction 重注入线索——Manual 文件路径
+        // 保留已有 turnInjectDomain（若之前已调 pt_turn_inject，不覆盖）
+        s.lastTurnRef = {
+          turnInjectDomain: s.lastTurnRef?.turnInjectDomain ?? "",
+          manualPath: r.filePath,
+        };
+        persistLastTurnRef(pi, s.lastTurnRef);
         persistManualToSession(pi, s.activeManual);
         await refreshManualWidget(ctx.ui, s);
         refreshInjectionFooter(ctx.ui, s);
@@ -887,6 +1012,80 @@ export default function (pi: ExtensionAPI): void {
           details: { path: r.filePath },
         };
       });
+    },
+  });
+
+  // v18.x (issue pt-turncontext-llm-call-trigger decision 4): pt_turn_inject tool.
+  // Lets LLM trigger TurnContext injection on demand; execute calls renderTurnInject.
+  // In-memory IR (decision 7): reads session.cachedBundles/cachedBlueprint/cachedProfile/cachedAgentContext,
+  // does NOT read .pt/cache/agent-contexts/ files. Returns compiled manual detail in tool_result.
+  pi.registerTool({
+    name: "pt_turn_inject",
+    label: "Pt Turn Inject",
+    description:
+      "Inject TurnContext (compiled manual detail) for a Domain on demand. " +
+      "Returns the Rules/Flows/Checklists content of the Domain. " +
+      "Use when reasoning needs a Domain's manual detail referenced in SessionContext's trigger-index. " +
+      "Input: domain name (from /pt flows or trigger-index).",
+    promptSnippet: "Inject a Domain's TurnContext (manual detail) on demand",
+    promptGuidelines: [
+      "Use pt_turn_inject to fetch a Domain's manual detail (Rules/Flows/Checklists) on demand. " +
+        "Consult SessionContext's trigger-index to decide which Domain to query.",
+    ],
+    parameters: Type.Object({
+      domain: Type.String({
+        description:
+          "Domain name to inject, e.g. 'dev-process' or 'pt-quality'. Use /pt flows to list available domains.",
+      }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const sessionId = getSessionIdFromCtx(ctx);
+      if (!sessionId) {
+        return {
+          content: [{ type: "text", text: "no session" }],
+          details: { error: "no session" },
+        };
+      }
+      const s = getSessionById(sessionId);
+      if (
+        !s.cachedBundles ||
+        s.cachedBundles.length === 0 ||
+        !s.cachedAgentContext ||
+        !s.cachedBlueprint
+      ) {
+        return {
+          content: [{ type: "text", text: "无激活 Profile，先用 /pt-profile 激活" }],
+          details: { error: "no active profile" },
+        };
+      }
+      const scoped = filterDomainsByProfile(s.cachedBundles[0].domains, s.cachedProfile);
+      // Reuse renderTurnInject dispatch (/pt_turn_inject form, step 3 unified command).
+      const content = renderTurnInject(
+        s.cachedAgentContext,
+        s.cachedBlueprint,
+        scoped,
+        s.cachedProfile,
+        `/pt_turn_inject ${params.domain}`
+      );
+      if (content === null) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `未找到 Domain 或无手册段: ${params.domain}（用 /pt flows 查可用手册）`,
+            },
+          ],
+          details: { error: "not found", domain: params.domain },
+        };
+      }
+      // v18.x（决策 6）：记录 compaction 重注入线索——TurnContext domain 名
+      // 保留已有 manualPath（若之前已创建 Manual，不覆盖）
+      s.lastTurnRef = {
+        turnInjectDomain: params.domain,
+        manualPath: s.lastTurnRef?.manualPath ?? null,
+      };
+      persistLastTurnRef(pi, s.lastTurnRef);
+      return { content: [{ type: "text", text: content }], details: { domain: params.domain } };
     },
   });
 

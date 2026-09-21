@@ -242,6 +242,27 @@ describe("validatePack", () => {
     expect(result.reservedAlias).toBe("prj"); // v15.x §4.4.4：reserved pack 有 reservedAlias
   });
 
+  // issue pt-pack-repair-cwd-home-edge-case：~/.pt/ 下路径 → hint 含路径语义说明
+  it("~/.pt/ 下路径 dir-not-found → hint 提示'曾是 global pack 路径'", async () => {
+    const homePt = join(homedir(), ".pt/__pt_test_nonexistent_home__");
+    const pack = await tryLoadPack(homePt, "project");
+    const result = await validatePack(pack);
+    expect(result.ok).toBe(false);
+    expect(result.errors[0]?.code).toBe("dir-not-found");
+    expect(result.errors[0]?.hint).toContain("global pack"); // 路径语义提示
+    expect(result.errors[0]?.hint).toContain("v15.x PR7"); // PR7 引用
+  });
+
+  // issue pt-pack-repair-cwd-home-edge-case：非 ~/.pt/ 路径 → hint 走通用 mkdir 指引
+  it("非 ~/.pt/ 路径 dir-not-found → hint 走通用 mkdir 指引", async () => {
+    const pack = await tryLoadPack("/tmp/__pt_test_nonexistent__", "project");
+    const result = await validatePack(pack);
+    expect(result.ok).toBe(false);
+    expect(result.errors[0]?.code).toBe("dir-not-found");
+    expect(result.errors[0]?.hint).toContain("mkdir"); // 通用 mkdir 指引
+    expect(result.errors[0]?.hint).not.toContain("global pack"); // 非 home 路径不触发 path semantics 提示
+  });
+
   it("目录存在但无任何 asset 子目录 → ok=false + errors[0].code='no-asset-subdir'", async () => {
     const root = await mkdtemp(join(tmpdir(), "pt-empty-"));
     try {
@@ -523,6 +544,98 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
     expect(out).toContain("pt packs: 1/2 degraded");
     expect(out).toContain("[@prj] ⚠ DEGRADED");
     expect(out).toContain("pack 目录不存在");
+  });
+
+  // issue pt-pack-repair-cwd-home-edge-case：cwd=~ + project 降级 → 附加决策引导
+  it("cwd=home + project 降级 → 附加 '| 建议切到项目目录' 后缀", async () => {
+    const { statusText } = await import("../../src/commands.js");
+    const { createSessionState } = await import("../../src/session.js");
+    const s = createSessionState();
+    s.lastCwd = homedir(); // cwd=home 触发决策引导
+    s.packValidation = [
+      {
+        pack: "prj",
+        source: "project",
+        reservedAlias: "prj",
+        ok: false,
+        errors: [
+          { code: "dir-not-found", msg: `pack 目录不存在: ${join(homedir(), ".pt/assets")}` },
+        ],
+        warnings: [],
+      },
+      { pack: "pt", source: "builtin", reservedAlias: "pt", ok: true, errors: [], warnings: [] },
+    ];
+    const out = statusText(s);
+    expect(out).toContain("[@prj] ⚠ DEGRADED");
+    expect(out).toContain("建议切到项目目录"); // cwd=home 引导
+  });
+
+  // issue pt-pack-repair-cwd-home-edge-case：cwd≠~ + project 降级 → 无引导后缀（边界）
+  it("cwd=项目目录 + project 降级 → 不附加 '| 建议切到项目目录' 后缀", async () => {
+    const { statusText } = await import("../../src/commands.js");
+    const { createSessionState } = await import("../../src/session.js");
+    const s = createSessionState();
+    s.lastCwd = "/Users/issac/pro/pt"; // 非 home
+    s.packValidation = [
+      {
+        pack: "prj",
+        source: "project",
+        reservedAlias: "prj",
+        ok: false,
+        errors: [{ code: "dir-not-found", msg: "pack 目录不存在: /tmp/__nonexistent__" }],
+        warnings: [],
+      },
+      { pack: "pt", source: "builtin", reservedAlias: "pt", ok: true, errors: [], warnings: [] },
+    ];
+    const out = statusText(s);
+    expect(out).toContain("[@prj] ⚠ DEGRADED");
+    expect(out).not.toContain("建议切到项目目录"); // 非 home 不触发引导
+  });
+
+  // issue pt-pack-repair-cwd-home-edge-case：cwd=~ + project 降级 → 附加决策引导
+  it("cwd=home + project 降级 → 附加 '| 建议切到项目目录' 后缀", async () => {
+    const { statusText } = await import("../../src/commands.js");
+    const { createSessionState } = await import("../../src/session.js");
+    const s = createSessionState();
+    s.lastCwd = homedir(); // cwd=home 触发决策引导
+    s.packValidation = [
+      {
+        pack: "prj",
+        source: "project",
+        reservedAlias: "prj",
+        ok: false,
+        errors: [
+          { code: "dir-not-found", msg: `pack 目录不存在: ${join(homedir(), ".pt/assets")}` },
+        ],
+        warnings: [],
+      },
+      { pack: "pt", source: "builtin", reservedAlias: "pt", ok: true, errors: [], warnings: [] },
+    ];
+    const out = statusText(s);
+    expect(out).toContain("[@prj] ⚠ DEGRADED");
+    expect(out).toContain("建议切到项目目录"); // cwd=home 引导
+  });
+
+  // issue pt-pack-repair-cwd-home-edge-case：cwd≠~ + project 降级 → 无引导后缀（边界）
+  it("cwd=项目目录 + project 降级 → 不附加 '| 建议切到项目目录' 后缀", async () => {
+    const { statusText } = await import("../../src/commands.js");
+    const { createSessionState } = await import("../../src/session.js");
+    const s = createSessionState();
+    s.lastCwd = "/Users/issac/pro/pt"; // 非 home
+    s.packValidation = [
+      {
+        pack: "prj",
+        source: "project",
+        reservedAlias: "prj",
+        ok: false,
+        errors: [{ code: "dir-not-found", msg: "pack 目录不存在: /tmp/__nonexistent__" }],
+        warnings: [],
+      },
+      { pack: "pt", source: "builtin", reservedAlias: "pt", ok: true, errors: [], warnings: [] },
+    ];
+    const out = statusText(s);
+    expect(out).toContain("[@prj] ⚠ DEGRADED");
+    expect(out).not.toContain("建议切到项目目录"); // 非 home 不触发引导
   });
 
   it("PR2：version 出现在展示行", async () => {
@@ -884,7 +997,7 @@ describe("MdFilePack.create notify 分流（reserved silent / settings 提示）
       expect(notifs.length).toBe(1);
       expect(notifs[0].level).toBe("warning");
       expect(notifs[0].msg).toContain("无 manifest");
-      expect(notifs[0].msg).toContain("/manual:pack-management#pack-create");
+      expect(notifs[0].msg).toContain("/pt_turn_inject pack-management#pack-create");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

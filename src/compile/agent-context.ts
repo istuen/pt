@@ -20,6 +20,9 @@
 //   - Trigger 段聚合在 session 聚合组，作为索引段
 //   - Profile domains 自动分发：YAML 全局 domains + 聚合组追加
 //
+// v16：resolveDomains 合并必填 (domains) + 可选 (optional-domains) 两路 ref，返 ResolveDomainsResult。
+//   可选 ref 走 collectMissing=true 路径，未解析收进 optionalMissing 用于 scan 报 info。
+//
 // Tech Debt T6: 全用 type guard 收窄，不用 as 断言（pt-quality #1）
 
 import {
@@ -107,7 +110,14 @@ export function compileAgentContext(
     }
 
     // v15.x PR3（§4.4.3 #2）：resolveDomains 改用 resolveAndDedupRefs + workingSet
-    const refDomains = resolveDomains(profile, profileGroup, bpGroup, workingSet, loadedPackNames);
+    // v16：resolveDomains 返 ResolveDomainsResult，destructure 取 domains 喂给 dispatchGroup
+    const { domains: refDomains } = resolveDomains(
+      profile,
+      profileGroup,
+      bpGroup,
+      workingSet,
+      loadedPackNames
+    );
 
     // 按 modName 驱动聚合（来源 = profileGroup.modules）
     modules[bpGroup.name] = dispatchGroup(profileGroup, bpGroup, refDomains);
@@ -146,6 +156,19 @@ export function compileAgentContext(
   };
 }
 
+/** v16：resolveDomains 返回值。三态可观测：
+ *  - domains：合并后的 Domain[]（必填 + 可选，通过 modules 过滤）
+ *  - optionalMissing：可选 ref 中未解析的（prj 无该 domain）——info 级诊断
+ *  - optionalNoMatch：可选 ref 中已解析但 H2 段全不匹配 modules 的——warning 级诊断
+ *  back-compat：profile 不写 optional-domains → optionalMissing/NoMatch 均为空数组 */
+export interface ResolveDomainsResult {
+  domains: Domain[];
+  /** 可选 ref 中未解析的（prj 无该 domain）——info 级诊断。 */
+  optionalMissing: string[];
+  /** 可选 ref 中已解析但 H2 段全不匹配 modules 的——warning 级诊断。 */
+  optionalNoMatch: string[];
+}
+
 /** v9 Domains 分发：全局 domains + 聚合组追加（去重，保序），按 ProfileGroup.modules 过滤。
  *  规则：Domain 有该聚合组 modules 列出的任一 H2 段 → 贡献；没有 → 跳过。
  *  v9.1（modules-to-profile 迁移）：modules 来源从 Blueprint.modules 改为 ProfileGroup.modules
@@ -153,37 +176,65 @@ export function compileAgentContext(
  *  时返空数组（与 dispatchGroup 行为一致——产出空段由 render 跳过）。
  *
  *  这就是 v9 "Domain 同一份内容可贡献多聚合组" 的语义——Profile 引用的 Domain，
- *  只有其 H2 段匹配 ProfileGroup.modules 时才进当前聚合组。 */
-function resolveDomains(
+ *  只有其 H2 段匹配 ProfileGroup.modules 时才进当前聚合组。
+ *
+ *  v16：合并必填 (domains) + 可选 (optional-domains) 两路 ref，返 ResolveDomainsResult：
+ *   - 必填走旧路径（skipOnMissing=true，无 collectMissing）—— back-compat 行为不变
+ *   - 可选走 collectMissing=true 路径—— 未解析 ref 收进 optionalMissing
+ *   - 可选 ref 解析成功但 H2 段全不匹配 modules → rawRef 收进 optionalNoMatch
+ *  export 是因为 asset-health.ts 的 scanProjectHealth 需要复用（§5 规则 6/7 报告）。 */
+export function resolveDomains(
   profile: Profile,
   profileGroup: ProfileGroup | undefined,
   _bpGroup: BlueprintGroup,
   workingSet: SchemaBundle["workingSet"],
   loadedPackNames: string[]
-): Domain[] {
-  // 合并：全局 domains + 聚合组追加（保序，resolveAndDedupRefs 内做 fp dedup）
-  const allRefs = [...profile.domains];
+): ResolveDomainsResult {
+  // ===== 必填：全局 domains + 聚合组追加（v9 既有逻辑，不动） =====
+  const requiredRefs = [...profile.domains];
   if (profileGroup) {
     for (const dn of profileGroup.domains) {
-      if (!allRefs.includes(dn)) allRefs.push(dn);
+      if (!requiredRefs.includes(dn)) requiredRefs.push(dn);
     }
   }
-
   // v15.x PR3（§4.4.2）：resolveAndDedupRefs 解析 + fp dedup
-  // skipOnMissing=true：missing ref 静默跳过（与 dedupByNameN 旧行为一致）——空段由 empty-segment 检测单独报。
-  const resolved = resolveAndDedupRefs<Domain>(
-    allRefs,
+  // skipOnMissing=true：必填缺漏静默跳过（back-compat：与旧 dedupByNameN 一致，由 empty-segment 检测单独报）。
+  const { resolved: requiredResolved } = resolveAndDedupRefs<Domain>(
+    requiredRefs,
     profile,
     workingSet.domains,
     loadedPackNames,
     { skipOnMissing: true }
   );
 
-  // v9.1：从 ProfileGroup.modules 读过滤白名单（Blueprint.modules 已删除）
+  // ===== 可选：profile.optionalDomains（v16 新增）=====
+  const optionalRefs = profile.optionalDomains ?? [];
+  // collectMissing=true：未解析 ref 收进 missing 供 scan 报 optional-domain-unresolved（info）
+  const { resolved: optionalResolved, missing: optionalMissing } = resolveAndDedupRefs<Domain>(
+    optionalRefs,
+    profile,
+    workingSet.domains,
+    loadedPackNames,
+    { skipOnMissing: true, collectMissing: true }
+  );
+
+  // ===== 过滤：必填 + 可选都按 ProfileGroup.modules 白名单过同一过滤函数 =====
+  //   必填：过滤掉（Domain.modules 不在 profileGroup.modules 白名单 → 不进聚合组）
+  //   可选：同样过滤，但记录"找到但无匹配段"的 rawRef 供 scan 报 optional-domain-no-matching-section（warning）
   const mods = profileGroup?.modules ?? [];
-  return resolved
-    .map((r) => r.asset)
-    .filter((d) => mods.some((m) => d.modules[m.section] !== undefined));
+  const filterDomain = (d: Domain): boolean => mods.some((m) => d.modules[m.section] !== undefined);
+
+  const requiredDomains = requiredResolved.map((r) => r.asset).filter(filterDomain);
+  const optionalMatched = optionalResolved.filter((r) => filterDomain(r.asset)).map((r) => r.asset);
+  const optionalNoMatch = optionalResolved
+    .filter((r) => !filterDomain(r.asset))
+    .map((r) => r.rawRef);
+
+  return {
+    domains: [...requiredDomains, ...optionalMatched],
+    optionalMissing: optionalMissing ?? [],
+    optionalNoMatch,
+  };
 }
 
 // ==================== §4.5.2：mergeSectionContent + mergeByName（PR3b） ====================
@@ -384,7 +435,7 @@ function renderTriggerModule(_d: Domain, content: unknown): string {
   return lines.join("\n");
 }
 
-// ==================== Manual module renderer（聚合参考手册，P9.2 拆三段） ====================
+// ==================== Manual module renderer (aggregated into reference-manual, P9.2 split into 3 sections) ====================
 
 /** Phase term-P9.2：从 renderManualModule 拆出 Rules/Flows/Checklists 三段。
  *  每个 renderer 内部直接调对应 type guard（不再依赖 d.type——P9.3 后 type 字段删除）。 */

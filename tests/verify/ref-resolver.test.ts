@@ -202,20 +202,24 @@ describe("resolveAndDedupRefs（§4.4.2 / §4.5 双层语义）", () => {
 
   it("场景 A：重复引用 @prj/foo × 2 → dedup 后 1 份", () => {
     const ws = makeWS([["prj/foo", { pack: prj, asset: assetA }]]);
-    const result = resolveAndDedupRefs(["@prj/foo", "@prj/foo"], makeProfile(), ws, ["prj"]);
+    const { resolved: result } = resolveAndDedupRefs(["@prj/foo", "@prj/foo"], makeProfile(), ws, [
+      "prj",
+    ]);
     expect(result).toHaveLength(1);
     expect(result[0]?.rawRef).toBe("@prj/foo");
   });
 
   it("场景 B：不限定重复 foo × 2 → dedup 后 1 份", () => {
     const ws = makeWS([["prj/foo", { pack: prj, asset: assetA }]]);
-    const result = resolveAndDedupRefs(["foo", "foo"], makeProfile(), ws, ["prj"]);
+    const { resolved: result } = resolveAndDedupRefs(["foo", "foo"], makeProfile(), ws, ["prj"]);
     expect(result).toHaveLength(1);
   });
 
   it("场景 C：不限定 + 限定同 pack → dedup 后 1 份", () => {
     const ws = makeWS([["prj/foo", { pack: prj, asset: assetA }]]);
-    const result = resolveAndDedupRefs(["foo", "@prj/foo"], makeProfile(), ws, ["prj"]);
+    const { resolved: result } = resolveAndDedupRefs(["foo", "@prj/foo"], makeProfile(), ws, [
+      "prj",
+    ]);
     expect(result).toHaveLength(1);
   });
 
@@ -224,7 +228,10 @@ describe("resolveAndDedupRefs（§4.4.2 / §4.5 双层语义）", () => {
       ["prj/foo", { pack: prj, asset: { name: "foo", tag: "same" } }],
       ["pt/foo", { pack: pt, asset: { name: "foo", tag: "same" } }],
     ]);
-    const result = resolveAndDedupRefs(["@prj/foo", "@pt/foo"], makeProfile(), ws, ["prj", "pt"]);
+    const { resolved: result } = resolveAndDedupRefs(["@prj/foo", "@pt/foo"], makeProfile(), ws, [
+      "prj",
+      "pt",
+    ]);
     expect(result).toHaveLength(2);
   });
 
@@ -233,7 +240,10 @@ describe("resolveAndDedupRefs（§4.4.2 / §4.5 双层语义）", () => {
       ["prj/foo", { pack: prj, asset: assetA }],
       ["pt/foo", { pack: pt, asset: assetB }],
     ]);
-    const result = resolveAndDedupRefs(["@prj/foo", "@pt/foo"], makeProfile(), ws, ["prj", "pt"]);
+    const { resolved: result } = resolveAndDedupRefs(["@prj/foo", "@pt/foo"], makeProfile(), ws, [
+      "prj",
+      "pt",
+    ]);
     expect(result).toHaveLength(2);
   });
 
@@ -242,13 +252,16 @@ describe("resolveAndDedupRefs（§4.4.2 / §4.5 双层语义）", () => {
       ["prj/foo", { pack: prj, asset: { name: "foo", tag: "F" } }],
       ["pt/bar", { pack: pt, asset: { name: "bar", tag: "F" } }],
     ]);
-    const result = resolveAndDedupRefs(["@prj/foo", "@pt/bar"], makeProfile(), ws, ["prj", "pt"]);
+    const { resolved: result } = resolveAndDedupRefs(["@prj/foo", "@pt/bar"], makeProfile(), ws, [
+      "prj",
+      "pt",
+    ]);
     expect(result).toHaveLength(2);
   });
 
   it("不限定 ref 在 selfPack 找不到时按 packs 顺序 fallback（§4.6 back-compat）", () => {
     const ws = makeWS([["pt/foo", { pack: pt, asset: assetA }]]);
-    const result = resolveAndDedupRefs(["foo"], makeProfile(), ws, ["prj", "pt"]);
+    const { resolved: result } = resolveAndDedupRefs(["foo"], makeProfile(), ws, ["prj", "pt"]);
     expect(result).toHaveLength(1);
     expect(result[0]?.pack.name).toBe("pt");
   });
@@ -262,9 +275,15 @@ describe("resolveAndDedupRefs（§4.4.2 / §4.5 双层语义）", () => {
 
   it("skipOnMissing=true 静默跳过", () => {
     const ws = makeWS([["pt/foo", { pack: pt, asset: assetA }]]);
-    const result = resolveAndDedupRefs(["@prj/foo"], makeProfile(), ws, ["prj", "pt"], {
-      skipOnMissing: true,
-    });
+    const { resolved: result } = resolveAndDedupRefs(
+      ["@prj/foo"],
+      makeProfile(),
+      ws,
+      ["prj", "pt"],
+      {
+        skipOnMissing: true,
+      }
+    );
     expect(result).toHaveLength(0);
   });
 
@@ -279,9 +298,12 @@ describe("resolveAndDedupRefs（§4.4.2 / §4.5 双层语义）", () => {
     location.set("prj/foo", { pack: ptInternal, asset: assetA }); // 双入口
     const ws = { location, identity };
     // 双入口命中同一 asset
-    const result = resolveAndDedupRefs(["@pt-internal/foo", "@prj/foo"], makeProfile(), ws, [
-      "pt-internal",
-    ]);
+    const { resolved: result } = resolveAndDedupRefs(
+      ["@pt-internal/foo", "@prj/foo"],
+      makeProfile(),
+      ws,
+      ["pt-internal"]
+    );
     expect(result).toHaveLength(1); // dedup 同 fp
     // dedup 同 fp 后者赢（Map.set 后写覆盖前写）— "@prj/foo" 在后写入
     expect(result[0]?.rawRef).toBe("@prj/foo");
@@ -344,7 +366,7 @@ blueprint: bp
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 `
     );
@@ -454,14 +476,10 @@ describe("resolveBlueprint（§4.6 跨 pack 解析，与 transpile 阶段共用�
   });
 
   it("不限定 foo + selfPack=prj 但 prj 缺 → fallback 到 pt 命中（核心场景：fix warn false-positive）", () => {
-    const ws = makeWS([["pt/dev-knowledge", { pack: pt, asset: makeBlueprint("dev-knowledge") }]]);
-    const result = resolveBlueprint(
-      { blueprint: "dev-knowledge", sourcePack: "prj" },
-      ws,
-      packNames
-    );
+    const ws = makeWS([["pt/pt-default", { pack: pt, asset: makeBlueprint("pt-default") }]]);
+    const result = resolveBlueprint({ blueprint: "pt-default", sourcePack: "prj" }, ws, packNames);
     expect(result?.pack.name).toBe("pt");
-    expect(result?.asset.name).toBe("dev-knowledge");
+    expect(result?.asset.name).toBe("pt-default");
   });
 
   it("不限定 foo + prj 命中 → 返 prj entry（前者赢，不 fallback）", () => {

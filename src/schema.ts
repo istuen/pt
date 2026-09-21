@@ -39,9 +39,7 @@ export interface Term {
    *  renderer 在 desc 后追加 ` — note`。
    *  v9.2 扩展：与 fields 同步，让作者写在 Scene 段的 purpose/rule 不再被丢。 */
   note?: string;
-  /** Phase term-P9.1：外部数据源路径（替代 workflow Scene 的 ExternalRef）。
-   *  Scene 段统一为 Term[] 后，workflow 的 externals 用带 path 的 Term 表示；
-   *  渲染：有 path 输出 `- name: path — desc`，无 path 输出 `- name: desc`。 */
+  /** 外部数据源路径（用于渲染 `- name: path — desc`；无 path 时降级为 `- name: desc`）。 */
   path?: string;
 }
 
@@ -113,8 +111,6 @@ export interface FlowTemplate {
   intent: string;
   /** 手册结构层：步骤 + 数据源 + 期望产出 */
   steps: FlowStep[];
-  /** 数据语义层：引用知识库的数据源 */
-  externals: ExternalRef[];
 }
 
 /** Phase term-P9.2：验收清单（Domain.## Checklists 段内容）。
@@ -158,7 +154,7 @@ export type InjectTarget = "session" | "turn" | string;
  *  （name + inject + mode），modules 由 ProfileGroup 提供。Profile 通过 H2 匹配插槽名，用
  *  `### Modules` 段填 modules 列表。Blueprint 加新插槽向后兼容（旧 Profile 无 H2 → 产出空段）。 */
 export interface BlueprintGroup {
-  /** 聚合组名（语义名，Blueprint 配置项，如 "会话背景"/"参考手册"）。 */
+  /** Aggregation group name (semantic, configured in Blueprint, e.g. "session-context" / "reference-manual"). */
   name: string;
   /** 注入位置（session / turn / 扩展）——值语义名，经由 AgentAdapter 映射到具体 Agent Runtime API。 */
   inject: InjectTarget;
@@ -282,6 +278,12 @@ export interface Profile {
    *  循环检测 + 菱形处理：路径 visited（每层 new Set，§5.3.3 M4）
    *  越权校验：use 场景 error（§5.5.1 S7） */
   use?: string;
+  /**
+   * v16：可选 domain ref 列表。找不到不阻断（info 级诊断）。
+   * 用于 fullstack profile 声明 prj 可选 slot——prj 有同名 domain 则填充，无则 slot 空。
+   * 与 domains 的区别：domains 必填（找不到走 error/warning）；optional-domains 可选（找不到走 info）。
+   * 不参与 use 链合并（use 暂不支持 optional-domains 继承）。 */
+  optionalDomains?: string[];
 }
 
 // ==================== 产物层：AgentContext ====================
@@ -495,7 +497,7 @@ export interface AgentAdapter {
   ): void;
   /** 清理 session 上下文；handler 仍可由当前 Pi runtime 复用。 */
   resetInjection?(): void;
-  /** 查询可用手册（/pt flows 命令 + /manual:xxx 触发 共同消费）。
+  /** 查询可用手册（/pt flows 命令 + /pt_turn_inject 触发 共同消费）。
    *
    * 参数语义：
    *  - `ctx`：当前激活的 AgentContext IR（含缓存 sourceHash / 各聚合组 modules 内容）
@@ -505,7 +507,7 @@ export interface AgentAdapter {
    *    调用方无需预过滤
    *
    * 返回值：可触发手册列表。每项含 name（FlowTemplate.name / Rule.name）+ hint（argumentHint）+ domain（来源 Domain）。
-   *  - term-Domain 的 Rule[] 也作为 /manual:<domain> 暴露
+   *  - term-Domain 的 Rule[] 也作为 /pt_turn_inject <domain> 暴露
    *  - workflow-Domain 的 FlowTemplate[] 作为 /<flow-name> 暴露
    *
    * 可选方法——Adapter 不实现时 /pt flows 返空。 */
@@ -545,15 +547,21 @@ export function refName(ref: string): string {
  *  render 层（turn-inject）需要反向依赖它，放 schema.ts 避免层次倒挂。commands.ts 改 import。
  *  v15.x（issue pt-domain-abstraction-and-generic-profiles）：ref normalize——profile.domains
  *  可写 `@fullstack/dev-process`（限定来源 pack），refName 取尾段匹配 d.name。
+ *  v16（issue pt-project-profiles-refactor-optional-domains）：加 optionalDomains 考虑——
+ *  prj 通过 optional-domains slot 填的 domain 也应被选中（否则 renderTurnInject /pt_turn_inject xxx 找不到）。
  *  profile 为 null 时返 domains 原样（向后兼容——无激活 Profile 时不限制）。 */
 export function filterDomainsByProfile<T extends { name: string }>(
   domains: T[],
   profile: Profile | null
 ): T[] {
   if (!profile) return domains;
-  return domains.filter((d) => {
-    const profileDomainNames = profile.domains.map(refName);
-    if (profileDomainNames.includes(d.name)) return true;
-    return profile.groups.some((g) => g.domains.map(refName).includes(d.name));
-  });
+  const profileDomainNames = new Set(profile.domains.map(refName));
+  const optionalDomainNames = new Set((profile.optionalDomains ?? []).map(refName));
+  const groupDomainNames = new Set(profile.groups.flatMap((g) => g.domains.map(refName)));
+  return domains.filter(
+    (d) =>
+      profileDomainNames.has(d.name) ||
+      optionalDomainNames.has(d.name) ||
+      groupDomainNames.has(d.name)
+  );
 }

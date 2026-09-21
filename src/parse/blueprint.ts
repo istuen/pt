@@ -7,14 +7,14 @@
 // Blueprint asset 格式（v9.5）：
 //   name: <blueprint-name>
 //   groups:
-//     - name: 会话背景              ← 聚合组（人类自定义语义名）
-//       inject: session              ← 注入位置（session / turn，Agent-agnostic）
-//       mode: hybrid                 ← 可选
-//       modules: [Scene, Participant]   ← 聚合点（Domain Schema Name 列表）
-//     - name: 触发索引
+//     - name: session-context       ← Aggregation group (human-defined semantic name)
+//       inject: session              ← Injection location (session / turn, Agent-agnostic)
+//       mode: hybrid                 ← Optional
+//       modules: [Scene, Participant]   ← Aggregation points (Domain Schema Name list)
+//     - name: trigger-index
 //       inject: session
 //       modules: [Trigger]
-//     - name: 参考手册
+//     - name: reference-manual
 //       inject: turn
 //       modules: [Rules, Flows, Checklists]
 //

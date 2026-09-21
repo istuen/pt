@@ -1,0 +1,13 @@
+name: pt-default
+groups:
+  - name: session-context
+    inject: session
+    mode: hybrid
+    # v9.1+ (modules-to-profile-complete): modules field removed — provided by Profile `### Modules`
+    # Phase term-P8: session participant info — user-info Domain H3 items (user-profile / pt-goal / collab-mode / ...) go to Participant
+  - name: trigger-index
+    inject: session
+    # Bridge Session↔Turn: inject index of available manuals + when to consult, visible every turn
+  - name: reference-manual
+    inject: turn
+    # Phase term-P9.2: Manual split into 3 sections — Rules / Flows / Checklists

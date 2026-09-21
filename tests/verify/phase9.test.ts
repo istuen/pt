@@ -5,7 +5,7 @@
 // - Profile 是业务端实例（blueprint + YAML domains + 各注入点 ### Domains 追加）
 // - modName 注册表（替代 v8 domainSceneRenderers）
 // - Trigger 索引段（Domain 内 H2 段）
-// - /manual:xxx 触发（renderTurnInject 实现）
+// - /pt_turn_inject 触发（renderTurnInject 实现）
 // - AgentAdapter 抽象（PiAdapter 封装 before_agent_start + input）
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -53,7 +53,7 @@ beforeAll(async () => {
     }
   } catch {}
 
-  for (const name of ["pt-design", "pt-dev"]) {
+  for (const name of ["pt-design", "pt-dev", "pt-arch"]) {
     const r = await loadAndTranspile(cwd, name);
     loadedProfiles[name] = {
       name,
@@ -104,44 +104,56 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 3. Blueprint 复用 ==========
   describe("3. Blueprint 复用", () => {
-    it("dev-knowledge Blueprint 被 ≥2 个 Profile 引用", async () => {
-      const profileFiles = (await readdir(join(cwd, ".pt/assets/profiles"))).filter((f) =>
-        f.endsWith(".profile.md")
-      );
+    it("pt-default Blueprint 被 ≥2 个 Profile 引用", async () => {
+      // v16 (issue pt-project-profiles-refactor-optional-domains)：pt-* profile 移到 fullstack pack，
+      // 不在 .pt/assets/profiles/ 下。扫多个路径（项目 assets + fullstack packs）找所有 profile 文件。
+      const projectProfilesDir = join(cwd, ".pt/assets/profiles");
+      const fullstackProfilesDir = join(cwd, ".pt/packs/fullstack/profiles");
+      const profileFiles: string[] = [];
+      for (const dir of [projectProfilesDir, fullstackProfilesDir]) {
+        try {
+          const files = (await readdir(dir)).filter((f) => f.endsWith(".profile.md"));
+          for (const f of files) {
+            profileFiles.push(join(dir, f));
+          }
+        } catch {
+          // 目录不存在跳过
+        }
+      }
       const refCounts: Record<string, number> = {};
-      for (const f of profileFiles) {
-        const raw = await readFile(join(profilesDir(), f), "utf8");
+      for (const fp of profileFiles) {
+        const raw = await readFile(fp, "utf8");
         const m = raw.match(/^blueprint:\s+(.+)$/m);
         const bp = m ? m[1].trim() : "";
         if (bp) refCounts[bp] = (refCounts[bp] ?? 0) + 1;
       }
-      expect(refCounts["dev-knowledge"] ?? 0).toBeGreaterThanOrEqual(2);
+      expect(refCounts["pt-default"] ?? 0).toBeGreaterThanOrEqual(2);
     });
   });
 
   // ========== 5. v9 注入点 H2 ==========
   describe("5. v9 注入点 H2", () => {
-    it("pt-dev Context 含 ## 会话背景 + ## 触发索引 + ## 参考手册，不含 ## Scene / ## Manual", async () => {
+    it("pt-dev Context 含 ## session-context + ## trigger-index + ## reference-manual，不含 ## Scene / ## Manual", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
-      expect(/^## 会话背景/m.test(raw)).toBe(true);
-      expect(/^## 触发索引/m.test(raw)).toBe(true);
-      expect(/^## 参考手册/m.test(raw)).toBe(true);
+      expect(/^## session-context/m.test(raw)).toBe(true);
+      expect(/^## trigger-index/m.test(raw)).toBe(true);
+      expect(/^## reference-manual/m.test(raw)).toBe(true);
       expect(/^## Scene\b/m.test(raw)).toBe(false);
       expect(/^## Manual\b/m.test(raw)).toBe(false);
     });
   });
 
   // ========== 6. pt-quality Manual ==========
-  describe("6. pt-quality 进参考手册不污染会话背景/触发索引", () => {
-    it("pt-quality Manual 段出现在 pt-dev 参考手册", async () => {
+  describe("6. pt-quality 进 reference-manual 不污染 session-context / trigger-index", () => {
+    it("pt-quality Manual 段出现在 pt-dev reference-manual", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
-      const canKaoIdx = raw.indexOf("## 参考手册");
+      const canKaoIdx = raw.indexOf("## reference-manual");
       let qualityManualIdx = -1;
       let searchFrom = canKaoIdx;
       while (searchFrom !== -1) {
@@ -153,20 +165,20 @@ describe("Phase 9.9 v9 完整回归", () => {
         }
         searchFrom = next + 1;
       }
-      // 必须在 ## 参考手册 之后（pt-quality Manual 段进参考手册段）
+      // 必须在 ## reference-manual 之后（pt-quality Manual 段进 reference-manual 段）
       expect(qualityManualIdx).toBeGreaterThan(canKaoIdx);
       // 且是文件中最后一个 ### pt-quality（Manual 唯一）
       const lastIdx = raw.lastIndexOf("### pt-quality");
       expect(qualityManualIdx).toBe(lastIdx);
     });
 
-    it("pt-quality Manual 规范 checklist 不污染会话背景段", async () => {
+    it("pt-quality Manual 规范 checklist 不污染session-context段", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
-      const _canKaoIdx = raw.indexOf("## 参考手册");
-      const huiHuaIdx = raw.indexOf("## 会话背景");
+      const _canKaoIdx = raw.indexOf("## reference-manual");
+      const huiHuaIdx = raw.indexOf("## session-context");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
       const modulesTypeSafetyIdx = raw.indexOf("- modules-type-safety:");
       expect(
@@ -178,13 +190,13 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 7. Trigger 索引段 ==========
   describe("7. Trigger 独立索引段", () => {
-    it("pt-quality-trigger 出现在触发索引段", async () => {
+    it("pt-quality-trigger 出现在trigger-index段", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
-      // Phase term-naming：Trigger 拉出作独立段（不再是会话背景的一部分）
-      const triggerIdxH2 = raw.indexOf("## 触发索引");
+      // Phase term-naming：Trigger 拉出作独立段（不再是session-context的一部分）
+      const triggerIdxH2 = raw.indexOf("## trigger-index");
       const nextH2AfterTrigger = raw.slice(triggerIdxH2 + 1).search(/^## /m);
       const triggerIdx = raw.indexOf("pt-quality-trigger");
       expect(triggerIdxH2).toBeGreaterThan(-1);
@@ -194,13 +206,13 @@ describe("Phase 9.9 v9 完整回归", () => {
   });
 
   // ========== 8. user-info Domain ==========
-  describe("8. user-info Domain 进入会话背景", () => {
-    it("user-info Domain 段出现在会话背景", async () => {
+  describe("8. user-info Domain 进入session-context", () => {
+    it("user-info Domain 段出现在session-context", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
-      const huiHuaIdx = raw.indexOf("## 会话背景");
+      const huiHuaIdx = raw.indexOf("## session-context");
       const nextH2AfterHuiHuaOffset = raw.slice(huiHuaIdx + 1).search(/^## /m);
       const userInfoIdx = raw.indexOf("### user-info");
       expect(userInfoIdx).toBeGreaterThan(huiHuaIdx);
@@ -209,7 +221,7 @@ describe("Phase 9.9 v9 完整回归", () => {
 
     it("user-info 含 user-profile/pt-goal/collab-mode + user-role-po/tl", async () => {
       const raw = await readFile(
-        join(cwd, ".pt/cache/agent-contexts/pt-project__pt-dev.agent-context.md"),
+        join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
       expect(raw).toContain("user-profile");
@@ -268,15 +280,24 @@ describe("Phase 9.9 v9 完整回归", () => {
     it("channels/ 目录不存在", async () => {
       await expect(readdir(join(cwd, ".pt/assets/channels"))).rejects.toThrow();
     });
-    it("profiles/ 目录存在", async () => {
-      const files = await readdir(join(cwd, ".pt/assets/profiles"));
-      expect(files.length).toBeGreaterThan(0);
+    it("profile 资源存在（项目 assets 或 fullstack pack 任一即可）", async () => {
+      // v16：pt-* profile 在 fullstack pack，不在项目 assets/profile。
+      // profile 资源总数（项目 .pt/assets/profiles/ + .pt/packs/fullstack/profiles/）≥1。
+      const dirs = [join(cwd, ".pt/assets/profiles"), join(cwd, ".pt/packs/fullstack/profiles")];
+      let total = 0;
+      for (const d of dirs) {
+        try {
+          const files = (await readdir(d)).filter((f) => f.endsWith(".profile.md"));
+          total += files.length;
+        } catch {}
+      }
+      expect(total).toBeGreaterThan(0);
     });
   });
 
-  // ========== 12. /manual:xxx 触发 ==========
-  describe("12. /manual:xxx 触发", () => {
-    it("/manual:pt-quality 触发返非 null（pt-dev 引用 pt-quality）", () => {
+  // ========== 12. /pt_turn_inject 触发 ==========
+  describe("12. /pt_turn_inject 触发", () => {
+    it("/pt_turn_inject pt-quality 触发返非 null（pt-dev 引用 pt-quality）", () => {
       const r9 = loadedProfiles["pt-dev"];
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
@@ -288,12 +309,12 @@ describe("Phase 9.9 v9 完整回归", () => {
         ptDevBlueprint,
         scoped,
         ptDevProfile,
-        "/manual:pt-quality"
+        "/pt_turn_inject pt-quality"
       );
       expect(result).not.toBeNull();
     });
 
-    it("/manual:pt-quality 含 9 条规范", () => {
+    it("/pt_turn_inject pt-quality 含 9 条规范", () => {
       const r9 = loadedProfiles["pt-dev"];
       const ptDevBundle = r9.bundles[0];
       const ptDevProfile = findProfile(ptDevBundle.profiles, "pt-dev")!;
@@ -304,13 +325,13 @@ describe("Phase 9.9 v9 完整回归", () => {
         ptDevBlueprint,
         scoped,
         ptDevProfile,
-        "/manual:pt-quality"
+        "/pt_turn_inject pt-quality"
       );
       expect(result).toContain("modules-type-safety");
     });
 
     // v13.x（issue pt-turn-inject-not-profile-scoped）：反向用例——Profile scope 过滤生效
-    it("/manual:pt-quality 在 pt-design（未引用 pt-quality）下返 null", () => {
+    it("/pt_turn_inject pt-quality 在 pt-design（未引用 pt-quality）下返 null", () => {
       const r9 = loadedProfiles["pt-design"];
       const ptDesignBundle = r9.bundles[0];
       const ptDesignProfile = findProfile(ptDesignBundle.profiles, "pt-design")!;
@@ -324,7 +345,7 @@ describe("Phase 9.9 v9 完整回归", () => {
         ptDesignBlueprint,
         scoped,
         ptDesignProfile,
-        "/manual:pt-quality"
+        "/pt_turn_inject pt-quality"
       );
       expect(result).toBeNull();
     });
@@ -349,9 +370,9 @@ describe("Phase 9.9 v9 完整回归", () => {
       const r = await loadAndTranspile("/Users/issac/pro/pt-writing", "writing");
       expect(r.segment.length).toBeGreaterThan(0);
     });
-    it("pt-writing 含 参考手册 注入点", async () => {
+    it("pt-writing 含 reference-manual 注入点", async () => {
       const r = await loadAndTranspile("/Users/issac/pro/pt-writing", "writing");
-      expect(r.agentContext.modules.参考手册).toBeDefined();
+      expect(r.agentContext.modules["reference-manual"]).toBeDefined();
     });
   });
 
@@ -389,7 +410,7 @@ describe("Phase 9.9 v9 完整回归", () => {
     it("内建 guide profile 加载成功", async () => {
       const r = await loadAndTranspile(cwd, "guide");
       expect(r.profile.name).toBe("guide");
-      expect(r.blueprint.name).toBe("dev-knowledge");
+      expect(r.blueprint.name).toBe("pt-default");
     });
 
     it("内建 guide profile 含 user-info / agent-info / project-analysis / authoring / usage", async () => {
@@ -415,16 +436,16 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(r.segment).not.toContain("### project-analysis");
     });
 
-    it("项目资产覆盖内建（dev-knowledge 不重复）", async () => {
+    it("项目资产覆盖内建（pt-default 不重复）", async () => {
       const r = await loadAndTranspile(cwd, "guide");
       const blueprintNames = r.bundles[0].blueprints.map((b) => b.name);
-      const devCount = blueprintNames.filter((n) => n === "dev-knowledge").length;
+      const devCount = blueprintNames.filter((n) => n === "pt-default").length;
       expect(devCount).toBe(1); // 项目覆盖内建，不重复
     });
   });
 
-  // ========== 18. /pt manual 手册实例化 ==========
-  describe("18. /pt manual 手册实例化", () => {
+  // ========== 18. /pt make-manual 手册实例化 ==========
+  describe("18. /pt make-manual 手册实例化", () => {
     it("bindFlowTemplate 输出含步骤 + 变量绑定", async () => {
       const { bindFlowTemplate } = await import("../../src/render/turn-inject.js");
       const r = await loadAndTranspile(cwd, "guide");
@@ -444,7 +465,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const r = await loadAndTranspile(cwd, "guide");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       const bound = bindFlowTemplate(tpl!, "my-concept");
-      // 模拟 /pt manual 的文档包装逻辑
+      // 模拟 /pt make-manual 的文档包装逻辑
       const lines: string[] = ["---", "procedure: create-domain-procedure", "---", ""];
       for (const line of bound.split("\n")) {
         if (line.startsWith("#")) continue;
@@ -466,7 +487,7 @@ describe("Phase 9.9 v9 完整回归", () => {
       const r = await loadAndTranspile(cwd, "guide");
       const tpl = findFlowInBlueprint(r.blueprint, r.bundles[0].domains, "create-domain-procedure");
       const bound = bindFlowTemplate(tpl!, "my-concept");
-      // 模拟 /pt manual 的文档包装逻辑
+      // 模拟 /pt make-manual 的文档包装逻辑
       const lines: string[] = ["---", "procedure: create-domain-procedure", "---", ""];
       for (const line of bound.split("\n")) {
         if (line.startsWith("#")) continue;
@@ -494,9 +515,9 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(constants.MANUAL_DIR).toBe(".pt/manuals");
     });
 
-    it("index.ts 注册了 /pt manual 子命令", async () => {
+    it("index.ts 注册了 /pt make-manual 子命令", async () => {
       const src = await readFile("src/index.ts", "utf8");
-      expect(src).toContain('sub === "manual"');
+      expect(src).toContain('sub === "make-manual"');
       expect(src).toContain("MANUAL_DIR");
     });
   });
@@ -565,17 +586,113 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(doc.filePath).toContain("feature-lifecycle-");
     });
 
-    it("index.ts 注册了 3 个 tool", async () => {
+    it("index.ts 注册了 4 个 tool", async () => {
       const src = await readFile("src/index.ts", "utf8");
       expect(src).toContain('name: "pt_status"');
       expect(src).toContain('name: "pt_flows"');
-      expect(src).toContain('name: "pt_manual"');
+      expect(src).toContain('name: "pt_make_manual"');
+      expect(src).toContain('name: "pt_turn_inject"');
       expect(src).toContain("withFileMutationQueue");
+    });
+  });
+
+  // ========== 20. v17 4 profile 角色边界明确化 ==========
+  // issue pt-profile-role-boundary-clarification：pt-arch 含 issue-workflow + 5 个 optional slot
+  describe("20. v17 pt-arch 角色边界", () => {
+    it("pt-arch Profile 加载成功", () => {
+      expect(loadedProfiles["pt-arch"]).toBeDefined();
+    });
+
+    it("pt-arch tagline 含 'Tech architect' + 'workflow design'", async () => {
+      const r = await readFile(
+        join(cwd, ".pt/packs/fullstack/profiles/pt-arch.profile.md"),
+        "utf8"
+      );
+      expect(r).toContain("tagline: Tech architect");
+      expect(r).toContain("workflow design");
+    });
+
+    it("pt-arch domains 含 @fullstack/workflow/issue-workflow", async () => {
+      const r = await readFile(
+        join(cwd, ".pt/packs/fullstack/profiles/pt-arch.profile.md"),
+        "utf8"
+      );
+      expect(r).toMatch(/^domains:[\s\S]*workflow\/issue-workflow/m);
+    });
+
+    it("pt-arch optional-domains 完整声明 5 个 slot（含 deployment + release-workflow）", async () => {
+      const r = await readFile(
+        join(cwd, ".pt/packs/fullstack/profiles/pt-arch.profile.md"),
+        "utf8"
+      );
+      expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/user-info/m);
+      expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/product-design/m);
+      expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/workflow\/asset-workflow/m);
+      expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/workflow\/deployment/m);
+      expect(r).toMatch(/^optional-domains:[\s\S]*@prj\/workflow\/release-workflow/m);
+    });
+
+    it("pt-arch 产物含 issue-workflow 段（issue 分析定位进入session-context/reference-manual）", () => {
+      const r = loadedProfiles["pt-arch"].segment;
+      expect(r).toContain("issue-workflow");
+    });
+
+    it("pt-arch 产物含 agent-role-architect 双重视角 desc", () => {
+      const r = loadedProfiles["pt-arch"].segment;
+      expect(r).toContain("辅佐产品决策");
+      expect(r).toContain("主导技术方案");
+    });
+
+    it("pt-design tagline 含 '(business × product)'", async () => {
+      const r = await readFile(
+        join(cwd, ".pt/packs/fullstack/profiles/pt-design.profile.md"),
+        "utf8"
+      );
+      expect(r).toContain("Product owner + architect (business × product)");
+    });
+
+    it("user-info product-owner 描述只主导 pt-design（不含 pt-arch）", async () => {
+      const r = await readFile(join(cwd, ".pt/assets/domains/user-info.md"), "utf8");
+      const m = r.match(/### user-role-product-owner[\s\S]*?- desc:\s*(.+)/);
+      expect(m).not.toBeNull();
+      expect(m![1]).toContain("pt-design");
+      expect(m![1]).not.toMatch(/pt-arch/);
+    });
+
+    it("user-info tech-lead 描述主导 pt-arch / pt-dev / pt-devops", async () => {
+      const r = await readFile(join(cwd, ".pt/assets/domains/user-info.md"), "utf8");
+      const m = r.match(/### user-role-tech-lead[\s\S]*?- desc:\s*(.+)/);
+      expect(m).not.toBeNull();
+      expect(m![1]).toContain("pt-arch");
+      expect(m![1]).toContain("pt-dev");
+      expect(m![1]).toContain("pt-devops");
+    });
+
+    it("agent-info agent-role-architect desc 涵盖 design 辅佐 + arch 主导 + 不做开发/发版/产品决策", async () => {
+      const r = await readFile(join(cwd, ".pt/packs/fullstack/domains/agent-info.md"), "utf8");
+      const m = r.match(/### agent-role-architect[\s\S]*?- desc:\s*(.+)/);
+      expect(m).not.toBeNull();
+      const desc = m![1];
+      expect(desc).toContain("辅佐产品决策");
+      expect(desc).toContain("主导技术方案");
+      expect(desc).toContain("不写业务代码");
+      expect(desc).toContain("不执行发版");
+    });
+
+    it("agent-info agent-role-senior-developer desc 明确'执行层'", async () => {
+      const r = await readFile(join(cwd, ".pt/packs/fullstack/domains/agent-info.md"), "utf8");
+      const m = r.match(/### agent-role-senior-developer[\s\S]*?- desc:\s*(.+)/);
+      expect(m).not.toBeNull();
+      expect(m![1]).toContain("执行层");
+    });
+
+    it("agent-info agent-role-devops-engineer desc 明确'执行层'", async () => {
+      const r = await readFile(join(cwd, ".pt/packs/fullstack/domains/agent-info.md"), "utf8");
+      const m = r.match(/### agent-role-devops-engineer[\s\S]*?- desc:\s*(.+)/);
+      expect(m).not.toBeNull();
+      expect(m![1]).toContain("执行层");
     });
   });
 });
 
-// Helper（profilesDir）
-function profilesDir(): string {
-  return join(cwd, ".pt/assets/profiles");
-}
+// Helper（profilesDir）— v16 改造后已不再使用，保留空以备未来需要。

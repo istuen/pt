@@ -1,15 +1,15 @@
 // tests/verify/manual-track-integration.test.ts — index.ts 集成验证
 //
 // 配套 .pt/docs/designs/pt-injection-status-manual-track.md §2.5/2.6/2.7：
-//   - pt_manual tool execute 成功后 → activeManual 设 + widget set + entry 写入
+//   - pt_make_manual tool execute 成功后 → activeManual 设 + widget set + entry 写入
 //   - session_start → tryRestoreManual → 读 entry → 校验 → 挂 widget
-//   - /pt manual 命令 → 同 tool 路径
+//   - /pt make-manual 命令 → 同 tool 路径
 //   - session_shutdown → 清状态
 //
 // 测试策略：
 //   - mock ExtensionAPI（仿 switch-injection.test.ts）
 //   - 用真实 .pt/assets/profiles/pt-dev.profile.md（已在仓库）
-//   - pt_manual 文件写入走真实 fs（用 mkdtemp 隔离，避免污染仓库）
+//   - pt_make_manual 文件写入走真实 fs（用 mkdtemp 隔离，避免污染仓库）
 //   - 不调真实 pi，验证会话内行为
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -95,8 +95,8 @@ describe("manual track 集成", () => {
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
-  it("pt_manual tool → 写 activeManual + widget setWidget + appendEntry", async () => {
-    // 隔离 cwd：pt_manual 按 ctx.cwd 解析 .pt/manuals/ 写入路径，避免污染真实仓库
+  it("pt_make_manual tool → 写 activeManual + widget setWidget + appendEntry", async () => {
+    // 隔离 cwd：pt_make_manual 按 ctx.cwd 解析 .pt/manuals/ 写入路径，避免污染真实仓库
     // （issue pt-manual-test-residual 方案 A：原测试硬编码 ctx.cwd = process.cwd() 导致残留堆积）
     const tempDir = await mkdtemp(join(tmpdir(), "pt-manual-write-"));
     tempDirs.push(tempDir);
@@ -114,7 +114,7 @@ describe("manual track 集成", () => {
     await switchCmd.handler("pt-dev", m.ctx);
 
     // 隔离 cwd：profile 已加载到全局 session（cachedBundles/cachedBlueprint 已设），
-    // 此时切 cwd 让 pt_manual 写入到 tempDir，避免污染真实仓库
+    // 此时切 cwd 让 pt_make_manual 写入到 tempDir，避免污染真实仓库
     // （issue pt-manual-test-residual 方案 A：profile 加载前不能切 cwd，否则 transpileActive 读不到 .pt/assets/）
     m.ctx.cwd = tempDir;
 
@@ -123,9 +123,9 @@ describe("manual track 集成", () => {
     m.widgetCalls.length = 0;
     m.appendedEntries.length = 0;
 
-    // 调 pt_manual tool
-    const ptManualTool = m.tools.get("pt_manual");
-    if (!ptManualTool) throw new Error("pt_manual tool not registered");
+    // 调 pt_make_manual tool
+    const ptManualTool = m.tools.get("pt_make_manual");
+    if (!ptManualTool) throw new Error("pt_make_manual tool not registered");
     const result = (await ptManualTool.execute(
       "call-1",
       { procedure: "feature-lifecycle", args: "manual-track-test" },
@@ -289,8 +289,8 @@ status: completed
     expect(s().activeManual).toBeNull();
   });
 
-  it("/pt manual 命令 → 同 tool 路径（activeManual + widget + entry）", async () => {
-    // 隔离 cwd：/pt manual 命令按 ctx.cwd 解析 .pt/manuals/ 写入路径，避免污染真实仓库
+  it("/pt make-manual 命令 → 同 tool 路径（activeManual + widget + entry）", async () => {
+    // 隔离 cwd：/pt make-manual 命令按 ctx.cwd 解析 .pt/manuals/ 写入路径，避免污染真实仓库
     // （issue pt-manual-test-residual 方案 A）
     const tempDir = await mkdtemp(join(tmpdir(), "pt-manual-write-"));
     tempDirs.push(tempDir);
@@ -305,7 +305,7 @@ status: completed
     const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
-    // 隔离 cwd：profile 已加载到全局 session，切 cwd 让 /pt manual 命令写入到 tempDir（避免污染真实仓库）
+    // 隔离 cwd：profile 已加载到全局 session，切 cwd 让 /pt make-manual 命令写入到 tempDir（避免污染真实仓库）
     // （issue pt-manual-test-residual 方案 A）
     m.ctx.cwd = tempDir;
 
@@ -314,7 +314,7 @@ status: completed
     m.appendedEntries.length = 0;
 
     const ptCmd = m.commands.get("pt")!;
-    await ptCmd.handler("manual feature-lifecycle cmd-test", m.ctx);
+    await ptCmd.handler("make-manual feature-lifecycle cmd-test", m.ctx);
 
     expect(s().activeManual?.procedure).toBe("feature-lifecycle");
     expect(s().activeManual?.args).toBe("cmd-test");

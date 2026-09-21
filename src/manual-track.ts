@@ -100,7 +100,7 @@ export function parseManualProgressFromContent(content: string): ManualProgress 
   // 5. 抽 ## 执行状态 表的每行 outcome
   const stepOutcomes: StepOutcome[] = [];
   // 表格行格式 `| N | <outcome> | <message> |`，message 列可空（`\s*` 兼容末列前的 0+ 空格）
-  const tableRe = /^\| (\d+) \| (.+?) \| [^\|]*\s*\|$/gm;
+  const tableRe = /^\| (\d+) \| (.+?) \| [^|]*\s*\|$/gm;
   for (const m of content.matchAll(tableRe)) {
     const idxStr = m[1] ?? "";
     const rawOutcome = m[2] ?? "";
@@ -212,4 +212,23 @@ export async function isManualActive(filePath: string): Promise<boolean> {
   const p = await parseManualProgress(filePath);
   if (!p) return false;
   return checkManualCompletion(p);
+}
+
+/** 浅比较两个 ManualProgress "对外可观察字段"是否相同（用于跳过无变化的 IPC）。
+ *  P1：tool_result / turn_end 钩子刷新 widget + footer 前调，避免对同一进度重复发
+ *  setWidget / setStatus（IPC 成本 ~3-8ms × 频率 60-120/h）。
+ *  比 5 字段：procedure / stepDone / stepTotal / status / nextStep
+ *  - 不比 stepOutcomes 数组内容（stepDone/stepTotal 已覆盖可观察变化）
+ *  - 不比 pseudoComplete / hasUnfinishedOutcome（派生字段，前 5 字段相同则它们也相同）
+ *  - null === null 视为相同（重置场景不会误判为有变化） */
+export function manualProgressEqual(a: ManualProgress | null, b: ManualProgress | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.procedure === b.procedure &&
+    a.stepDone === b.stepDone &&
+    a.stepTotal === b.stepTotal &&
+    a.status === b.status &&
+    a.nextStep === b.nextStep
+  );
 }

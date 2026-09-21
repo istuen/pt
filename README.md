@@ -1,17 +1,29 @@
 # Pt
-
-Pt 把领域知识做成可配置的智能体上下文。通过切换配置，Agent 具备不同 Session Context（每轮注入），推理时可通过 Turn Context（按需触发）查阅手册。
-
----
-
-## 用 Pt 做什么
-
-- **复用 Prompt，不必每次重写**：把重复的 prompt 写成 Pt Domain，配一份 Profile，每次会话切换立即获取领域知识——换项目、换场景，不用重写。
-- **拆分固定与按需，控制上下文成本**：领域知识拆成 Session Context（每轮注入的固定知识 + 参考索引）和 Turn Context（按索引触发的详细手册）——背景每轮都在，详细内容推理时按需查阅。
-- **沉淀对话与经验为可迭代资产**：把对话里的决策、经验、知识用文档显化，入 git 可追溯、可迭代——知识更新改一处，所有会话生效。
-- **连接外部系统与数据源**：领域知识不限于项目内——外部数据源的查询方式、外部系统的操作指引，都可写成 Domain 注入 Agent。
+可配置的上下文编译器。
 
 ---
+
+## Pt 是什么
+
+Pt 把领域知识编译成可配置的 AgentContext。其可以把用户的领域知识异构成 Pt Domain，再通过 Pt Profile 场景配置编译成 AgentContext，Pi 会获取 SessionContext 作为固定注入，而 TurnContext 则是推理时按需注入。
+
+```mermaid
+flowchart LR
+    src["Domain Knowledge<br/>External Knowledge / Project Knowledge / Human Experience / RAG / External Systems"]
+    domain["Pt Domain"]
+    blueprint["Pt Blueprint"]
+    profile["Pt Profile"]
+    context["AgentContext"]
+    session["SessionContext"]
+    turn["TurnContext"]
+
+    src --> domain
+    domain --> profile
+    blueprint --> profile
+    profile --> context
+    context --> session
+    context --> turn
+```
 
 ## 安装
 
@@ -47,7 +59,7 @@ npm install @istuen/pt
 
 ## 快速开始
 
-### 1. 激活内建 Profile
+### 1. 使用内建 Profile
 
 进入 pi 后用 `/pt-profile` 选择 `guide`，或直接 `/pt-profile guide`：
 
@@ -61,44 +73,28 @@ npm install @istuen/pt
 pi --pt-profile guide
 ```
 
-内建 `guide` Profile 用 dev-knowledge Blueprint + 五个内建 Domain（`user-info` / `agent-info` / `project-analysis` / `authoring` / `usage`）——Agent 立刻有“用户身份 + Agent 身份 + 怎么写 Pt 资产 / 怎么分析项目 / 怎么用 Pt”的知识。
+#### 内建 `guide` Profile 
+用 pt-default Pt Blueprint + 五个内建 Pt Domain（`user-info` / `agent-info` / `project-analysis` / `authoring` / `usage`）——Agent 立刻有“用户身份 + Agent 身份 + 怎么写 Pt 资产 / 怎么分析项目 / 怎么用 Pt”的知识。
 
-### 2. 加自己的知识
+### 2. 自定义构建
 
 用自然语言告诉 Agent 你的项目情况——`guide` Profile 会分析当前项目，帮你创建合适的 Domain 和 Profile，或直接告诉你该怎么创建。
 
 ---
 
-## 命令速查
+## 功能特性
 
-| 命令 | 作用 |
-|---|---|
-| `/pt-profile` | 列出所有可用 Profile |
-| `/pt-profile <name>` | 切换 Profile（下一轮生效） |
-| `/pt` | 查看当前编译状态 |
-| `/pt flows` | 列出可触发手册 |
-| `/manual:<domain>` | 注入该 Domain 的手册段到 Turn Inject |
-| `/<flow> <args>` | 触发 Domain 的 FlowTemplate |
-| `--pt-profile <name>` | Pi 启动时激活 Profile（CLI 优先级最高） |
+### Pt Domain 异构资产
 
-LLM 工具（Agent 可调用）：`pt_status` / `pt_flows` / `pt_manual` / `pt_verify` / `pt_check_refs`。
+Pt Domain 采用 Markdown 作为内容文档。
+内容可以任何领域知识、经验指导、规范手册，也可以是查询外部数据源、操作外部系统的知识文档。
 
----
+通过 MD 自带语法简单、方便的构建内容结构：
+- **H2 做 Module**（内容段，如 `## Scene`、`## Flows`）。
+- **H3 做语义**（项名，如 `### 角色分工`）。
+- **列表项做描述**（`- desc: ...`）。
 
-## Pt 的机制：四个概念
-
-Pt 用四个概念组织——写领域知识，定转换结构，组装身份配置，编译出上下文：
-
-```
-Pt Domain ──→ Blueprint ──→ Pt Profile ──→ Agent Context
- 领域知识      转换结构       身份配置      编译后上下文
-```
-
-### Pt Domain — 领域知识
-
-领域知识，一个 `.md` 文件。用 MD 语法组成：**H2 做 Module**（内容段，如 `## Scene`、`## Flows`）、**H3 做语义**（项名，如 `### 角色分工`）、**列表项做描述**（`- desc: ...`）。可写业务领域的设计语义、工作流说明、外部系统操作指导。Module 允许自定义，通过 Profile 引用即可。放 `.pt/assets/domains/`。
-
-例子：
+示例：
 ```markdown
 ---
 name: user-info
@@ -113,68 +109,84 @@ name: user-info
 - desc: 偏好类型安全、模块化设计
 ```
 
-### Blueprint — 转换结构
+### Pt Profile 场景配置
 
-转换结构，一个 `.blueprint.yaml` 文件。定义 Profile 可以把哪些 Domain 注入到 Agent——声明有哪些聚合组（`groups`），每个组聚合哪些 Module，注入到哪（`inject: session` 会话级 / `inject: turn` 轮次级）。跨项目复用。放 `.pt/assets/blueprints/`。
+对 LLM 配置场景，通过引用 Pt Domain，可以组合不同场景下所需的上下文。
+自定义上下文结构可以是session-context、主题、用户与 Agent 的身份信息、reference-manual 等，定义 Agent 推理范围。
+支持同会话切换 Profile，也支持跨会话共享 Profile。
+
+示例：
+```markdown
+---
+name: my-dev
+blueprint: pt-default
+domains: [user-info, authoring, usage]                      # 必填
+optional-domains: ["@prj/user-info", "@prj/product-design"]  # 可选：prj 可选填
+---
+```
+
+#### 使用其他 Pt Profile
+
+Pt Profile 可 `use` 另一 Pt Profile 作为基础，增量覆盖：
 
 ```yaml
-name: dev-knowledge
+---
+name: my-dev
+use: @pt-internal/pt-dev          # 继承 pt-dev 作为基础
+blueprint: @team-stdlib/minimal   # 可覆盖 pt-dev 的 blueprint
+domains: [my-domain]              # 追加去重 pt-dev 的 domains，
+---
+```
+
+#### 通用 Profile
+optional-domains 声明后，创建指定路径 Domain 即可注入该 Profile，结合 Pt Pack 让多项目使用该 Profile，一次定义，项目追加。
+
+### Pt Blueprint 结构转换
+
+Pt Profile 与 Pt Domain 的衔接结构，定义 Pt Profile 可以聚合 Pt Domain 哪些内容并如何注入到 LLM。
+session 是 SessionContext 注入，构建整个会话的固定上下文。
+turn 是 TurnContext 注入，由 LLM 在对话时按需获取。
+
+```yaml
+name: pt-default
 groups:
-  - name: 会话背景
+  - name: session-context
     inject: session
     modules: [Scene, Participant]
-  - name: 触发索引
+  - name: trigger-index
     inject: session
     modules: [Trigger]
-  - name: 参考手册
+  - name: reference-manual
     inject: turn
     modules: [Rules, Flows, Checklists]
 ```
 
-### Pt Profile — 身份配置
+### AgentContext 编译注入
 
-Profile 是 Pt 最核心的功能，承接用户与 Agent 之间的会话配置。切换 Profile 会影响：会话背景、主题、用户与 Agent 的身份信息、参考信息等——让 Agent 专注当前推理范围。一个 `.profile.md` 文件，选一个 Blueprint + 列要用的 Domain。项目级，不跨项目复用。放 `.pt/assets/profiles/`。
+Pt Profile + Pt Blueprint + Pt Domain 编译后的 AgentContext。
+SessionContext 每轮固定注入，LLM 保持上下文稳定。
+TurnContext 推理时按需触发注入，LLM 可选择参考。
 
-例子：
-```markdown
----
-name: my-dev
-blueprint: dev-knowledge
-domains: [user-info, authoring, usage]
----
-```
+### Pt Pack 资产包
 
-### Agent Context — 编译后上下文
-
-Profile 编译后的产物，分两面——**Session Context**（每轮注入：会话背景、身份信息、触发索引）和 **Turn Context**（按需触发：推理时查阅的参考手册）。带 hash 缓存（`.pt/cache/agent-contexts/`），资产变了自动重编译。
-
-**一句话串起来**：写 Domain → 用 Blueprint 定转换结构 → 用 Profile 组装身份 → 编译出 Agent Context 两面注入。
-
----
-
-## Pt 资产包（Pack）
-
-v15.x 起，Pt 资产按 **Pack** 组织——一个 Pack 是一个目录（含 `domains/` + `blueprints/` + `profiles/` 子目录 + 可选 `pt-asset-pack.yaml` manifest）。Pt 加载 3 类 Pack，优先级从高到低：
+把 Pt Domain + Pt Blueprint + Pt Profile 作为一个 Pack 被多个项目使用与用户分享。
+可以单独管理，构建与沉淀用户与团队的资产包。
 
 | Pack | 来源 | 寻址名 | 说明 |
 |---|---|---|---|
 | **project** | `<cwd>/.pt/assets/`（默认）或 `pt.project-pack-dir` 配置 | `@prj` | 项目专属资产，永远最高优先 |
 | **settings** | `.pi/settings.json` 的 `pt.asset-packs[]` | `@<manifest-name>` | 团队共享 / 第三方 Pack，按声明顺序后者赢 |
-| **builtin** | `src/builtin/assets/`（随 npm 包） | `@pt` | 内建 fallback（guide / dev-knowledge 等） |
+| **builtin** | `src/builtin/assets/`（随 npm 包） | `@pt` | 内建 fallback（guide 等） |
 
-跨项目共用资产走 **settings pack**（显式声明 `pt.asset-packs[]` 指向共享路径）——不设全局 pack。
-
-### 跨 Pack 引用
-
-Profile / Domain / Blueprint 引用可限定 Pack：`@pack-name/asset-name`。不限定时按优先级自动解析（project > settings > builtin）。
+#### Pack 解析 
+引用可限定 Pack：`@pack-name/asset-name`。
+不限定时按优先级自动解析（project > settings > builtin）。
 
 ```yaml
 # profile.md frontmatter
-blueprint: @pt-project/dev-knowledge    # 限定到 pt-project pack（project pack 也可用 manifest.name 寻址）
-domains: [@fullstack/team-stdlib, workflow]    # @fullstack 限定 + 无前缀自动解析
+blueprint: "@pt-project/pt-default"          # 限定到 pt-project pack（project pack 也可用 manifest.name 寻址）
+domains: ["@fullstack/team-stdlib", workflow]    # @fullstack 限定 + 无前缀自动解析
 ```
-
-### settings 声明 Pack
 
 在 `.pi/settings.json` 加载第三方 / 团队 Pack（只声明 path，name 从 manifest 读）：
 
@@ -182,51 +194,35 @@ domains: [@fullstack/team-stdlib, workflow]    # @fullstack 限定 + 无前缀�
 {
   "pt": {
     "asset-packs": [
-      { "path": "~/projects/pt-team-stdlib/assets" },
-      { "path": "../shared-pt-assets" }
+      { "path": "~/projects/pt-team" },
+      { "path": "~/shared-pt-assets" }
     ]
   }
 }
 ```
 
-`project-pack-dir` 可选配项：默认走 `<cwd>/.pt/assets`，仅在需要把 prj 指向非默认位置（如项目外共享 prj）时配。
-
-### 把 .pt/assets 指向项目外（symlink 方案）
-
-如果你用 gitfile + packs/ 布局（v15.x 早期），迁到 symlink + assets/ 布局后，多项目共用 pt-internal 仓的典型做法：
-
-```bash
-# 1. clone pt-internal 仓到本地（独立项目，非 bare）
-git clone https://github.com/istuen/pt-internal.git ~/prot/pt-internal
-
-# 2. 在主仓建 symlink（用 setup 脚本）
-./scripts/setup-pt-symlinks.sh --pack-dir ~/prot/pt-internal
-
-# 手动方式：
-ln -s ~/prot/pt-internal/pt-project .pt/assets
-mkdir -p .pt/packs && ln -s ~/prot/pt-internal/fullstack .pt/packs/fullstack
-```
-```
-
-`project-pack-dir` 可指向项目外路径（`~` / 绝对 / 相对 cwd 都支持）。
-
-### Profile `use` 单继承
-
-Profile 可 `use` 另一 Profile 作为基础，增量覆盖：
-
-```yaml
----
-name: my-dev
-use: @pt-internal/pt-dev          # 继承 pt-dev 作为基础
-blueprint: @team-stdlib/minimal   # 覆盖 use 的 blueprint
-domains: [my-domain]              # 追加到 use 的 domains
----
-```
-
-合并规则：`name` 强制（不继承）/ `blueprint` 覆盖 / `tagline` 覆盖 / `domains` 追加去重 / `groups` 同名替换。不写 `use` = 完全独立 Profile（back-compat）。
-
 ---
 
+## 命令速查
+
+| 命令 | 作用 |
+|---|---|
+| `/pt-profile` | 列出所有可用 Profile |
+| `/pt-profile <name>` | 切换 Profile（下一轮生效） |
+| `/pt` | 查看当前编译状态 |
+| `/pt flows` | 列出可触发手册 |
+| `/manual:<domain>` | 注入该 Domain 的手册段到 TurnInject |
+| `/<flow> <args>` | 触发 Domain 的 FlowTemplate |
+| `--pt-profile <name>` | Pi 启动时激活 Profile（CLI 优先级最高） |
+
+LLM 工具（Agent 可调用）：
+- `pt_status`
+- `pt_flows`
+- `pt_manual`
+- `pt_verify`
+- `pt_check_refs`
+
+---
 
 ## License
 

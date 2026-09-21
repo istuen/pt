@@ -1,27 +1,27 @@
 ---
 name: guide
-blueprint: dev-knowledge
+blueprint: pt-default
 domains: [user-info, agent-info, project-analysis, authoring, usage, pack-management]
 ---
 
 # guide (profile)
 
 <!--
-v9.1+（modules-to-profile-complete）：见 pt-arch.profile.md 头注释。
-guide 是 onboarding——会话背景含 Scene + User 整段 + Agent 整段，展示完整信息。
+v9.1+ (modules-to-profile-complete): see pt-arch.profile.md header note.
+guide is onboarding — session-context includes Scene + full User + full Agent sections, showing complete info.
 -->
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 - User
 - Agent
 
-## 触发索引
+## trigger-index
 ### Modules
 - Trigger
 
-## 参考手册
+## reference-manual
 ### Modules
 - Rules
 - Flows

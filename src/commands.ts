@@ -14,6 +14,7 @@
 //   - 加 checkText() 内核 + CheckOptions：/pt check + pt_check tool 共享
 //   - 同步格式化 6 列 biome/tsc 风格 + hint/fix 展示
 
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { MANUAL_DIR, MOD_FLOWS } from "./constants.js";
 import { bindFlowTemplate, findFlowInBlueprint } from "./render/turn-inject.js";
@@ -40,16 +41,27 @@ export function statusText(session: SessionState): string {
   const profileCount = session.cachedBundles?.reduce((acc, b) => acc + b.profiles.length, 0) ?? 0;
   // v14.x（issue pt-asset-migration-visibility Layer 2）：暴露 session_start 健康扫描结果
   const healthIssues = session.assetHealthIssues;
+  // v16：healthLine 加 info 计数（info=0 时省略，与 warning 处理一致——不刷屏）
   const healthLine =
     healthIssues === null
       ? "pt health: (not scanned)"
       : healthIssues.length === 0
         ? "pt health: ok"
-        : `pt health: ${healthIssues.length} issue${healthIssues.length > 1 ? "s" : ""} (${healthIssues.filter((i) => i.severity === "error").length} errors, ${healthIssues.filter((i) => i.severity === "warning").length} warnings)`;
+        : (() => {
+            const errors = healthIssues.filter((i) => i.severity === "error").length;
+            const warnings = healthIssues.filter((i) => i.severity === "warning").length;
+            const infos = healthIssues.filter((i) => i.severity === "info").length;
+            const parts = [
+              `${errors} errors`,
+              `${warnings} warnings`,
+              ...(infos > 0 ? [`${infos} infos`] : []),
+            ];
+            return `pt health: ${healthIssues.length} issue${healthIssues.length > 1 ? "s" : ""} (${parts.join(", ")})`;
+          })();
   // v15.x PR1（§6.7.6）：暴露 session_start pack 校验结果——每个 pack ✅ / ⚠ DEGRADED + 原因。
   // pack 健康区别于 healthLine 的 profile 配置体检：pack 健康是"加载层健康"，profile 健康是"资产内容健康"。
   const packValidation = session.packValidation;
-  const packLine = formatPackHealthLine(packValidation);
+  const packLine = formatPackHealthLine(packValidation, session.lastCwd);
   // v14.x（tagline）：statusText 显式展开 tagline（不受 footer 35 字符限制）
   const tagline = session.cachedProfile?.tagline;
   const taglineLine = tagline ? `pt tagline: ${tagline}` : "pt tagline: (none)";
@@ -75,9 +87,14 @@ export function statusText(session: SessionState): string {
  *  降级时附加原因：`[@prj] ⚠ DEGRADED — <errors[0].msg 截断 60 字符>`。
  *  packValidation=null → `pt packs: (not validated)`（尚未 session_start）。
  *  packValidation=[] → `pt packs: (none loaded)`（不应出现——session_start 总构造 3 个 pack）。 */
-function formatPackHealthLine(packValidation: SessionState["packValidation"]): string {
+function formatPackHealthLine(
+  packValidation: SessionState["packValidation"],
+  lastCwd?: string
+): string {
   if (packValidation === null) return "pt packs: (not validated)";
   if (packValidation.length === 0) return "pt packs: (none loaded)";
+  // issue pt-pack-repair-cwd-home-edge-case：project pack 失效 + cwd=home 时附加决策引导
+  const isCwdHome = lastCwd === homedir();
   const items = packValidation.map((r) => {
     // v15.x §4.4.4（缺口 4）：reserved 显位置别名（reservedAlias），非 reserved 显 pack（manifest.name）
     // 砍 desc——pack 详情走 /pt packs（缺口 5）
@@ -87,7 +104,9 @@ function formatPackHealthLine(packValidation: SessionState["packValidation"]): s
       return `[@${label}]${version} ✅`;
     }
     const reason = r.errors[0]?.msg ?? "unknown";
-    return `[@${label}]${version} ⚠ DEGRADED — ${truncate(reason, 60)}`;
+    // cwd=home + project 失效时附加 "| 建议切到项目目录"（总长不超 60）
+    const guidance = r.source === "project" && isCwdHome ? " | 建议切到项目目录" : "";
+    return `[@${label}]${version} ⚠ DEGRADED — ${truncate(reason + guidance, 60)}`;
   });
   const okCount = packValidation.filter((r) => r.ok).length;
   const summary =
@@ -168,7 +187,7 @@ export function flowsText(session: SessionState): string {
     return "当前 Profile 无可触发手册（turn 聚合组无含 Flows 段的 Domain）";
   }
   const lines = flows.map((f) => `  ${f.name} ${f.hint ?? ""}  ← ${f.domain}`);
-  return `可用手册（输入 /手册名 参数 或 /manual:<domain-name> 触发 Turn Inject）:\n${lines.join("\n")}`;
+  return `可用手册（输入 /手册名 参数 或 /pt_turn_inject <domain-name> 触发 Turn Inject）:\n${lines.join("\n")}`;
 }
 
 /** /pt full 内核：构建写入 .pt/cache/fulls/ 的完整 systemPrompt 字符串（v10.x 修复 pt-full-duplicate-segment）。
@@ -203,7 +222,7 @@ export function buildFullPrompt(
   return baseSystemPrompt;
 }
 
-/** /pt manual 内核：构建手册实例文档内容 + 目标文件路径。不写文件（写文件由壳负责）。 */
+/** /pt make-manual 内核：构建手册实例文档内容 + 目标文件路径。不写文件（写文件由壳负责）。 */
 export interface ManualDocResult {
   content: string;
   filePath: string;
@@ -214,16 +233,21 @@ export function buildManualDoc(
   cwd: string,
   session: SessionState,
   procedure: string,
-  args: string
+  args: string,
+  // P3：manual frontmatter issue 关联字段。可选——纯需求驱动特性（如 feature-lifecycle）的
+  // 独立 manual 不传 issue，frontmatter 不写该行（与 v11.x manual 零破坏 back-compat）。
+  // issue 是单向引用：manual 自描述"为哪个 issue 服务"，不反向改 issue 文档（联动职责被
+  // 否决的 pt_complete 占据，本版本不实现）。
+  issue?: string
 ): ManualDocResult {
   if (!procedure) {
-    return { content: "", filePath: "", error: "用法: /pt manual <procedure-name> [args...]" };
+    return { content: "", filePath: "", error: "用法: /pt make-manual <procedure-name> [args...]" };
   }
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.cachedBlueprint) {
     return { content: "", filePath: "", error: "无激活 Profile，先用 /pt-profile <name> 激活" };
   }
   // v13.x（issue pt-turn-inject-not-profile-scoped）：按 Profile scope 过滤 + 传 profile
-  //   让 /pt manual 在未引用该 domain 的 Profile 下找不到手册（与 /pt flows 一致）
+  //   让 /pt make-manual 在未引用该 domain 的 Profile 下找不到手册（与 /pt flows 一致）
   const scoped = filterDomainsByProfile(session.cachedBundles[0].domains, session.cachedProfile);
   const tpl = findFlowInBlueprint(
     session.cachedBlueprint,
@@ -257,6 +281,11 @@ export function buildManualDoc(
   lines.push(`created: ${now}`);
   lines.push("status: in-progress");
   lines.push(`args: ${args || "(无)"}`);
+  // P3：issue 关联字段——manual 实例自描述"为哪个 issue 服务"。仅传值时写行（back-compat）。
+  // 空字符串与 undefined 等价（不写行），避免污 frontmatter。
+  if (issue?.trim()) {
+    lines.push(`issue: ${issue.trim()}`);
+  }
   lines.push("---");
   lines.push("");
   lines.push(`# ${procedure} 实例`);
@@ -272,8 +301,11 @@ export function buildManualDoc(
       lines.push(`- [ ] ${stepMatch[2]}`);
       continue;
     }
-    // observe 行（bindFlowTemplate 渲染的 "   - 验证参照：xxx"）→ checklist 子项
-    if (line.includes("验证参照：")) {
+    // P2：观察 / 产出 / 输入三类子项行（bindFlowTemplate 渲染的 "   - 验证参照：xxx" /
+    //   "   - 期望产出：xxx" / "   - 输入参照：xxx"）→ checklist 子项。
+    // 顺序：output / dataSource 在 observe 之后渲染（输入→产出→验证），但识别时统一处理，
+    //   渲染行 trim 后跟原顺序进 manual 文件——保持与 bindFlowTemplate 输出一致。
+    if (line.includes("验证参照：") || line.includes("期望产出：") || line.includes("输入参照：")) {
       lines.push(`  ${line.trim()}`);
       continue;
     }
@@ -316,10 +348,12 @@ export interface CheckOptions {
 export interface CheckResult {
   /** 格式化后的多行文本（biome 风格）。 */
   output: string;
-  /** issue 数（errors + warnings）。 */
+  /** issue 数（errors + warnings + infos）。 */
   issueCount: number;
   errors: number;
   warnings: number;
+  /** v16：info 数（optional-domains slot 空等预期行为）——缺省 0（back-compat）。 */
+  infos?: number;
 }
 
 /** /pt check 内核：从 session.assetHealthIssues（已扫）格式化输出。
@@ -329,7 +363,7 @@ export interface CheckResult {
  *  输出风格（biome/tsc 同源）：
  *
  *      ysl-developer.profile.md
- *        × [error] ## 会话背景 缺 ### Modules
+ *        × [error] ## session-context 缺 ### Modules
  *           hint: 在 H2 段下加 `### Modules: [Scene, ...]`
  *
  *      × 6 errors, 0 warnings
@@ -345,6 +379,7 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
       issueCount: 0,
       errors: 0,
       warnings: 0,
+      infos: 0,
     };
   }
   // 过滤
@@ -358,7 +393,7 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
     const okMsg = opts.profileName
       ? `✓ Profile「${opts.profileName}」配置正常`
       : "✓ 项目所有 Profile 配置正常";
-    return { output: okMsg, issueCount: 0, errors: 0, warnings: 0 };
+    return { output: okMsg, issueCount: 0, errors: 0, warnings: 0, infos: 0 };
   }
 
   // 按 profile 分组（biome 风格：file → issues 列表）
@@ -373,8 +408,9 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
   for (const [profileName, profIssues] of byProfile) {
     lines.push(`${profileName}.profile.md`);
     for (const i of profIssues) {
-      const mark = i.severity === "error" ? "×" : "⚠";
-      const sev = i.severity === "error" ? "error" : "warning";
+      // v16：info 分支——可选 domain slot 空是预期行为，用 ℹ 标识
+      const mark = i.severity === "error" ? "×" : i.severity === "warning" ? "⚠" : "ℹ";
+      const sev = i.severity;
       const where = i.field ? ` ${i.field}` : "";
       lines.push(`  ${mark} [${sev}]${where} ${i.msg}`);
       if (i.hint) lines.push(`     hint: ${i.hint}`);
@@ -388,9 +424,13 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
   // summary
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
+  // v16：info 计数——optional-domain-unresolved 等预期行为的诊断
+  const infoCount = issues.filter((i) => i.severity === "info").length;
   lines.push("");
+  // v16：info 数 > 0 时附加（info=0 时省略，与 warning 处理一致——不刷屏）
+  const infoSuffix = infoCount > 0 ? `, ${infoCount} info${infoCount > 1 ? "s" : ""}` : "";
   lines.push(
-    `× ${errorCount} error${errorCount > 1 ? "s" : ""}, ${warningCount} warning${warningCount > 1 ? "s" : ""}`
+    `× ${errorCount} error${errorCount > 1 ? "s" : ""}, ${warningCount} warning${warningCount > 1 ? "s" : ""}${infoSuffix}`
   );
   lines.push(`  hint: 查看 .pt/docs/migrations/v9.0-to-v9.1-modules.md 修复指南`);
   if (errorCount > 0 && !opts.fix) {
@@ -401,5 +441,6 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
     issueCount: issues.length,
     errors: errorCount,
     warnings: warningCount,
+    infos: infoCount,
   };
 }

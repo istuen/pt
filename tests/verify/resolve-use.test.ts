@@ -406,7 +406,7 @@ describe("集成：transpile loadAndTranspile use profile", () => {
 
   it("transpile use profile → 展开后进 compileAgentContext（profile.blueprint 来自 use 的）", async () => {
     const cwd = mkCwd();
-    // builtin pack 有 guide profile（name=guide, blueprint=dev-knowledge）
+    // builtin pack 有 guide profile（name=guide, blueprint=pt-default）
     // 写一个项目 use profile 继承 builtin guide——use 无前缀（PR3a back-compat 跨 pack fallback）
     writeFileSync(
       join(cwd, ".pt/assets/profiles/my-dev.profile.md"),
@@ -416,7 +416,7 @@ use: guide
 domains: [user-info]
 ---
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 - User
@@ -426,7 +426,7 @@ domains: [user-info]
     const r = await loadAndTranspile(cwd, "my-dev");
     expect(r.profile.name).toBe("my-dev");
     // 展开后 blueprint 继承 guide 的
-    expect(r.blueprint.name).toBe("dev-knowledge");
+    expect(r.blueprint.name).toBe("pt-default");
     // 展开后 domains 包含 guide 的 + self 的
     expect(r.profile.domains).toContain("user-info");
   });
@@ -443,7 +443,7 @@ use: nonexistent
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 `

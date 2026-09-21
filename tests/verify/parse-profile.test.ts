@@ -26,7 +26,7 @@ describe("parseProfile", () => {
   it("每个 H2 → ProfileGroup instance（### Domains 追加）", async () => {
     const p = await parseProfile(FIXTURE_DIR, "profile.md");
     expect(p.groups).toHaveLength(2);
-    const sessionGroup = p.groups.find((g) => g.name === "会话背景");
+    const sessionGroup = p.groups.find((g) => g.name === "session-context");
     expect(sessionGroup?.domains).toEqual(["d3", "d4"]);
   });
 
@@ -52,7 +52,7 @@ describe("parseProfile", () => {
 
     it("frontmatter tagline 存在 → 解析为 tagline 字段", async () => {
       const dir = await makeProfileWithTagline(
-        `---\nname: p1\nblueprint: bp\ntagline: Senior dev + QA + Reviewer (3 agents)\ndomains: []\n---\n\n## 会话背景\n### Modules\n- Scene\n`
+        `---\nname: p1\nblueprint: bp\ntagline: Senior dev + QA + Reviewer (3 agents)\ndomains: []\n---\n\n## session-context\n### Modules\n- Scene\n`
       );
       const p = await parseProfile(dir, "test.profile.md");
       expect(p.tagline).toBe("Senior dev + QA + Reviewer (3 agents)");
@@ -65,7 +65,7 @@ describe("parseProfile", () => {
 
     it("frontmatter tagline 空字符串 → undefined（视为未填）", async () => {
       const dir = await makeProfileWithTagline(
-        `---\nname: p2\nblueprint: bp\ntagline: ""\ndomains: []\n---\n\n## 会话背景\n### Modules\n- Scene\n`
+        `---\nname: p2\nblueprint: bp\ntagline: ""\ndomains: []\n---\n\n## session-context\n### Modules\n- Scene\n`
       );
       const p = await parseProfile(dir, "test.profile.md");
       expect(p.tagline).toBeUndefined();
@@ -73,7 +73,7 @@ describe("parseProfile", () => {
 
     it("frontmatter tagline 带引号 → 去引号", async () => {
       const dir = await makeProfileWithTagline(
-        `---\nname: p3\nblueprint: bp\ntagline: "Quoted tagline"\ndomains: []\n---\n\n## 会话背景\n### Modules\n- Scene\n`
+        `---\nname: p3\nblueprint: bp\ntagline: "Quoted tagline"\ndomains: []\n---\n\n## session-context\n### Modules\n- Scene\n`
       );
       const p = await parseProfile(dir, "test.profile.md");
       expect(p.tagline).toBe("Quoted tagline");
@@ -81,7 +81,7 @@ describe("parseProfile", () => {
 
     it("frontmatter tagline 非字符串（数字）→ undefined（不报错）", async () => {
       const dir = await makeProfileWithTagline(
-        `---\nname: p4\nblueprint: bp\ntagline: 123\ndomains: []\n---\n\n## 会话背景\n### Modules\n- Scene\n`
+        `---\nname: p4\nblueprint: bp\ntagline: 123\ndomains: []\n---\n\n## session-context\n### Modules\n- Scene\n`
       );
       const p = await parseProfile(dir, "test.profile.md");
       // 注意：我们的简易 frontmatter parser 把 123 仍当字符串 "123"。
@@ -92,7 +92,7 @@ describe("parseProfile", () => {
 
     it("tagline trim 后存为字段", async () => {
       const dir = await makeProfileWithTagline(
-        `---\nname: p5\nblueprint: bp\ntagline: "  padded tagline  "\ndomains: []\n---\n\n## 会话背景\n### Modules\n- Scene\n`
+        `---\nname: p5\nblueprint: bp\ntagline: "  padded tagline  "\ndomains: []\n---\n\n## session-context\n### Modules\n- Scene\n`
       );
       const p = await parseProfile(dir, "test.profile.md");
       expect(p.tagline).toBe("padded tagline");

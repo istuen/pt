@@ -12,6 +12,13 @@
 //   4. empty-segment          (error)   compileAgentContext 产出为空段
 //   5. unknown-modname        (warning) `### Modules` 项不在 KNOWN_SECTION_NAMES
 //
+// v16+（issue pt-optional-domains-no-match-per-domain-aggregation）：
+//   6. optional-domain-unresolved  移除——optional slot 空是设计意图，不推 issue
+//   7. optional-domain-no-matching-section (warning) 改为 per-domain 聚合：
+//      - 一个 domain 不贡献任一 bpGroup 才 warning 一条（不再 per-bpGroup × domain 嵌套）
+//      - 部分贡献不警告（已在某 slot 有用即视为有效）
+//      - warning 措辞改 actionable（点明"加载了但没效果"+ 两条处置路径）
+//
 // 边界纪律：
 //   - 不替代运行时检测（transpile 内的 reportWarn）——两层互补：运行时按 profile 切，scan 按全集
 //   - 不写资产——只检测 + 报告；修复走 `/pt check --fix`（v2 范围，本 issue 不实现）
@@ -20,15 +27,17 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { compileAgentContext } from "./compile/agent-context.js";
+import { resolveAndDedupRefs } from "./parse/ref-resolver.js";
 import type { AssetPack } from "./schema.js";
+import { refName } from "./schema.js";
 import { PROFILES_DIR } from "./constants.js";
 import { KNOWN_SECTION_NAMES } from "./parse/profile.js";
 import type { Blueprint, Domain, Profile, SourceAdapterContext } from "./schema.js";
 
 // ==================== 公共类型 ====================
 
-/** 问题严重程度。error 必须修；warning 可延后。 */
-export type IssueSeverity = "error" | "warning";
+/** 问题严重程度。error 必须修；warning 可延后；info 是预期但值得告知。 */
+export type IssueSeverity = "error" | "warning" | "info";
 
 /** 问题归属：profile / blueprint / domain。本 issue v1 范围只产 profile 类。 */
 export type IssueScope = "profile" | "blueprint" | "domain";
@@ -39,7 +48,7 @@ export interface AssetHealthIssue {
   scope: IssueScope;
   /** 问题所在资产名（profile.name / blueprint.name / domain.name）。 */
   name: string;
-  /** 可选字段路径（如 "groups.会话背景.modules"），便于精确指向。 */
+  /** Optional field path (e.g. "groups.session-context.modules"), for precise pointing. */
   field?: string;
   /** 人类可读问题描述。 */
   msg: string;
@@ -49,19 +58,22 @@ export interface AssetHealthIssue {
   fix?: string;
 }
 
-/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id。 */
+/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id；v16+ optional-domains 诊断。 */
 export type HealthRuleId =
   | "missing-modules"
   | "dangling-blueprint-ref"
   | "orphan-h2"
   | "empty-segment"
-  | "unknown-modname";
+  | "unknown-modname"
+  | "optional-domain-no-matching-section"; // v16+：可选 ref 加载但 H2 段全不匹配任一 bpGroup 的 modules（warning，per-domain 聚合）
 
 /** 资产健康扫描结果（按 profile 聚合）。 */
 export interface AssetHealthReport {
   issues: AssetHealthIssue[];
   errors: number;
   warnings: number;
+  /** v16：info 数（optional-domain-unresolved 等预期行为的诊断）。 */
+  infos?: number;
 }
 
 // ==================== 主入口 ====================
@@ -207,6 +219,46 @@ export async function scanProjectHealth(
           hint: `检查 Profile 的 \`### Modules\` 配置、Blueprint groups 名匹配、Domain H2 段名`,
         });
       }
+
+      // v16+：optional-domain 诊断改为 per-domain 视角（issue pt-optional-domains-no-match-per-domain-aggregation）
+      //   规则 6 (optional-domain-unresolved) 完全静默——optional slot 空是设计意图（pack-repair flow 含创建引导）
+      //   规则 7 (optional-domain-no-matching-section) 改为 per-domain 聚合——
+      //     - 一个 domain 不贡献任一 bpGroup 才 warning 一条
+      //     - 部分贡献不警告（已在某 slot 有用即视为有效）
+      //     - warning 措辞改 actionable：明确"加载了但没效果"+ 两条处置路径（加 H2 / 删引用）
+      const optionalRefs = profileForCompile.optionalDomains ?? [];
+      if (optionalRefs.length > 0) {
+        const { resolved: optionalResolved } = resolveAndDedupRefs<Domain>(
+          optionalRefs,
+          profileForCompile,
+          { location: domainLocWS, identity: domainIdWS },
+          packs.map((p) => p.name),
+          { skipOnMissing: true }
+        );
+        for (const entry of optionalResolved) {
+          const d = entry.asset;
+          let contributed = false;
+          for (const bpGroup of blueprint.groups) {
+            const profileGroup = profile.groups.find((g) => g.name === bpGroup.name);
+            const mods = profileGroup?.modules ?? [];
+            if (mods.some((m) => d.modules[m.section] !== undefined)) {
+              contributed = true;
+              break;
+            }
+          }
+          if (!contributed) {
+            issues.push({
+              severity: "warning",
+              scope: "profile",
+              name: profile.name,
+              field: "optional-domains",
+              msg: `Profile「${profile.name}」的 optional-domain「${entry.rawRef}」已加载但未对任何聚合组产生贡献`,
+              hint: `该 domain 加载了但 H2 段不匹配 Profile 的 ### Modules。可选处置：1) 在 ${refName(entry.rawRef)}.md 加匹配段（Scene/User/Trigger/Rules/Flows/Checklists 等）；2) 从 optional-domains 移除该引用`,
+            });
+          }
+        }
+        // 规则 6 静默：未解析的 ref 不推 issue（optional slot 空是设计意图）
+      }
     } catch (e) {
       adapterCtx?.log?.debug("scanProjectHealth:compile failed", {
         profile: profile.name,
@@ -243,13 +295,15 @@ export async function scanProjectHealth(
 
   const errors = issues.filter((i) => i.severity === "error").length;
   const warnings = issues.filter((i) => i.severity === "warning").length;
+  const infos = issues.filter((i) => i.severity === "info").length;
   adapterCtx?.log?.info("scanProjectHealth:done", {
     profileCount: profiles.length,
     issueCount: issues.length,
     errors,
     warnings,
+    infos,
   });
-  return { issues, errors, warnings };
+  return { issues, errors, warnings, infos };
 }
 
 // ==================== unknown-modname 规则辅助 ====================

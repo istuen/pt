@@ -17,7 +17,7 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
     blueprint: "test-blueprint",
     domains: ["d1"],
     // v9.1+（modules-to-profile-complete）：modules 元素从 string 改为 ModName 对象
-    groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
+    groups: [{ name: "session-context", domains: [], modules: [{ section: "Scene" }] }],
     // v15.x PR3：测试 profile 默认 sourcePack="prj"（不限定 ref 绑定需要）
     sourcePack: "prj",
     ...overrides,
@@ -27,7 +27,7 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
 function makeBlueprint(overrides?: Partial<Blueprint>): Blueprint {
   return {
     name: "test-blueprint",
-    groups: [{ name: "会话背景", inject: "session" }],
+    groups: [{ name: "session-context", inject: "session" }],
     ...overrides,
   };
 }
@@ -101,14 +101,14 @@ describe("compileAgentContext", () => {
     const bp = makeBlueprint();
     const ds = [makeDomain({ modules: { Scene: [{ name: "t1", desc: "term 1" }] } })];
     const ctx = compileCtx(p, bp, ds);
-    expect(ctx.modules.会话背景).toContain("t1");
-    expect(ctx.modules.会话背景).toContain("term 1");
+    expect(ctx.modules["session-context"]).toContain("t1");
+    expect(ctx.modules["session-context"]).toContain("term 1");
   });
 
   it("Profile 聚合组追加的 Domain（groups[].domains）也参与聚合", () => {
     const p = makeProfile({
       domains: [],
-      groups: [{ name: "会话背景", domains: ["d2"], modules: [{ section: "Scene" }] }],
+      groups: [{ name: "session-context", domains: ["d2"], modules: [{ section: "Scene" }] }],
     });
     const bp = makeBlueprint();
     const ds = [
@@ -119,20 +119,20 @@ describe("compileAgentContext", () => {
       }),
     ];
     const ctx = compileCtx(p, bp, ds);
-    expect(ctx.modules.会话背景).toContain("t2");
-    expect(ctx.modules.会话背景).not.toContain("t1"); // d1 不在追加列表
+    expect(ctx.modules["session-context"]).toContain("t2");
+    expect(ctx.modules["session-context"]).not.toContain("t1"); // d1 不在追加列表
   });
 
   it("Blueprint 未声明的聚合组不在 AgentContext.modules 中", () => {
     const p = makeProfile({
       groups: [
-        { name: "会话背景", domains: [], modules: [{ section: "Scene" }] },
+        { name: "session-context", domains: [], modules: [{ section: "Scene" }] },
         { name: "未声明聚合组", domains: [], modules: [] },
       ],
     });
     const bp = makeBlueprint();
     const ctx = compileCtx(p, bp, [makeDomain()]);
-    expect(ctx.modules.会话背景).toBeDefined();
+    expect(ctx.modules["session-context"]).toBeDefined();
     expect(ctx.modules.未声明聚合组).toBeUndefined();
   });
 });
@@ -177,14 +177,14 @@ describe("computeSourceHash", () => {
     const h1 = hashCtx(
       makeProfile(),
       makeBlueprint({
-        groups: [{ name: "会话背景", inject: "session" }],
+        groups: [{ name: "session-context", inject: "session" }],
       }),
       [makeDomain()]
     );
     const h2 = hashCtx(
       makeProfile(),
       makeBlueprint({
-        groups: [{ name: "参考手册", inject: "turn" }],
+        groups: [{ name: "reference-manual", inject: "turn" }],
       }),
       [makeDomain()]
     );
@@ -253,7 +253,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
       }),
     ];
     const ctx = compileCtx(makeProfile(), makeBlueprint(), ds);
-    expect(ctx.modules.会话背景).toContain("（字段：必读/设计原则/步骤）");
+    expect(ctx.modules["session-context"]).toContain("（字段：必读/设计原则/步骤）");
   });
 
   it("有 note → 产物含 ` — note`", () => {
@@ -271,7 +271,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
       }),
     ];
     const ctx = compileCtx(makeProfile(), makeBlueprint(), ds);
-    expect(ctx.modules.会话背景).toContain(" — 每个硬指标都要有独立验证方式");
+    expect(ctx.modules["session-context"]).toContain(" — 每个硬指标都要有独立验证方式");
   });
 
   it("fields + note 同时有 → 两个追加都输出", () => {
@@ -291,7 +291,7 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
     ];
     const ctx = compileCtx(makeProfile(), makeBlueprint(), ds);
     // 顺序：name: desc（字段：a/b） — note
-    const out = ctx.modules.会话背景;
+    const out = ctx.modules["session-context"];
     expect(out).toContain("（字段：a/b）");
     expect(out).toContain(" — note text");
     expect(out).toContain("- task-description: desc");
@@ -304,10 +304,10 @@ describe("renderSceneModule term — fields/note 输出（v9.2 修复）", () =>
       }),
     ];
     const ctx = compileCtx(makeProfile(), makeBlueprint(), ds);
-    expect(ctx.modules.会话背景).toContain("- plain: just desc");
+    expect(ctx.modules["session-context"]).toContain("- plain: just desc");
     // 不应出现 fields/note 追加
-    expect(ctx.modules.会话背景).not.toContain("（字段：");
-    expect(ctx.modules.会话背景).not.toContain(" — ");
+    expect(ctx.modules["session-context"]).not.toContain("（字段：");
+    expect(ctx.modules["session-context"]).not.toContain(" — ");
   });
 });
 
@@ -321,7 +321,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
       domains: ["user-info"], // 全局 domains 含 user-info
       groups: [
         {
-          name: "会话背景",
+          name: "session-context",
           domains: [],
           modules: [{ section: "User", item: "user-profile" }],
         },
@@ -341,10 +341,10 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
     ];
     const ctx = compileCtx(p, makeBlueprint(), ds);
     // H3 项粒度输出：只 user-profile，不含 pt-goal
-    expect(ctx.modules.会话背景).toContain("### user-info.user-profile");
-    expect(ctx.modules.会话背景).toContain("user-profile: Pt 项目作者与架构师");
-    expect(ctx.modules.会话背景).not.toContain("pt-goal");
-    expect(ctx.modules.会话背景).not.toContain("### user-info.pt-goal");
+    expect(ctx.modules["session-context"]).toContain("### user-info.user-profile");
+    expect(ctx.modules["session-context"]).toContain("user-profile: Pt 项目作者与架构师");
+    expect(ctx.modules["session-context"]).not.toContain("pt-goal");
+    expect(ctx.modules["session-context"]).not.toContain("### user-info.pt-goal");
   });
 
   it("段.项形态：H3 项不存在 → 产出空段", () => {
@@ -353,7 +353,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
       domains: ["user-info"],
       groups: [
         {
-          name: "会话背景",
+          name: "session-context",
           domains: [],
           modules: [{ section: "User", item: "nonexistent" }],
         },
@@ -366,7 +366,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
       }),
     ];
     const ctx = compileCtx(p, makeBlueprint(), ds);
-    expect(ctx.modules.会话背景).toBe("");
+    expect(ctx.modules["session-context"]).toBe("");
   });
 
   it("段.项形态：跨段同名 H3 不跨段匹配（User.x 不匹配 Agent.x）", () => {
@@ -375,7 +375,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
       domains: ["user-info", "agent-info"],
       groups: [
         {
-          name: "会话背景",
+          name: "session-context",
           domains: [],
           modules: [{ section: "User", item: "shared" }],
         },
@@ -393,8 +393,8 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
     ];
     const ctx = compileCtx(p, makeBlueprint(), ds);
     // 只匹配 User 段下 shared，不匹配 Agent 段下
-    expect(ctx.modules.会话背景).toContain("in user-info User 段");
-    expect(ctx.modules.会话背景).not.toContain("in agent-info Agent 段");
+    expect(ctx.modules["session-context"]).toContain("in user-info User 段");
+    expect(ctx.modules["session-context"]).not.toContain("in agent-info Agent 段");
   });
 
   it("段.项形态：同段内 H3 重名 → 后覆盖前（只取最后一个）", () => {
@@ -403,7 +403,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
       domains: ["user-info"],
       groups: [
         {
-          name: "会话背景",
+          name: "session-context",
           domains: [],
           modules: [{ section: "User", item: "shared" }],
         },
@@ -421,8 +421,8 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
       }),
     ];
     const ctx = compileCtx(p, makeBlueprint(), ds);
-    expect(ctx.modules.会话背景).toContain("second occurrence");
-    expect(ctx.modules.会话背景).not.toContain("first occurrence");
+    expect(ctx.modules["session-context"]).toContain("second occurrence");
+    expect(ctx.modules["session-context"]).not.toContain("first occurrence");
   });
 
   it("段名形态：整段聚合 → 跨所有引用域该段", () => {
@@ -431,7 +431,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
       domains: ["user-info", "agent-info"],
       groups: [
         {
-          name: "会话背景",
+          name: "session-context",
           domains: [],
           modules: [{ section: "User" }],
         },
@@ -449,8 +449,8 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
     ];
     const ctx = compileCtx(p, makeBlueprint(), ds);
     // User 段聚合：只 user-info 的 User 段（agent-info 没有 User 段）
-    expect(ctx.modules.会话背景).toContain("user-profile");
-    expect(ctx.modules.会话背景).not.toContain("agent-role-architect");
+    expect(ctx.modules["session-context"]).toContain("user-profile");
+    expect(ctx.modules["session-context"]).not.toContain("agent-role-architect");
   });
 });
 
@@ -528,13 +528,13 @@ describe("mergeSectionContent（PR3b §4.5.2）", () => {
     const d1 = makeDomain({
       name: "foo",
       modules: {
-        Flows: [{ name: "flow-a", intent: "from prj", steps: [], externals: [] }],
+        Flows: [{ name: "flow-a", intent: "from prj", steps: [] }],
       },
     });
     const d2 = makeDomain({
       name: "foo",
       modules: {
-        Flows: [{ name: "flow-b", intent: "from pt", steps: [], externals: [] }],
+        Flows: [{ name: "flow-b", intent: "from pt", steps: [] }],
       },
     });
     const out = mergeSectionContent([d1, d2], "Flows") as Array<{ name: string }>;
@@ -697,16 +697,16 @@ describe("dispatchGroup 场景 D/E mixin（PR3b §4.5.2 集成）", () => {
 describe("compileAgentContext 非 use 越权 warn（PR5 §5.5.1 S7）", () => {
   it("Profile H2 group 不在 Blueprint 插槽 → warn 不阻断 + hint 区分", async () => {
     const mod = await import("../../src/compile/agent-context.js");
-    // blueprint 只含 "会话背景"；profile 含两个 group（"会话背景"合法 + "越权插槽"越权）
+    // blueprint 只含 "session-context"；profile 含两个 group（"session-context"合法 + "越权插槽"越权）
     const profile = makeProfile({
       name: "over-scoped",
       groups: [
-        { name: "会话背景", domains: ["d1"], modules: [makeMod("Scene")] },
+        { name: "session-context", domains: ["d1"], modules: [makeMod("Scene")] },
         { name: "越权插槽", domains: ["d1"], modules: [makeMod("Scene")] },
       ],
     });
     const blueprint = makeBlueprint({
-      groups: [{ name: "会话背景", inject: "session" }],
+      groups: [{ name: "session-context", inject: "session" }],
     });
     const domain = makeDomain();
     // 收集 warn：reportWarn 走 adapterCtx.log.warn（见 src/diagnostics.ts 三通道 fallback）
@@ -746,7 +746,7 @@ describe("compileAgentContext 非 use 越权 warn（PR5 §5.5.1 S7）", () => {
       ctx
     );
     // 产物返有效 modules（合法 group 照常编译，越权 group 被忽略——modules 只含合法 group）
-    expect(out.modules.会话背景).toBeDefined();
+    expect(out.modules["session-context"]).toBeDefined();
     expect(out.modules.越权插槽).toBeUndefined();
     // 1 条 warn（含 hint 区分 use/error vs load/warn）
     expect(messages).toHaveLength(1);

@@ -26,3 +26,14 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run verify
+      # issue pt-pack-repair-cwd-home-edge-case：dist/builtin 必须与 src/builtin 同步
+      #   npm pack 内嵌 dist（package.json files:["src","dist"]），dist stale 等于用户看到过期文档
+      #   dist/ 不入库（.gitignore），但本地 npm run build 后应无差异
+      - name: Build + check dist/builtin vs src/builtin sync
+        run: |
+          npm run build
+          if [[ -n "$(diff -r src/builtin dist/builtin 2>&1)" ]]; then
+            echo "::error::dist/builtin 与 src/builtin 不同步——build 后仍有差异（npm pack 内嵌 dist 是过期产物）"
+            diff -r src/builtin dist/builtin || true
+            exit 1
+          fi

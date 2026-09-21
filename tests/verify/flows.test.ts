@@ -9,9 +9,9 @@ import { loadAndTranspile } from "../../src/transpile.js";
 import { getAgentAdapter } from "../../src/agent/index.js";
 
 describe("Profile 触发手册（listManuals）", () => {
-  it("pt-design Profile 包含参考手册注入点（Phase term-P9.2：Rules/Flows/Checklists 三段）", async () => {
+  it("pt-design Profile 包含reference-manual注入点（Phase term-P9.2：Rules/Flows/Checklists 三段）", async () => {
     // pt-design 是设计型 profile（user-info + agent-info + product-design + asset-workflow + pt-collab）
-    // —— 当前未含 Rules/Flows/Checklists 段内容，但 Blueprint 的"参考手册"注入点已声明三段 schema。
+    // —— 当前未含 Rules/Flows/Checklists 段内容，但 Blueprint 的"reference-manual"注入点已声明三段 schema。
     // 验证：listManuals 返空（domain 没装手册内容时） + 注入点结构完整。
     const r = await loadAndTranspile(process.cwd(), "pt-design");
     const b = r.bundles[0];
@@ -26,7 +26,7 @@ describe("Profile 触发手册（listManuals）", () => {
     expect(flows).toEqual([]);
 
     // Blueprint 注入点声明 inject=turn——modules 由 ProfileGroup 提供（v9.1）
-    const manualIp = r.blueprint.groups.find((ip) => ip.name === "参考手册");
+    const manualIp = r.blueprint.groups.find((ip) => ip.name === "reference-manual");
     expect(manualIp?.inject).toBe("turn");
   });
 
@@ -41,5 +41,28 @@ describe("Profile 触发手册（listManuals）", () => {
     const flows = adapter.listManuals?.(r.agentContext, r.blueprint, b.domains) ?? [];
     // pt-dev 包含 dev-workflow（Flows）+ pt-quality（Rules）+ pt-collab（Checklists）—— 至少 3 个手册项
     expect(flows.length).toBeGreaterThanOrEqual(3);
+  });
+
+  // v18.x（#7）：listManuals 的 term-Domain name 格式是 /pt_turn_inject <domain>（非 /manual:<domain>）
+  // #1 改名遗留：原 code name 字段是 /manual:xxx，与 renderTurnInject dispatch 命令名 /pt_turn_inject 不一致——
+  // 用户/LLM 看 /pt flows 输出 /manual:xxx 打这个命令会 passthrough 不触发注入。此断言防 regression（#7 闭合）。
+  it("v18.x（#7）：listManuals 的 term-Domain name 格式是 /pt_turn_inject <domain>", async () => {
+    const r = await loadAndTranspile(process.cwd(), "pt-dev");
+    const b = r.bundles[0];
+    expect(b).toBeDefined();
+
+    const adapter = getAgentAdapter({} as never, "pi");
+    adapter.setAgentContext(r.agentContext, r.blueprint, b.domains, r.profile);
+    const flows = adapter.listManuals?.(r.agentContext, r.blueprint, b.domains) ?? [];
+
+    // 找 term-Domain 项（hint 含"条规范"——pt-quality 的 Rules 段）
+    const termDomain = flows.find((f) => typeof f.hint === "string" && f.hint.includes("条规范"));
+    expect(termDomain).toBeDefined();
+    expect(termDomain?.name).toMatch(/^\/pt_turn_inject \S+$/);
+    expect(termDomain?.name).not.toMatch(/^\/manual:/); // 防回退
+
+    // 全 listManuals 输出无 /manual: 残留
+    const anyManual = flows.find((f) => f.name.startsWith("/manual:"));
+    expect(anyManual).toBeUndefined();
   });
 });

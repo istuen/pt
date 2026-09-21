@@ -96,10 +96,10 @@ export class MdFilePack implements AssetPack {
     // manifest warnings 上抛 notify（不阻断——parseManifest 已容错）
     if (args.adapterCtx?.notify) {
       if (manifest.warnings.length > 0) {
-        // 检测 [repair-required] 前缀的 warnings——加 manual hint 引导 LLM 调 /manual:pack-management
+        // 检测 [repair-required] 前缀的 warnings——加 manual hint 引导 LLM 调 /pt_turn_inject pack-management
         const hasRepairRequired = manifest.warnings.some((w) => w.startsWith("[repair-required]"));
         const manualHint = hasRepairRequired
-          ? "\n→ 调 /manual:pack-management 让 LLM 自动修复"
+          ? "\n→ 调 /pt_turn_inject pack-management 让 LLM 自动修复"
           : "";
         args.adapterCtx.notify(
           `Pt: pack "${dirName}" manifest 警告：${manifest.warnings.join("; ")}${manualHint}`,
@@ -109,9 +109,9 @@ export class MdFilePack implements AssetPack {
         // v15.x §2.4.2 + pack-naming：reserved pack（project/builtin）无 manifest 是
         // back-compat 退化路径（退到位置别名 prj/pt），设计预期——silent。
         // 只有 settings pack（用户主动声明）无 manifest 时才通知：basename 兜底"易碎"，
-        // 建议加 pt-asset-pack.yaml 让 pack 成为自描述实体，/manual:pack-management#pack-create。
+        // 建议加 pt-asset-pack.yaml 让 pack 成为自描述实体，/pt_turn_inject pack-management#pack-create。
         args.adapterCtx.notify(
-          `Pt: pack "${dirName}" 无 manifest（basename 兜底）— 建议添加 pt-asset-pack.yaml 让 pack 成为自描述实体。/manual:pack-management#pack-create`,
+          `Pt: pack "${dirName}" 无 manifest（basename 兜底）— 建议添加 pt-asset-pack.yaml 让 pack 成为自描述实体。/pt_turn_inject pack-management#pack-create`,
           "warning"
         );
       }

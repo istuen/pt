@@ -20,8 +20,8 @@ const ISSUE_PROFILE_A: AssetHealthIssue = {
   severity: "error",
   scope: "profile",
   name: "profile-a",
-  field: "groups.会话背景.modules",
-  msg: "Profile「profile-a」聚合组「会话背景」缺 ### Modules",
+  field: "groups.session-context.modules",
+  msg: "Profile「profile-a」聚合组「session-context」缺 ### Modules",
   hint: "在 H2 段下加 `### Modules: [Scene, ...]`",
   fix: "/pt check --fix profile-a",
 };
@@ -72,7 +72,7 @@ describe("checkText", () => {
       const r = checkText(makeSession([ISSUE_PROFILE_A]));
       expect(r.output).toContain("profile-a.profile.md");
       expect(r.output).toContain(
-        "× [error] groups.会话背景.modules Profile「profile-a」聚合组「会话背景」缺 ### Modules"
+        "× [error] groups.session-context.modules Profile「profile-a」聚合组「session-context」缺 ### Modules"
       );
       expect(r.output).toContain("hint: 在 H2 段下加");
       expect(r.output).toContain("fix:  /pt check --fix profile-a");

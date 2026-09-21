@@ -3,8 +3,9 @@
 // 路径常量集中管理：资产/缓存/输出目录
 // 模块名常量：Domain 的 H2 段名（Scene/Trigger/Manual/Term）
 //
-// 注意：聚合组名（Blueprint groups[].name，如"会话背景"/"参考手册"）是人类自定义的语义名，
-// 不应常量化——常量化的是 Domain 内的 H2 段名（v9 资产的标准段）。
+// Aggregation group names (Blueprint groups[].name, e.g. "session-context" / "reference-manual")
+// are human-defined semantic names and should NOT be constantified — only Domain H2 section
+// names (v9 standard sections) are constantified.
 
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -14,7 +15,7 @@ import { dirname, join } from "node:path";
 // .pt/ 目录布局规范（v11 重排）：
 //   .pt/assets/   入 git — 转译资产（domains / blueprints / profiles）
 //   .pt/docs/     入 git — 文档（designs 设计与执行 / issues 问题跟踪）
-//   .pt/manuals/  gitignore — pt_manual 工作文档
+//   .pt/manuals/  gitignore — pt_make_manual 工作文档
 //   .pt/cache/    gitignore — 运行产物（contexts 编译 / fulls 完整 prompt / raws segment）
 //   .pt/logs/     gitignore — NDJSON trace
 //
@@ -45,7 +46,7 @@ export const RAW_DIR = ".pt/cache/raws";
 /** /pt full 输出目录（完整 systemPrompt dump） */
 export const FULL_DIR = ".pt/cache/fulls";
 
-/** /pt manual 输出目录（手册实例文档） */
+/** /pt make-manual 输出目录（手册实例文档） */
 export const MANUAL_DIR = ".pt/manuals";
 
 /** 内建资产根目录（随 npm 包发布，跨项目复用）。

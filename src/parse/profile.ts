@@ -14,10 +14,10 @@
 //   domains: [d1, d2, ...]
 //   ---
 //
-//   ## 会话背景
+//   ## session-context
 //   ### Modules
-//   - Scene                  ← 段名（跨所有引用域该段）
-//   - User.user-profile      ← 段.项（跨所有引用域该段下 H3 项）
+//   - Scene                  ← Section name (across all referenced domains, this section)
+//   - User.user-profile      ← Section.item (across all referenced domains, this H3 item)
 //   - Agent.senior-developer
 //   ### Domains
 //   - d3
@@ -96,6 +96,11 @@ export async function parseProfile(
   const useRaw = asset.frontmatter.use;
   const use = typeof useRaw === "string" && useRaw.trim().length > 0 ? useRaw.trim() : undefined;
 
+  // v16：optional-domains——可选 domain ref，与 domains 同解析路径但语义不同（找不到不阻断）
+  //   用途：fullstack profile 声明 prj 可选 slot——prj 有同名 domain 则填充，无则 slot 空（info 级诊断）
+  //   sArr 返 [] 与 undefined 语义等价（都不贡献可选 domain），下游用 optionalDomains ?? [] 处理
+  const optionalDomains = sArr(asset.frontmatter["optional-domains"]);
+
   // groups：每个 H2 = 聚合组实例化
   //   - ### Domains → 追加到本聚合组的 Domain 名列表（v9 既有）
   //   - ### Modules → 本插槽填的聚合模块列表（v9.1+），modName 解析为 ModName 对象
@@ -127,6 +132,11 @@ export async function parseProfile(
         : stripProfileSuffix(asset.name),
     blueprint,
     domains,
+    // v16：未写 optional-domains → undefined（与显式空数组区分）——
+    //   让 use 链合并能区分"未声明（继承 use）"vs"显式空（清除 use）"。
+    //   profile.frontmatter["optional-domains"] 缺省时 sArr 返 []，与空数组难以区分，
+    //   所以默认转 undefined（保留 use 链继承语义）。
+    optionalDomains: optionalDomains.length > 0 ? optionalDomains : undefined,
     groups,
     tagline,
     use,

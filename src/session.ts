@@ -55,13 +55,17 @@ export type ProfileLoadSource =
  *  - failed：本轮 before_agent_start catch 异常 */
 export type InjectionState = "idle" | "pending" | "injected" | "failed";
 
-/** 当前追踪的 Manual 实例（LLM 调 pt_manual 写入后触发）。
+/** 当前追踪的 Manual 实例（LLM 调 pt_make_manual 写入后触发）。
  *  进度（stepDone/stepTotal）不存 session——文件是 single source of truth，
  *  每次 widget 渲染时 parse 文件重新计算。 */
 export interface ActiveManual {
   filePath: string; // .pt/manuals/<procedure>-<ts>.md
   procedure: string;
   args: string;
+  /** v16.x（P3）：manual 关联的 issue 名（可选）。单向引用——manual 自描述"为哪个 issue 服务"，
+   *  不反向改 issue 文档。LLM 读 manual frontmatter 知道关联，用 bash/grep 查 issue 文件即可。
+   *  未传时 undefined，frontmatter 无 issue 行（back-compat）。 */
+  issue?: string;
   activatedAt: number; // Date.now()，排序/去重用
 }
 
@@ -90,8 +94,16 @@ export interface SessionState {
   injectionError: string | null;
   /** 当前追踪的 Manual 实例（widget + footer 后缀 + 持久化恢复）。 */
   activeManual: ActiveManual | null;
+  /** v18.x（issue pt-turncontext-llm-call-trigger 决策 6）：compaction 后重注入线索。
+   *  引用指针（domain 名 + 文件路径），非内容缓存——Manual 文件在磁盘（compaction 不影响），
+   *  TurnContext 内容靠 domain 名重新触发 pt_turn_inject 获取。
+   *  compaction 只裁 messages 不裁 extension state（sessionMap 不进 messages），自然存活。 */
+  lastTurnRef: { turnInjectDomain: string; manualPath: string | null } | null;
   /** v12.x：当前 manual widget 的 async parse 缓存（替代原 module-level `cachedManualProgress`）。 */
   cachedManualProgress: ManualProgress | null;
+  /** P1：上次 setStatus("pt", ...) 写入的字符串（refreshInjectionFooter 字符串去重缓存）。
+   *  进度/injection/profile 都未变时跳过 setStatus IPC，null 表示待首次写入或刚重置。 */
+  lastFooterText: string | null;
   /** v14.x（issue pt-asset-migration-visibility Layer 2）：
    *  session_start 批量体检结果——footer 追加 ⚠ N issues + /pt status 暴露。
    *  null = 未扫描（用户加载内置 profile 后才扫描过项目 profile）。 */
@@ -122,7 +134,9 @@ export function createSessionState(): SessionState {
     injectionState: "idle",
     injectionError: null,
     activeManual: null,
+    lastTurnRef: null,
     cachedManualProgress: null,
+    lastFooterText: null,
     assetHealthIssues: null,
     packValidation: null,
     projectPackDegraded: false,
@@ -137,7 +151,7 @@ const sessionMap = new Map<string, SessionState>();
  *  v13.x（issue pt-no-agent-context-reset-session-state 修复）：
  *  - transpile/session_start/switchProfile 三处 catch 调用本函数
  *  - 避免 stale cachedAgentContext/cachedBlueprint/cachedDomains/cachedProfile/activeAdapter
- *    误导 /pt flows / /pt manual 返回旧 Profile 的手册列表（掩盖真实失败）
+ *    误导 /pt flows / /pt make-manual 返回旧 Profile 的手册列表（掩盖真实失败）
  *  - 不清 sessionId/logger/lastCwd/activeProfile/loadedFrom/activeManual（生命周期不同：
  *    session_id 标识当前会话、logger 持续写日志、lastCwd 是项目根、activeProfile 是用户意图、
  *    loadedFrom 是来源、activeManual 是手动追踪）

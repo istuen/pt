@@ -63,7 +63,6 @@ function makeFixture(marker: string): {
     name: "switch-test-flow",
     intent: "switch test",
     steps: [{ desc: `FLOW-${marker}`, output: "done" }],
-    externals: [],
   };
   const domains: Domain[] = [
     // Phase term-P9.2：FlowTemplate 在 ## Flows 段（不是 ## Manual）
@@ -118,7 +117,7 @@ describe("manual profile switch and Session Inject", () => {
 
     const inputResult = (await inputHandler({
       type: "input",
-      text: "/switch-test-flow",
+      text: "/pt_turn_inject switch-test-flow",
     })) as { action: string; text: string };
     expect(inputResult.action).toBe("transform");
     expect(inputResult.text).toContain("FLOW-B");

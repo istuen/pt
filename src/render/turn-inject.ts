@@ -1,11 +1,11 @@
 // src/render/turn-inject.ts — FlowTemplate + 参数 → Turn Inject
 //
 // Phase 9.5：v9 后端通用化。
-//   - renderTurnInject(ctx, blueprint, domains, args) 修复死代码——实现 /manual:xxx 触发
+//   - renderTurnInject(ctx, blueprint, domains, args) 修复死代码——实现 /pt_turn_inject xxx 触发
 //   - findFlowInBlueprint(blueprint, domains, tplName) — 替代 v8 findFlowInBundle
 //
-// /manual:<domain-name> 触发：从 Blueprint 的 turn 聚合组引用的 Domain 里查 Manual 段
-// /<flow-name> <args> 触发：展开 Domain 的 FlowTemplate（v8 逻辑保留）
+// /pt_turn_inject <domain-name> 触发：从 Blueprint 的 turn 聚合组引用的 Domain 里查 Manual 段
+// /pt_turn_inject <flow-name> <args> 触发：展开 Domain 的 FlowTemplate
 //
 // Phase term-P4.3：renderContextMessage → renderTurnInject；inject 语义值 context_message → turn（Agent-agnostic 语义值）。
 //   bindFlowTemplate / findFlowInBlueprint 函数名不改——它们是 FlowTemplate 操作，非注入位置概念。
@@ -34,12 +34,12 @@ interface VarSpec {
 }
 
 /**
- * 给定 AgentContext + Blueprint + Domains + args（形如 "/manual:pt-quality" 或 "/risk-check 客户A 5000"），
+ * 给定 AgentContext + Blueprint + Domains + args（形如 "/pt_turn_inject pt-quality" 或 "/pt_turn_inject risk-check 客户A 5000"），
  * 展开目标 Domain 的 Manual 段内容或 FlowTemplate。
  *
  * v9 触发：
- *   - /manual:<domain-name>：注入该 Domain 的 Manual 段内容（term→Rule checklist / workflow→FlowTemplate 列表）
- *   - /<flow-name> <args>：展开 workflow-Domain 的 FlowTemplate（v8 逻辑保留）
+ *   - /pt_turn_inject <domain-name>：注入该 Domain 的 Manual 段内容（term→Rule checklist / workflow→FlowTemplate 列表）
+ *   - /pt_turn_inject <flow-name> <args>：展开 workflow-Domain 的 FlowTemplate
  *
  * Phase term-P4.3：AgentAdapter 内部把 Turn Inject 注入到 Agent 的 turn 级（Pi: input 事件 transform）。
  *
@@ -47,7 +47,7 @@ interface VarSpec {
  *   - domain 维度：调用方（adapter）应已用 filterDomainsByProfile 过滤 domains，renderTurnInject
  *     不再二次过滤（信任传入的 domains scope）
  *   - modules 维度（阶段 2）：从 blueprint 的 inject=turn 聚合组 + profile 同名 ProfileGroup.modules 算
- *     白名单，/manual:<domain> 只渲染白名单内的段，/<flow-name> 只在白名单含 Flows 段时查找。
+ *     白名单，/pt_turn_inject <domain> 只渲染白名单内的段，/pt_turn_inject <flow-name> 只在白名单含 Flows 段时查找。
  *     profile 为 null 或无 turn 聚合组 → 白名单 null = 不限制（向后兼容）。
  */
 export function renderTurnInject(
@@ -57,44 +57,39 @@ export function renderTurnInject(
   profile: Profile | null,
   args: string
 ): string | null {
-  const m = args.trim().match(/^\/(\S+)\s*(.*)$/);
+  // v18.x（issue pt-turncontext-llm-call-trigger 决策 5）：统一入口 /pt_turn_inject <target>
+  //   - /pt_turn_inject <domain>     → renderDomainManual（Rules/Flows/Checklists 段）
+  //   - /pt_turn_inject <flow-name> <args> → bindFlowTemplate（FlowTemplate 展开）
+  // 按 args 第一个 token 分流：先按 domain 名匹配，未命中再按 flow-name 匹配。
+  const m = args.trim().match(/^\/pt_turn_inject\s+(.*)$/);
   if (!m) return null;
-  const [, name, rest] = m;
+  const rest = m[1].trim();
+  if (!rest) return null;
 
-  // 阶段 2：算 turn 聚合组的 modules 白名单（Profile "参考手册"聚合组的 ### Modules）
+  // Stage 2: compute modules whitelist for turn aggregation group (Profile "reference-manual" aggregation group's ### Modules)
   const mods = turnGroupModules(blueprint, profile);
 
-  // /manual:<domain-name> 触发（v9 新增）—— name 可能是 "manual:pt-quality"
-  // Phase term-P9.2：Domain 不再有单一 Manual 段，而是 Rules/Flows/Checklists 三选一。
-  //   顺序遍历找第一个非空段，返回对应渲染。
-  // v13.x：受 mods 白名单限制——只渲染白名单内的段。
-  if (name.startsWith("manual:")) {
-    const domainName = name.slice("manual:".length).trim();
-    const d = domains.find((x) => x.name === domainName);
-    if (!d) return null;
+  // 先按 domain 名匹配（renderDomainManual）
+  const firstToken = rest.split(/\s+/)[0];
+  const d = domains.find((x) => x.name === firstToken);
+  if (d) {
     return renderDomainManual(d, mods);
   }
 
-  // /manual <domain-name> 触发——空格分隔形式
-  if (name === "manual") {
-    const domainName = rest.trim();
-    const d = domains.find((x) => x.name === domainName);
-    if (!d) return null;
-    return renderDomainManual(d, mods);
-  }
-
-  // /<flow-name> <args> 触发（v8 逻辑保留）
-  // v13.x：findFlowInBlueprint 内部按 mods 白名单判断是否允许查找 Flows 段。
-  const tpl = findFlowInBlueprint(blueprint, domains, name, profile);
+  // 再按 flow-name 匹配（bindFlowTemplate）
+  const parts = rest.split(/\s+/);
+  const flowName = parts[0];
+  const flowArgs = parts.slice(1).join(" ");
+  const tpl = findFlowInBlueprint(blueprint, domains, flowName, profile);
   if (!tpl) return null;
-  return bindFlowTemplate(tpl, rest);
+  return bindFlowTemplate(tpl, flowArgs);
 }
 
 // ==================== turn 聚合组 modules 白名单辅助（v13.x issue pt-turn-inject-not-profile-scoped） ====================
 
 /** 找 turn 聚合组的 modules 白名单（Profile 同名 ProfileGroup 的 ### Modules）。
  *  返 null = 不限制（profile 为 null / 无 turn 聚合组 / ProfileGroup 未填 modules——向后兼容）。
- *  这是阶段 2 的核心：让 Profile "参考手册"### Modules 的段选择真正影响 turn 触发渲染范围。 */
+ *  This is the core of stage 2: let Profile "reference-manual" ### Modules section selection actually affect turn-triggered render scope. */
 function turnGroupModules(blueprint: Blueprint, profile: Profile | null): ModName[] | null {
   if (!profile) return null;
   const turnGroupName = blueprint.groups.find((g) => g.inject === "turn")?.name;
@@ -128,7 +123,7 @@ function renderDomainManual(d: Domain, mods: ModName[] | null): string | null {
         lines.push(`- ${t.name}${hint}: ${t.intent}`);
       }
       if (lines.length > 0) {
-        return `# /manual:${d.name}\n\n## 可用手册\n\n${lines.join("\n")}`.trimEnd();
+        return `# /pt_turn_inject ${d.name}\n\n## 可用手册\n\n${lines.join("\n")}`.trimEnd();
       }
     }
   }
@@ -147,7 +142,7 @@ function renderDomainManual(d: Domain, mods: ModName[] | null): string | null {
         }
       }
       if (lines.length > 0) {
-        return `# /manual:${d.name}\n\n## 规范清单\n\n${lines.join("\n")}`.trimEnd();
+        return `# /pt_turn_inject ${d.name}\n\n## 规范清单\n\n${lines.join("\n")}`.trimEnd();
       }
     }
   }
@@ -160,7 +155,7 @@ function renderDomainManual(d: Domain, mods: ModName[] | null): string | null {
         sections.push(`### ${cl.name}\n${cl.items.map((i) => `- ${i}`).join("\n")}`);
       }
       if (sections.length > 0) {
-        return `# /manual:${d.name}\n\n## 验收清单\n\n${sections.join("\n\n")}`.trimEnd();
+        return `# /pt_turn_inject ${d.name}\n\n## 验收清单\n\n${sections.join("\n\n")}`.trimEnd();
       }
     }
   }
@@ -200,6 +195,21 @@ export function bindFlowTemplate(tpl: BoundableTemplate, args: string): string {
   lines.push(`## 步骤`);
   tpl.steps.forEach((s: FlowStep, i: number) => {
     lines.push(`${i + 1}. ${replaceVars(s.desc, bound)}`);
+    // P2：激活 step.dataSource（输入参照） + step.output（期望产出）+ observe（验证参照）。
+    // 顺序为"输入→产出→验证"——体现 step 语义流；back-compat：三字段 optional，未填不渲染。
+    if (s.dataSource) {
+      const ds = s.dataSource;
+      const name = ds.name ?? "";
+      const path = ds.path ?? "";
+      const desc = ds.desc ?? "";
+      // 同时有 name + path 时把 path 包裹括号；只一个时直接输出那个。
+      const head = name && path ? `${name}（${path}）` : name || path;
+      const tail = desc ? ` — ${desc}` : "";
+      lines.push(`   - 输入参照：${head}${tail}`);
+    }
+    if (s.output) {
+      lines.push(`   - 期望产出：${replaceVars(s.output, bound)}`);
+    }
     if (s.observe && s.observe.length > 0) {
       lines.push(`   - 验证参照：${s.observe.join(", ")}`);
     }
@@ -244,7 +254,7 @@ function replaceVars(text: string, bound: Map<string, string>): string {
 
 /** 在 Blueprint 聚合组（inject=turn）的引用域中按名查找 FlowTemplate（跨 Domain）。
  *  v13.x（issue pt-turn-inject-not-profile-scoped）：加 profile 参数——内部算 mods 白名单，
- *  白名单不含 Flows 段时返 undefined（Profile "参考手册"### Modules 未声明 Flows 则 /<flow-name> 触发失效）。
+ *  Returns undefined when whitelist has no Flows section (Profile "reference-manual" ### Modules didn't declare Flows → /<flow-name> trigger fails).
  *  Phase term-P4.3 + term-final：inject 语义值 turn（原 context_message → turn → 现聚合组 inject=turn）。 */
 export function findFlowInBlueprint(
   blueprint: Blueprint,

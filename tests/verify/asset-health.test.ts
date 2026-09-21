@@ -33,7 +33,7 @@ afterEach(async () => {
 function makeBlueprint(): Blueprint {
   return {
     name: "bp-bb",
-    groups: [{ name: "会话背景", inject: "session", mode: "hybrid" }],
+    groups: [{ name: "session-context", inject: "session", mode: "hybrid" }],
   };
 }
 
@@ -42,7 +42,7 @@ function makeProfile(overrides?: Partial<Profile>): Profile {
     name: "ok-profile",
     blueprint: "bp-bb",
     domains: ["d1"],
-    groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
+    groups: [{ name: "session-context", domains: [], modules: [{ section: "Scene" }] }],
     ...overrides,
   };
 }
@@ -62,7 +62,7 @@ describe("scanProjectHealth", () => {
     it("ProfileGroup.modules 为空 → 报 error", async () => {
       const cwd = await makeCwd();
       const profile = makeProfile({
-        groups: [{ name: "会话背景", domains: [], modules: [] }],
+        groups: [{ name: "session-context", domains: [], modules: [] }],
       });
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       // missing-modules (error) + empty-segment (error，modules 空产出空段) = 2 errors
@@ -70,7 +70,7 @@ describe("scanProjectHealth", () => {
       const missing = r.issues.filter((i) => i.msg.includes("缺 ### Modules"));
       expect(missing.length).toBe(1);
       expect(missing[0]?.severity).toBe("error");
-      expect(missing[0]?.field).toBe("groups.会话背景.modules");
+      expect(missing[0]?.field).toBe("groups.session-context.modules");
     });
 
     it("ProfileGroup.modules 非空 → 不报", async () => {
@@ -110,7 +110,7 @@ describe("scanProjectHealth", () => {
       const cwd = await makeCwd();
       const profile = makeProfile({
         groups: [
-          { name: "会话背景", domains: [], modules: [{ section: "Scene" }] },
+          { name: "session-context", domains: [], modules: [{ section: "Scene" }] },
           { name: "未知聚合组", domains: [], modules: [{ section: "Trigger" }] },
         ],
       });
@@ -134,7 +134,11 @@ describe("scanProjectHealth", () => {
       const profile = makeProfile({
         domains: [],
         groups: [
-          { name: "会话背景", domains: ["nonexistent-domain"], modules: [{ section: "Scene" }] },
+          {
+            name: "session-context",
+            domains: ["nonexistent-domain"],
+            modules: [{ section: "Scene" }],
+          },
         ],
       });
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
@@ -172,7 +176,7 @@ blueprint: bp-bb
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 - Foo
@@ -183,7 +187,7 @@ domains: []
         name: "bad",
         blueprint: "bp-bb",
         domains: [],
-        groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
+        groups: [{ name: "session-context", domains: [], modules: [{ section: "Scene" }] }],
       };
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       const unknowns = r.issues.filter((i) => i.msg.includes("modName「"));
@@ -206,7 +210,7 @@ blueprint: bp-bb
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 - User.user-profile
@@ -216,7 +220,7 @@ domains: []
         name: "ok",
         blueprint: "bp-bb",
         domains: [],
-        groups: [{ name: "会话背景", domains: [], modules: [{ section: "Scene" }] }],
+        groups: [{ name: "session-context", domains: [], modules: [{ section: "Scene" }] }],
       };
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       expect(r.issues.filter((i) => i.msg.includes("modName「"))).toHaveLength(0);
@@ -243,7 +247,7 @@ blueprint: bp-bb
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 `
@@ -252,7 +256,7 @@ domains: []
         name: "empty-mods",
         blueprint: "bp-bb",
         domains: [],
-        groups: [{ name: "会话背景", domains: [], modules: [] }], // missing-modules
+        groups: [{ name: "session-context", domains: [], modules: [] }], // missing-modules
       };
       const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
       // unknown-modname 不报（Scene 合法）
@@ -270,7 +274,7 @@ describe("scanProjectHealth integration", () => {
     const cwd = await makeCwd();
     const p1 = makeProfile({
       name: "p1",
-      groups: [{ name: "会话背景", domains: [], modules: [] }], // missing-modules + empty-segment
+      groups: [{ name: "session-context", domains: [], modules: [] }], // missing-modules + empty-segment
     });
     const p2 = makeProfile({ name: "p2", blueprint: "ghost" }); // dangling only
     const p3 = makeProfile({ name: "p3" }); // ok
@@ -299,7 +303,7 @@ blueprint: bp-bb
 domains: []
 ---
 
-## 会话背景
+## session-context
 ### Modules
 - Scene
 - Foo
@@ -313,7 +317,7 @@ domains: []
       blueprint: "bp-bb",
       domains: [],
       groups: [
-        { name: "会话背景", domains: [], modules: [{ section: "Scene" }] },
+        { name: "session-context", domains: [], modules: [{ section: "Scene" }] },
         { name: "未知聚合组", domains: [], modules: [{ section: "Scene" }] },
       ],
     };
@@ -322,5 +326,131 @@ domains: []
     expect(r.warnings).toBe(2);
     expect(r.issues.filter((i) => i.msg.includes("不在 Blueprint")).length).toBe(1);
     expect(r.issues.filter((i) => i.msg.includes("modName「Foo」")).length).toBe(1);
+  });
+
+  // 规则 6 (optional-domain-unresolved) 删除：optional slot 空是设计意图，不推 issue
+  // 关联：issue pt-optional-domains-no-match-per-domain-aggregation
+
+  describe("7. optional-domain-no-matching-section (warning) — per-domain 聚合", () => {
+    it("prj 有 domain 但 H2 段全不匹配任一 bpGroup 的 modules → 报 1 条 warning（不是 N 条）", async () => {
+      const cwd = await makeCwd();
+      // domain d2 只有 Rules 段，profile 的 modules 过滤是 Scene（不匹配）
+      const profile = makeProfile({
+        optionalDomains: ["@prj/d2"],
+      });
+      const d2: Domain = {
+        name: "d2",
+        modules: { Rules: [{ name: "r1", type: "invariant", check: "x" }] },
+      };
+      const r = await scan(cwd, [profile], [makeBlueprint()], [d2]);
+      const noMatch = r.issues.filter(
+        (i) => i.field === "optional-domains" && i.severity === "warning"
+      );
+      expect(noMatch.length).toBe(1); // per-domain 聚合：1 条而非 N 条
+      expect(noMatch[0]?.msg).toContain("@prj/d2");
+      expect(noMatch[0]?.msg).toContain("已加载但未对任何聚合组产生贡献"); // 新措辞
+      // hint 改为 actionable 两条路径
+      expect(noMatch[0]?.hint).toContain("加匹配段");
+      expect(noMatch[0]?.hint).toContain("从 optional-domains 移除该引用");
+    });
+
+    it("domain 部分贡献（只匹配部分 bpGroup）→ 不警告", async () => {
+      const cwd = await makeCwd();
+      // blueprint 2 个 bpGroup：session-context (Scene/User) + trigger-index (Trigger)
+      const blueprint: Blueprint = {
+        name: "bp-multi",
+        groups: [
+          { name: "session-context", inject: "session", mode: "hybrid" },
+          { name: "trigger-index", inject: "session" },
+        ],
+      };
+      // profile 同时实例化两个 bpGroup，modules 列表明确
+      const profile: Profile = {
+        name: "multi",
+        blueprint: "bp-multi",
+        domains: [],
+        groups: [
+          {
+            name: "session-context",
+            domains: [],
+            modules: [{ section: "Scene" }, { section: "User" }],
+          },
+          { name: "trigger-index", domains: [], modules: [{ section: "Trigger" }] },
+        ],
+        optionalDomains: ["@prj/d3"],
+      };
+      // d3 只贡献session-context（User 段），不贡献trigger-index
+      const d3: Domain = {
+        name: "d3",
+        modules: { User: [{ name: "u1", profile: "dev" }] },
+      };
+      const r = await scan(cwd, [profile], [blueprint], [d3]);
+      const noMatch = r.issues.filter((i) => i.field === "optional-domains");
+      expect(noMatch).toHaveLength(0); // 部分贡献 → 不警告
+    });
+
+    it("profile 含多个不贡献 bpGroup 的 optional-domain → 每个 domain 报 1 条（per-domain 聚合）", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile({
+        optionalDomains: ["@prj/d2", "@prj/d3"],
+      });
+      const d2: Domain = {
+        name: "d2",
+        modules: { Rules: [{ name: "r1", type: "invariant", check: "x" }] },
+      };
+      const d3: Domain = {
+        name: "d3",
+        modules: { Checklists: [{ name: "c1", steps: ["x"] }] },
+      };
+      const r = await scan(cwd, [profile], [makeBlueprint()], [d2, d3]);
+      const noMatch = r.issues.filter(
+        (i) => i.field === "optional-domains" && i.severity === "warning"
+      );
+      expect(noMatch.length).toBe(2); // 每个 domain 1 条（共 2 条，不是 4 条 per-bpGroup 旧行为）
+      const refs = noMatch.map((i) => i.msg).join(" ");
+      expect(refs).toContain("@prj/d2");
+      expect(refs).toContain("@prj/d3");
+    });
+
+    it("unresolved optional ref（prj 无 domain）→ 不推 issue（规则 6 静默化）", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile({
+        optionalDomains: ["@prj/nonexistent-domain"],
+      });
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      // 规则 6 已删除——unresolved 不推 info
+      const optionalIssues = r.issues.filter((i) => i.field === "optional-domains");
+      expect(optionalIssues).toHaveLength(0);
+      // r.infos 应为 0（未生成任何 info issue）
+      expect(r.infos ?? 0).toBe(0);
+    });
+  });
+
+  describe("v16 back-compat", () => {
+    it("profile 不写 optional-domains → 不报 optional-* 规则", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile(); // 无 optionalDomains
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      expect(r.issues.filter((i) => i.field === "optional-domains")).toHaveLength(0);
+      expect(r.infos ?? 0).toBe(0);
+    });
+
+    it("profile.optional-domains=[] 空数组 → 等价不写（不报）", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile({ optionalDomains: [] });
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      expect(r.issues.filter((i) => i.field === "optional-domains")).toHaveLength(0);
+    });
+
+    it("prj 有 optional domain + H2 段匹配 modules → 解析成功不报（back-compat）", async () => {
+      const cwd = await makeCwd();
+      const profile = makeProfile({
+        optionalDomains: ["@prj/d1"],
+      });
+      // makeDomain() 默认 d1.modules.Scene 有内容 + profile.modules 含 Scene → 匹配
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      // 解析成功 → 既不报 unresolved 也不报 no-match
+      expect(r.issues.filter((i) => i.field === "optional-domains")).toHaveLength(0);
+    });
   });
 });
