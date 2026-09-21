@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { formatProfileLabels, listProfilesWithTagline } from "../../src/config.js";
+import { formatProfileLabels, listProfiles, listProfilesWithTagline } from "../../src/config.js";
 
 const tempDirs: string[] = [];
 
@@ -91,6 +91,70 @@ describe("listProfilesWithTagline", () => {
     expect(project.map((r) => r.name)).toEqual(["alpha", "mu", "zeta"]);
   });
 
+  // issue pt-profile-selector-no-pack-grouping：跨 pack source 分组排序
+  it("按 source 分组：project 在前、builtin 在后（避免字母序穿插）", async () => {
+    const cwd = await makeCwd();
+    // 项目 pack：guide（与 builtin 同名测覆盖）+ alpha + zeta
+    for (const n of ["guide", "alpha", "zeta"]) {
+      await writeFile(
+        join(cwd, `.pt/assets/profiles/${n}.profile.md`),
+        `---\nname: ${n}\nblueprint: bp\ndomains: []\n---\n`
+      );
+    }
+    const result = await listProfilesWithTagline(cwd);
+    const sources = result.map((r) => r.source);
+    const firstBuiltinIdx = sources.indexOf("builtin");
+    if (firstBuiltinIdx >= 0) {
+      // 前面所有项都必须是 project
+      expect(sources.slice(0, firstBuiltinIdx).every((s) => s === "project")).toBe(true);
+      // 后面所有项都必须是 builtin
+      expect(sources.slice(firstBuiltinIdx).every((s) => s === "builtin")).toBe(true);
+    } else {
+      // 没 builtin 项则全部是 project
+      expect(sources.every((s) => s === "project")).toBe(true);
+    }
+    // 项目 pack 内按 name 字典序：alpha < guide < zeta
+    const project = projectOnly(result);
+    expect(project.map((r) => r.name)).toEqual(["alpha", "guide", "zeta"]);
+  });
+
+  it("字母序混排模拟：builtin `guide`(g) 排在项目 `pt-*(p)` 之前的 bug 已修", async () => {
+    const cwd = await makeCwd();
+    // 项目 pack 加 pt-* 系列（p 开头，按旧字母序会排在 builtin `guide` 之后）
+    for (const n of ["pt-arch", "pt-design", "pt-dev"]) {
+      await writeFile(
+        join(cwd, `.pt/assets/profiles/${n}.profile.md`),
+        `---\nname: ${n}\nblueprint: bp\ndomains: []\n---\n`
+      );
+    }
+    const result = await listProfilesWithTagline(cwd);
+    const allNames = result.map((r) => r.name);
+    const firstProjectIdx = result.findIndex((r) => r.source === "project");
+    const builtinItems = result.filter((r) => r.source === "builtin");
+    // 至少一个 builtin 兜底 profile（`guide` 来自 builtin pack）
+    expect(builtinItems.length).toBeGreaterThan(0);
+    // builtin 项全部排在所有 project 项之后
+    expect(firstProjectIdx).toBeLessThan(allNames.length - builtinItems.length);
+    // builtin `guide`（g）排在所有 pt-*（p）之后
+    const guideIdx = allNames.indexOf("guide");
+    expect(guideIdx).toBeGreaterThan(-1);
+    for (const n of ["pt-arch", "pt-design", "pt-dev"]) {
+      expect(allNames.indexOf(n)).toBeLessThan(guideIdx);
+    }
+  });
+
+  it("同名覆盖：项目 `guide` 覆盖 builtin `guide`，仅 1 项且 source=project", async () => {
+    const cwd = await makeCwd();
+    await writeFile(
+      join(cwd, ".pt/assets/profiles/guide.profile.md"),
+      `---\nname: guide\nblueprint: bp\ntagline: Custom\ndomains: []\n---\n`
+    );
+    const result = await listProfilesWithTagline(cwd);
+    const guides = result.filter((r) => r.name === "guide");
+    expect(guides.length).toBe(1);
+    expect(guides[0]?.source).toBe("project");
+  });
+
   it("tagline 带前后空格 → 自动 trim", async () => {
     const cwd = await makeCwd();
     await writeFile(
@@ -111,6 +175,50 @@ describe("listProfilesWithTagline", () => {
     const project = projectOnly(await listProfilesWithTagline(cwd));
     const p = project.find((r) => r.name === "p");
     expect(p?.tagline).toBeUndefined();
+  });
+});
+
+describe("listProfiles（Tab 补全用）", () => {
+  it("按 source 分组：project 在前、builtin 在后", async () => {
+    const cwd = await makeCwd();
+    // 项目 pack 加 pt-* 系列（按旧字母序 builtin `guide` 会插到这些之前）
+    for (const n of ["pt-arch", "pt-design"]) {
+      await writeFile(
+        join(cwd, `.pt/assets/profiles/${n}.profile.md`),
+        `---\nname: ${n}\nblueprint: bp\ndomains: []\n---\n`
+      );
+    }
+    const names = await listProfiles(cwd);
+    expect(names.length).toBeGreaterThan(0);
+    // builtin 兜底 profile（`guide`）排到最后
+    const guideIdx = names.indexOf("guide");
+    expect(guideIdx).toBeGreaterThan(-1);
+    expect(guideIdx).toBe(names.length - 1);
+    // 项目 profile 在 builtin 之前
+    expect(names.indexOf("pt-arch")).toBeGreaterThan(-1);
+    expect(names.indexOf("pt-arch")).toBeLessThan(guideIdx);
+  });
+
+  it("同 source 内按 name 字典序", async () => {
+    const cwd = await makeCwd();
+    for (const n of ["zeta", "alpha", "mu"]) {
+      await writeFile(
+        join(cwd, `.pt/assets/profiles/${n}.profile.md`),
+        `---\nname: ${n}\nblueprint: bp\ndomains: []\n---\n`
+      );
+    }
+    const projectOnly = (await listProfiles(cwd)).filter((n) => n !== "guide");
+    expect(projectOnly).toEqual(["alpha", "mu", "zeta"]);
+  });
+
+  it("项目同名覆盖 builtin：仅 1 项", async () => {
+    const cwd = await makeCwd();
+    await writeFile(
+      join(cwd, ".pt/assets/profiles/guide.profile.md"),
+      `---\nname: guide\nblueprint: bp\ndomains: []\n---\n`
+    );
+    const names = await listProfiles(cwd);
+    expect(names.filter((n) => n === "guide").length).toBe(1);
   });
 });
 

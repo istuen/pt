@@ -11,6 +11,33 @@ import { join } from "node:path";
 import { BUILTIN_ASSETS_DIR, PROFILES_DIR } from "./constants.js";
 import { isRecord } from "./compile/type-guards.js";
 
+/** issue pt-profile-selector-no-pack-grouping：选择器/补全的 profile 排序权重——
+ *  project (0) 在前 → settings (1) 在中 → builtin (2) 在后。
+ *  同 source 内仍走 name 字典序（保留 back-compat 行为）。
+ *  抽到文件顶层：sortProfileMetasBySource + sortProfileMetasBySourceLite 共享同一权重表。 */
+const SOURCE_ORDER: Record<ProfileMeta["source"], number> = {
+  project: 0,
+  settings: 1,
+  builtin: 2,
+};
+
+/** ProfileMeta 排序器——按 source 分组、同 source 内按 name 字典序。
+ *  listProfilesWithTagline 内部使用；listProfiles 因不暴露 source 字段走自己的 lite 版（共享 SOURCE_ORDER）。 */
+export function sortProfileMetasBySource(a: ProfileMeta, b: ProfileMeta): number {
+  const r = SOURCE_ORDER[a.source] - SOURCE_ORDER[b.source];
+  return r !== 0 ? r : a.name.localeCompare(b.name);
+}
+
+/** listProfiles 用轻量排序——只支持 project/builtin 两 source（不走 settings pack）。
+ *  与 sortProfileMetasBySource 共享 SOURCE_ORDER 权重，避免两套排序规则漂移。 */
+function sortProfileMetasBySourceLite(
+  a: { name: string; source: "project" | "builtin" },
+  b: { name: string; source: "project" | "builtin" }
+): number {
+  const r = SOURCE_ORDER[a.source] - SOURCE_ORDER[b.source];
+  return r !== 0 ? r : a.name.localeCompare(b.name);
+}
+
 /** 读项目 settings.json 的指定 dotted key。文件不存在/解析失败 → undefined */
 export async function readProjectSetting<T = unknown>(
   cwd: string,
@@ -35,13 +62,21 @@ export async function readProjectSetting<T = unknown>(
 /** 列出可选 Profile 名：项目 + 内建合并，同名时项目覆盖内建。
  *  必须与 mdAdapter.load 的合并语义一致——否则选择器/补全看不到内建 profile
  *  （如 builtin `pt`），但 transpile 又能加载，造成“选不到却能手敲”的不一致
- *  （issue: 内建 pt 无法通过 pt-profile 选择）。 */
+ *  （issue: 内建 pt 无法通过 pt-profile 选择）。
+ *  v15.x PR3+（issue pt-profile-selector-no-pack-grouping）：按 source 分组排——
+ *  project 在前 / builtin 在后，同 source 内按 name 字典序。 */
 export async function listProfiles(cwd: string): Promise<string[]> {
   const project = await listProfileNamesIn(join(cwd, PROFILES_DIR));
   const builtin = await listProfileNamesIn(join(BUILTIN_ASSETS_DIR, "profiles"));
   const projectNames = new Set(project);
-  const merged = [...project, ...builtin.filter((n) => !projectNames.has(n))];
-  return merged.sort();
+  const merged: Array<{ name: string; source: "project" | "builtin" }> = [];
+  for (const n of project) merged.push({ name: n, source: "project" });
+  for (const n of builtin) {
+    if (projectNames.has(n)) continue; // 项目覆盖内建
+    merged.push({ name: n, source: "builtin" });
+  }
+  merged.sort(sortProfileMetasBySourceLite);
+  return merged.map((m) => m.name);
 }
 
 /** 扫描某个 profiles 目录提取 Profile 名（去 .profile.md 后缀）。目录不存在返空。 */
@@ -118,7 +153,9 @@ export async function listProfilesWithTagline(cwd: string): Promise<ProfileMeta[
       });
     }
   }
-  metas.sort((a, b) => a.name.localeCompare(b.name));
+  // issue pt-profile-selector-no-pack-grouping：按 source 分组（project → settings → builtin），
+  // 同 source 内按 name 字典序——避免字母序穿插（如内置 `guide` 排在项目 `pt-*` 之前）
+  metas.sort(sortProfileMetasBySource);
   return metas;
 }
 
