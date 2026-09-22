@@ -19,6 +19,12 @@ jobs:
           git clone https://x-access-token:${{ secrets.ISTUEN_PAT }}@github.com/istuen/pt-internal.git .pt
           git -C .pt config user.name "istuen"
           git -C .pt config user.email "istuen@users.noreply.github.com"
+          # v0.2.0 multi-pack 布局适配：clone 后建 symlink（等价本地 setup-pt-symlinks.sh）
+          # pt-internal 仓根有 pt-project/（prj pack）+ fullstack/（settings pack）
+          # 主仓 .pi/settings.json 期望 .pt/assets + .pt/packs/fullstack
+          ln -s pt-project .pt/assets
+          mkdir -p .pt/packs
+          ln -s ../fullstack .pt/packs/fullstack
 
       - uses: actions/setup-node@v4
         with:
