@@ -38,7 +38,7 @@ import { parseManifest } from "./manifest.js";
  *
  * PR2：构造从 sync 改 async（读 manifest），走 `MdFilePack.create()` 工厂方法。
  * name 解析优先级（§2.4.2）：
- *   - reserved pack（source=project/global/builtin）→ 固定名 prj/gbl/pt，跳过 manifest
+ *   - reserved pack（source=project/builtin）→ 固定名 prj/pt，跳过 manifest
  *   - 显式 pack + 合法 manifest.name → manifest.name
  *   - 隐式 pack（无 manifest / manifest 无 name / name 校验失败）→ basename 兜底
  *

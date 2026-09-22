@@ -853,7 +853,7 @@ description: Pt 项目内部共享资产
 // 设计依据（§2.4.2 + builtin 特例）：
 //   - builtin pack 的"身份"就是"内置"（位置 slot @pt 是其完整身份表达）
 //   - manifest.name="pt" 合法——位置 alias @pt = 身份 alias 合一
-//   - project/global/settings pack 仍禁用保留名（保护位置 slot，避免占用 reserved pack 的物理位置）
+//   - project/settings pack 仍禁用保留名（保护位置 slot，避免占用 reserved pack 的物理位置）
 
 describe("parseManifest 保留名规则（v15.x builtin 特例）", () => {
   it("source=builtin + manifest.name='pt'（保留名）→ ok=true + name='pt'（不放 warning）", async () => {
@@ -930,7 +930,7 @@ describe("parseManifest 保留名规则（v15.x builtin 特例）", () => {
 // ==================== notify 分流：reserved silent / settings 提示 ====================
 //
 // 设计依据：v15.x §2.4.2 + pack-management 域 pack-naming 段
-//   - reserved pack（project/global/builtin）无 manifest → 退化到位置别名（prj/gbl/pt），
+//   - reserved pack（project/builtin）无 manifest → 退化到位置别名（prj/pt），
 //     back-compat 设计预期——silent 不通知
 //   - settings pack 无 manifest → basename 兜底"易碎"，建议加 manifest 让 pack 自描述
 
@@ -1225,7 +1225,7 @@ description: test desc
     try {
       const pack = await MdFilePack.create({
         rootDir: root,
-        source: "global",
+        source: "settings", // v15.x PR7（issue pt-remove-global-pack 移除）：source 改 "settings"（"global" 已不在 PackSource）
       });
       const result = await validatePack(pack);
       expect(result.version).toBe("1.0.0");

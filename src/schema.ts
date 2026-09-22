@@ -325,7 +325,7 @@ export interface AgentContext {
  */
 
 /** v15.x §4.4.2（双层语义）：三类 asset 的 working set 通用双索引结构。
- *  - location：按位置 alias（prj/gbl/pt）——reserved pack（project/global/builtin）才有；settings pack 不进
+ *  - location：按位置 alias（prj/pt）——reserved pack（project/builtin）才有；settings pack 不进
  *  - identity：按 pack.name（manifest.name 或退化别名）——所有 pack 都进
  *  双索引保证：
  *    - @prj/foo（位置 alias）走 location 索引

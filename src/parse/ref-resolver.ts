@@ -90,7 +90,7 @@ export function normalizePackName(raw: string): string {
  *    "unknown Blueprint" warn（false positive），统一交给 compile 阶段 throw。
  *
  *  设计：parse 和 compile 共用同一份 fallback 逻辑，避免行为漂移。
- *  packNames 顺序 = [project, ...settings.reverse(), global, builtin]，前者赢。
+ *  packNames 顺序 = [project, ...settings.reverse(), builtin]，前者赢。
  *  fallback 时跳过 selfPack（已查过），按声明顺序查后续 pack（查 identity 索引，因 packNames 都是 pack.name = manifest.name）。 */
 export function resolveBlueprint(
   profile: { blueprint: string; sourcePack?: string },
