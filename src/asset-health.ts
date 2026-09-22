@@ -5,7 +5,7 @@
 //   - 单 profile 运行时检测（issue pt-status-no-injection-state 修复 2/3）只在切换时触发
 //   - session_start 批量体检：主动告知"项目有 N 个配置问题"，不踩坑
 //
-// 5 条规则（issue §Layer 2 表）：
+// 6 条规则（issue §Layer 2 表）：
 //   1. missing-modules        (error)   ProfileGroup.modules 为空
 //   2. dangling-blueprint-ref (error)   profile.blueprint 不存在
 //   3. orphan-h2              (warning) ProfileGroup.name 不在 Blueprint.groups
@@ -19,6 +19,11 @@
 //      - 部分贡献不警告（已在某 slot 有用即视为有效）
 //      - warning 措辞改 actionable（点明"加载了但没效果"+ 两条处置路径）
 //
+// v17+（issue pt-scan-miss-use-chain）：
+//   8. use-expansion-error    (warning) use 链展开失败（UseTargetNotFound / UseChainCycle /
+//      BlueprintGroupOutOfScope）——scan 调 expandProfile 复用 transpile 路径的链解析
+//      逻辑，消除 "use 父 profile 的 modules 继承类设计" 在规则 4 报 false-positive
+//
 // 边界纪律：
 //   - 不替代运行时检测（transpile 内的 reportWarn）——两层互补：运行时按 profile 切，scan 按全集
 //   - 不写资产——只检测 + 报告；修复走 `/pt check --fix`（v2 范围，本 issue 不实现）
@@ -27,6 +32,12 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { compileAgentContext } from "./compile/agent-context.js";
+import {
+  expandProfile,
+  BlueprintGroupOutOfScope,
+  UseChainCycle,
+  UseTargetNotFound,
+} from "./compile/resolve-use.js";
 import { resolveAndDedupRefs } from "./parse/ref-resolver.js";
 import type { AssetPack } from "./schema.js";
 import { refName } from "./schema.js";
@@ -58,14 +69,15 @@ export interface AssetHealthIssue {
   fix?: string;
 }
 
-/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id；v16+ optional-domains 诊断。 */
+/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id；v16+ optional-domains 诊断；v17+ use 链错误诊断。 */
 export type HealthRuleId =
   | "missing-modules"
   | "dangling-blueprint-ref"
   | "orphan-h2"
   | "empty-segment"
   | "unknown-modname"
-  | "optional-domain-no-matching-section"; // v16+：可选 ref 加载但 H2 段全不匹配任一 bpGroup 的 modules（warning，per-domain 聚合）
+  | "optional-domain-no-matching-section" // v16+：可选 ref 加载但 H2 段全不匹配任一 bpGroup 的 modules（warning，per-domain 聚合）
+  | "use-expansion-error"; // v17+：use 链展开失败（UseTargetNotFound/UseChainCycle/BlueprintGroupOutOfScope）→ warning
 
 /** 资产健康扫描结果（按 profile 聚合）。 */
 export interface AssetHealthReport {
@@ -109,34 +121,136 @@ export async function scanProjectHealth(
   const blueprintNames = new Set(blueprints.map((b) => b.name));
   const _domainByName = new Map(domains.map((d) => [d.name, d]));
 
-  // ===== IR-only 规则（1-3）=====
+  // ===== v17+（issue pt-scan-miss-use-chain）：scan 与 transpile 对齐 use 链解析 =====
+  // 复现：designer / stardex-dev 类 "完全继承 use" profile，原始 IR groups=[] → 规则 4
+  // false-positive 报 empty-segment。transpile 路径（transpile.ts:131）调 expandProfile
+  // 把 use 链展平后 modules 填满；scan 路径走 raw profile 故空段。
+  // 修复：scan 循环开头对每个 profile 调 expandProfile（与 transpile 同函数同参数），
+  //   - 成功 → 用 effectiveProfile（merge 后）跑规则 1/2/3/4/7
+  //   - 失败（UseTargetNotFound / UseChainCycle / BlueprintGroupOutOfScope）→ 推
+  //     use-expansion-error warning（field="use"）+ skip 该 profile 的后续规则
+  //
+  // 同时这修复了规则 2（blueprint 可能从 use 继承）与规则 7（optionalDomains 也可能从 use
+  // 继承，issue pt-profile-optional-domains §5 决策）的同类问题。
+
+  // v15.x PR3：scanProjectHealth 内部构造 working set（从 profiles/blueprints/domains + packs）
+  // scan 默认把 domain/blueprint 归到 prj pack，模拟项目 pack 加载行为。
+  // packs 为空时（如测试场景）用 profilePack 作 fallback key，配 mock AssetPack
+  const effectivePackName = profilePack || "prj";
+  const targetPack = packs.find((p) => p.source === "project") ??
+    packs[0] ?? {
+      name: effectivePackName,
+      version: "0.0.0",
+      rootDir: "/test",
+      source: "project" as const,
+      loadDomains: () => Promise.resolve([]),
+      loadBlueprints: () => Promise.resolve([]),
+      loadProfiles: () => Promise.resolve([]),
+    };
+  // v15.x §4.4.2：scan 临时构造双索引 workingSet——location（按位置 alias）+ identity（按 pack.name）
+  // scan 场景 targetPack 是 project source → locAlias = "prj"
+  const domainLocWS = new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
+  const domainIdWS = new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
+  for (const d of domains) {
+    domainIdWS.set(`${targetPack.name}/${d.name}`, { pack: targetPack, asset: d });
+    domainLocWS.set(`prj/${d.name}`, { pack: targetPack, asset: d });
+  }
+  const blueprintLocWS = new Map<
+    string,
+    { pack: typeof targetPack; asset: (typeof blueprints)[0] }
+  >();
+  const blueprintIdWS = new Map<
+    string,
+    { pack: typeof targetPack; asset: (typeof blueprints)[0] }
+  >();
+  for (const b of blueprints) {
+    blueprintIdWS.set(`${targetPack.name}/${b.name}`, { pack: targetPack, asset: b });
+    blueprintLocWS.set(`prj/${b.name}`, { pack: targetPack, asset: b });
+  }
+
+  // v17+（issue pt-scan-miss-use-chain）：expandProfile 所需的 profile/blueprint 视图
+  // profileByQualifiedName 按 profile.sourcePack/name 索引（v15.x §4.4.2 identity 层）
+  // blueprintByQualifiedName 同理——scan 不区分 reserved/settings，全归 effectivePackName
+  // 展开失败（UseTargetNotFound）时此索引一致性是 find 的关键
+  const profileByQualifiedName = new Map<string, Profile>();
+  for (const p of profiles) {
+    const packName = p.sourcePack ?? effectivePackName;
+    profileByQualifiedName.set(`${packName}/${p.name}`, p);
+  }
+  const blueprintByQualifiedName = new Map<
+    string,
+    { pack: typeof targetPack; asset: (typeof blueprints)[0] }
+  >();
+  for (const b of blueprints) {
+    blueprintByQualifiedName.set(`${effectivePackName}/${b.name}`, { pack: targetPack, asset: b });
+  }
+
+  // ===== 单 profile 循环：展开 → 规则 1/2/3 → 规则 4/7 =====
   for (const profile of profiles) {
-    // 2. dangling-blueprint-ref
-    if (!blueprintNames.has(profile.blueprint)) {
+    // v17+：先展开 use 链——失败转 use-expansion-error warning + 跳过该 profile
+    let effectiveProfile: Profile;
+    try {
+      effectiveProfile = expandProfile(
+        profile,
+        profileByQualifiedName,
+        blueprintByQualifiedName,
+        packs,
+        new Set(),
+        adapterCtx
+      );
+    } catch (e) {
+      if (
+        e instanceof UseTargetNotFound ||
+        e instanceof UseChainCycle ||
+        e instanceof BlueprintGroupOutOfScope
+      ) {
+        // use 链错误：使用 profile.name 而非 effectiveProfile.name（展开失败时
+        // effectiveProfile 不可用）；field="use" 便于 UI 精确指向。
+        issues.push({
+          severity: "warning",
+          scope: "profile",
+          name: profile.name,
+          field: "use",
+          msg: `Profile「${profile.name}」use 链展开失败：${e.message}`,
+          hint: `检查 use 引用（如 @pack/name 拼写）、目标 pack 是否已加载、blueprint slots 是否覆盖展开后的 groups`,
+        });
+      } else {
+        adapterCtx?.log?.debug("scanProjectHealth:expandProfile unexpected", {
+          profile: profile.name,
+          err: e instanceof Error ? e.message : String(e),
+        });
+      }
+      continue; // 展开失败 → 跳过规则 1/2/3/4/7（避免对未合并 IR 误报）
+    }
+
+    // ===== IR-only 规则（1-3）on effectiveProfile =====
+    // 2. dangling-blueprint-ref：使用 effectiveProfile.blueprint（use 继承场景下原
+    //    profile.blueprint 可能为空，由 useExpanded 提供）
+    if (!blueprintNames.has(effectiveProfile.blueprint)) {
       issues.push({
         severity: "error",
         scope: "profile",
-        name: profile.name,
+        name: effectiveProfile.name,
         field: "blueprint",
-        msg: `Profile「${profile.name}」引用 Blueprint「${profile.blueprint}」不存在`,
+        msg: `Profile「${effectiveProfile.name}」引用 Blueprint「${effectiveProfile.blueprint}」不存在`,
         hint: `检查拼写 / 项目 .pt/assets/blueprints/ 是否漏文件 / 备选内建 blueprint`,
       });
       continue; // 无 Blueprint 引用，下面的 group 检查无意义
     }
 
-    const blueprint = blueprints.find((b) => b.name === profile.blueprint);
+    const blueprint = blueprints.find((b) => b.name === effectiveProfile.blueprint);
     if (!blueprint) continue; // 上一步已 guard（type guard 收窄需要）
     const bpGroupNames = new Set(blueprint.groups.map((g) => g.name));
 
-    for (const group of profile.groups) {
+    for (const group of effectiveProfile.groups) {
       // 3. orphan-h2
       if (!bpGroupNames.has(group.name)) {
         issues.push({
           severity: "warning",
           scope: "profile",
-          name: profile.name,
+          name: effectiveProfile.name,
           field: `groups.${group.name}`,
-          msg: `Profile「${profile.name}」的 H2「${group.name}」不在 Blueprint「${blueprint.name}」聚合组中`,
+          msg: `Profile「${effectiveProfile.name}」的 H2「${group.name}」不在 Blueprint「${blueprint.name}」聚合组中`,
           hint: `删除该 H2，或加到 Blueprint ${blueprint.name} 的 groups 项`,
         });
       }
@@ -146,64 +260,24 @@ export async function scanProjectHealth(
         issues.push({
           severity: "error",
           scope: "profile",
-          name: profile.name,
+          name: effectiveProfile.name,
           field: `groups.${group.name}.modules`,
-          msg: `Profile「${profile.name}」聚合组「${group.name}」缺 ### Modules`,
+          msg: `Profile「${effectiveProfile.name}」聚合组「${group.name}」缺 ### Modules`,
           hint: `在 H2 段下加 \`### Modules\` 列出 modName（段名 Scene/Trigger/Rules/Flows/Checklists/User/Agent 等）`,
-          fix: `/pt check --fix ${profile.name}`,
+          fix: `/pt check --fix ${effectiveProfile.name}`,
         });
       }
     }
-  }
 
-  // 4. empty-segment：对每个 profile 跑 compileAgentContext 检查产物
-  //   - compile 失败已通过 agent-context.ts 的 reportWarn 报告；scan 跳过避免重复
-  //   - 缺 Blueprint 引用已在 dangling-blueprint-ref 报过，跳过
-  for (const profile of profiles) {
-    const blueprint = blueprints.find((b) => b.name === profile.blueprint);
-    if (!blueprint) continue;
+    // ===== 规则 4 empty-segment + 规则 7 optional-domain 诊断 on effectiveProfile =====
+    // scan 兜底 effectiveProfile.sourcePack（compileAgentContext → resolveDomains 用 unqualified
+    // ref 解析依赖 selfPack；测试场景 MdFilePack 未跑所以 sourcePack 未设）。
+    // v17+：effectiveProfile 取代原 profileForCompile；spread 仅在缺 sourcePack 时生效，
+    // 不修改原 profile（仅本调用范围）。
+    const profileForCompile = effectiveProfile.sourcePack
+      ? effectiveProfile
+      : { ...effectiveProfile, sourcePack: effectivePackName };
     try {
-      // v15.x PR3：scanProjectHealth 内部构造 working set（从 profiles/blueprints/domains + packs）
-      // scan 默认把 domain/blueprint 归到 prj pack，模拟项目 pack 加载行为。
-      // packs 为空时（如测试场景）用 profilePack 作 fallback key，配 mock AssetPack
-      const effectivePackName = profilePack || "prj";
-      const targetPack = packs.find((p) => p.source === "project") ??
-        packs[0] ?? {
-          name: effectivePackName,
-          version: "0.0.0",
-          rootDir: "/test",
-          source: "project" as const,
-          loadDomains: () => Promise.resolve([]),
-          loadBlueprints: () => Promise.resolve([]),
-          loadProfiles: () => Promise.resolve([]),
-        };
-      // v15.x §4.4.2：scan 临时构造双索引 workingSet——location（按位置 alias）+ identity（按 pack.name）
-      // scan 场景 targetPack 是 project source → locAlias = "prj"
-      const domainLocWS = new Map<
-        string,
-        { pack: typeof targetPack; asset: (typeof domains)[0] }
-      >();
-      const domainIdWS = new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
-      for (const d of domains) {
-        domainIdWS.set(`${targetPack.name}/${d.name}`, { pack: targetPack, asset: d });
-        domainLocWS.set(`prj/${d.name}`, { pack: targetPack, asset: d });
-      }
-      const blueprintLocWS = new Map<
-        string,
-        { pack: typeof targetPack; asset: (typeof blueprints)[0] }
-      >();
-      const blueprintIdWS = new Map<
-        string,
-        { pack: typeof targetPack; asset: (typeof blueprints)[0] }
-      >();
-      for (const b of blueprints) {
-        blueprintIdWS.set(`${targetPack.name}/${b.name}`, { pack: targetPack, asset: b });
-        blueprintLocWS.set(`prj/${b.name}`, { pack: targetPack, asset: b });
-      }
-      // scan 临时给 profile 打 sourcePack（如未设）——不修改原 profile（仅本调用范围）
-      const profileForCompile = profile.sourcePack
-        ? profile
-        : { ...profile, sourcePack: effectivePackName };
       const ctx = compileAgentContext(profileForCompile, blueprint, domains, packs, profilePack, {
         domains: { location: domainLocWS, identity: domainIdWS },
         blueprints: { location: blueprintLocWS, identity: blueprintIdWS },
@@ -214,8 +288,8 @@ export async function scanProjectHealth(
         issues.push({
           severity: "error",
           scope: "profile",
-          name: profile.name,
-          msg: `Profile「${profile.name}」编译产出全聚合组空字符串`,
+          name: effectiveProfile.name,
+          msg: `Profile「${effectiveProfile.name}」编译产出全聚合组空字符串`,
           hint: `检查 Profile 的 \`### Modules\` 配置、Blueprint groups 名匹配、Domain H2 段名`,
         });
       }
@@ -226,7 +300,8 @@ export async function scanProjectHealth(
       //     - 一个 domain 不贡献任一 bpGroup 才 warning 一条
       //     - 部分贡献不警告（已在某 slot 有用即视为有效）
       //     - warning 措辞改 actionable：明确"加载了但没效果"+ 两条处置路径（加 H2 / 删引用）
-      const optionalRefs = profileForCompile.optionalDomains ?? [];
+      // v17+：optionalRefs 取自 effectiveProfile——use 链继承的 optionalDomains 由 mergeProfile 透传
+      const optionalRefs = effectiveProfile.optionalDomains ?? [];
       if (optionalRefs.length > 0) {
         const { resolved: optionalResolved } = resolveAndDedupRefs<Domain>(
           optionalRefs,
@@ -239,7 +314,8 @@ export async function scanProjectHealth(
           const d = entry.asset;
           let contributed = false;
           for (const bpGroup of blueprint.groups) {
-            const profileGroup = profile.groups.find((g) => g.name === bpGroup.name);
+            // effectiveProfile.groups 已合并——查 inherit 后的 modules 列表
+            const profileGroup = effectiveProfile.groups.find((g) => g.name === bpGroup.name);
             const mods = profileGroup?.modules ?? [];
             if (mods.some((m) => d.modules[m.section] !== undefined)) {
               contributed = true;
@@ -250,9 +326,9 @@ export async function scanProjectHealth(
             issues.push({
               severity: "warning",
               scope: "profile",
-              name: profile.name,
+              name: effectiveProfile.name,
               field: "optional-domains",
-              msg: `Profile「${profile.name}」的 optional-domain「${entry.rawRef}」已加载但未对任何聚合组产生贡献`,
+              msg: `Profile「${effectiveProfile.name}」的 optional-domain「${entry.rawRef}」已加载但未对任何聚合组产生贡献`,
               hint: `该 domain 加载了但 H2 段不匹配 Profile 的 ### Modules。可选处置：1) 在 ${refName(entry.rawRef)}.md 加匹配段（Scene/User/Trigger/Rules/Flows/Checklists 等）；2) 从 optional-domains 移除该引用`,
             });
           }
@@ -261,7 +337,7 @@ export async function scanProjectHealth(
       }
     } catch (e) {
       adapterCtx?.log?.debug("scanProjectHealth:compile failed", {
-        profile: profile.name,
+        profile: effectiveProfile.name,
         err: e instanceof Error ? e.message : String(e),
       });
     }

@@ -453,4 +453,138 @@ domains: []
       expect(r.issues.filter((i) => i.field === "optional-domains")).toHaveLength(0);
     });
   });
+
+  // v17+（issue pt-scan-miss-use-chain）：scan 调 expandProfile 对齐 transpile use 链解析
+  describe("8. use-expansion-error (warning) — use 链展开", () => {
+    it("use 目标存在 + child 完全继承 → 不报 empty-segment（false positive 修复）", async () => {
+      const cwd = await makeCwd();
+      // parent：标准 profile，groups 带 modules
+      const parent = makeProfile({ name: "parent", sourcePack: "prj" });
+      // child：use parent，自己 groups=[]（完全继承）
+      const child = makeProfile({
+        name: "child",
+        use: "@prj/parent",
+        groups: [],
+        sourcePack: "prj",
+      });
+      const r = await scan(cwd, [parent, child], [makeBlueprint()], [makeDomain()]);
+      // child 经 expand 继承 parent 的 groups + modules → 编译产物非空 → 不报 empty-segment
+      expect(r.issues.filter((i) => i.msg.includes("全聚合组空字符串"))).toHaveLength(0);
+      // parent 和 child 均无 use 展开错误
+      expect(r.issues.filter((i) => i.field === "use")).toHaveLength(0);
+      expect(r.errors).toBe(0);
+    });
+
+    it("use 目标不存在 → 推 use-expansion-error warning + 跳过 child 的规则 1/2/3/4/7", async () => {
+      const cwd = await makeCwd();
+      const child = makeProfile({
+        name: "child",
+        use: "@prj/ghost-parent",
+        groups: [],
+        sourcePack: "prj",
+      });
+      const r = await scan(cwd, [child], [makeBlueprint()], [makeDomain()]);
+      // 推 1 条 use-expansion-error warning
+      const useErr = r.issues.filter((i) => i.field === "use");
+      expect(useErr.length).toBe(1);
+      expect(useErr[0]?.severity).toBe("warning");
+      expect(useErr[0]?.msg).toContain("use 链展开失败");
+      expect(useErr[0]?.msg).toContain("ghost-parent");
+      // child 的空 groups 不报 missing-modules（跳过规则 1）
+      expect(r.issues.filter((i) => i.msg.includes("缺 ### Modules"))).toHaveLength(0);
+      // child 的空 segment 不报 empty-segment（跳过规则 4）—— 这就是 false positive 的修复点
+      expect(r.issues.filter((i) => i.msg.includes("全聚合组空字符串"))).toHaveLength(0);
+    });
+
+    it("use 链循环（A→B→A）→ 推 use-expansion-error warning", async () => {
+      const cwd = await makeCwd();
+      const a = makeProfile({
+        name: "a",
+        use: "@prj/b",
+        groups: [],
+        sourcePack: "prj",
+      });
+      const b = makeProfile({
+        name: "b",
+        use: "@prj/a",
+        groups: [],
+        sourcePack: "prj",
+      });
+      const r = await scan(cwd, [a, b], [makeBlueprint()], [makeDomain()]);
+      // 两条 use-expansion-error（a 和 b 各 1 条）
+      const useErr = r.issues.filter((i) => i.field === "use");
+      expect(useErr.length).toBe(2);
+      for (const issue of useErr) {
+        expect(issue.severity).toBe("warning");
+        expect(issue.msg).toContain("use 链展开失败");
+      }
+    });
+
+    it("use 后 blueprint out-of-scope → 推 use-expansion-error warning", async () => {
+      const cwd = await makeCwd();
+      // parent 有 groups=[a, b, c]，但 child 的 blueprint 只有 [a]（c 越权）
+      const parent = makeProfile({
+        name: "parent",
+        sourcePack: "prj",
+        groups: [
+          { name: "session-context", domains: [], modules: [{ section: "Scene" }] },
+          { name: "trigger-index", domains: [], modules: [{ section: "Trigger" }] },
+          { name: "reference-manual", domains: [], modules: [{ section: "Rules" }] },
+        ],
+      });
+      // child blueprint 限定 slots=[a]
+      const childBlueprint: Blueprint = {
+        name: "bp-child",
+        groups: [{ name: "session-context", inject: "session", mode: "hybrid" }],
+      };
+      const child = makeProfile({
+        name: "child",
+        blueprint: "bp-child",
+        use: "@prj/parent",
+        groups: [],
+        sourcePack: "prj",
+      });
+      const r = await scan(cwd, [parent, child], [childBlueprint], [makeDomain()]);
+      // child 推 1 条 BlueprintGroupOutOfScope warning
+      const useErr = r.issues.filter((i) => i.field === "use");
+      expect(useErr.length).toBe(1);
+      expect(useErr[0]?.severity).toBe("warning");
+      expect(useErr[0]?.msg).toContain("use 链展开失败");
+    });
+
+    it("use 继承 optionalDomains → 规则 7 在继承后的 groups 上判定", async () => {
+      const cwd = await makeCwd();
+      // parent：声明 optionalDomains=@prj/d2，groups 带 Scene 模块
+      const parent = makeProfile({
+        name: "parent",
+        sourcePack: "prj",
+        optionalDomains: ["@prj/d2"],
+      });
+      // child：use parent + 自定义 blueprint（只声明 session-context 一个 bpGroup）
+      const childBlueprint: Blueprint = {
+        name: "bp-child",
+        groups: [{ name: "session-context", inject: "session", mode: "hybrid" }],
+      };
+      const child = makeProfile({
+        name: "child",
+        blueprint: "bp-child",
+        use: "@prj/parent",
+        groups: [],
+        sourcePack: "prj",
+      });
+      // d2 只有 Rules 段（与 Scene 不匹配）
+      const d2: Domain = {
+        name: "d2",
+        modules: { Rules: [{ name: "r1", type: "invariant", check: "x" }] },
+      };
+      const r = await scan(cwd, [parent, child], [childBlueprint], [makeDomain(), d2]);
+      // child 继承 parent 的 optionalDomains=@prj/d2 → 规则 7 报 1 条 warning
+      // (parent 因 use 未涉及 optionalDomains 不该报)
+      const noMatch = r.issues.filter(
+        (i) => i.name === "child" && i.field === "optional-domains" && i.severity === "warning"
+      );
+      expect(noMatch.length).toBe(1);
+      expect(noMatch[0]?.msg).toContain("@prj/d2");
+    });
+  });
 });
