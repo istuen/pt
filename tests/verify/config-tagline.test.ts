@@ -27,12 +27,13 @@ describe("listProfilesWithTagline", () => {
     return result.filter((r) => r.source === "project");
   }
 
-  it("空目录 → 只有 builtin guide", async () => {
+  it("空目录 → 只有 builtin profile（guide 兜底）", async () => {
     const cwd = await makeCwd();
     const result = await listProfilesWithTagline(cwd);
-    expect(result.length).toBe(1);
-    expect(result[0]?.name).toBe("guide");
-    expect(result[0]?.source).toBe("builtin");
+    // 空项目目录下只有 builtin profile（至少 guide；builtin 可多个）
+    expect(result.length).toBeGreaterThanOrEqual(1);
+    expect(result.every((r) => r.source === "builtin")).toBe(true);
+    expect(result.some((r) => r.name === "guide")).toBe(true);
   });
 
   it("多个 profile 含 tagline → name + tagline 字段填充", async () => {
@@ -190,13 +191,13 @@ describe("listProfiles（Tab 补全用）", () => {
     }
     const names = await listProfiles(cwd);
     expect(names.length).toBeGreaterThan(0);
-    // builtin 兜底 profile（`guide`）排到最后
+    // builtin 兜底 profile（`guide`）排在所有 project 之后
     const guideIdx = names.indexOf("guide");
     expect(guideIdx).toBeGreaterThan(-1);
-    expect(guideIdx).toBe(names.length - 1);
     // 项目 profile 在 builtin 之前
     expect(names.indexOf("pt-arch")).toBeGreaterThan(-1);
     expect(names.indexOf("pt-arch")).toBeLessThan(guideIdx);
+    expect(names.indexOf("pt-design")).toBeLessThan(guideIdx);
   });
 
   it("同 source 内按 name 字典序", async () => {
@@ -207,7 +208,11 @@ describe("listProfiles（Tab 补全用）", () => {
         `---\nname: ${n}\nblueprint: bp\ndomains: []\n---\n`
       );
     }
-    const projectOnly = (await listProfiles(cwd)).filter((n) => n !== "guide");
+    // 动态获取 builtin 列表过滤（避免硬编码 builtin profile 名单）
+    const builtinNames = (await listProfilesWithTagline(cwd))
+      .filter((r) => r.source === "builtin")
+      .map((r) => r.name);
+    const projectOnly = (await listProfiles(cwd)).filter((n) => !builtinNames.includes(n));
     expect(projectOnly).toEqual(["alpha", "mu", "zeta"]);
   });
 
