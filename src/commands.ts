@@ -20,8 +20,30 @@ import { MANUAL_DIR, MOD_FLOWS } from "./constants.js";
 import { bindFlowTemplate, findFlowInBlueprint } from "./render/turn-inject.js";
 import type { AssetHealthIssue } from "./asset-health.js";
 import type { SessionState } from "./session.js";
+import {
+  scanDocs,
+  filterByProfile,
+  filterByStatus,
+  countParseErrors,
+  type DocRecord,
+  type DocKind,
+} from "./doc-index.js";
 import { filterDomainsByProfile } from "./schema.js";
 import { isFlowTemplateLike } from "./compile/type-guards.js";
+
+/**
+ * Issue L1 命令层选项（Phase 3，§Issue pt-doc-index-and-schema L1）。
+ *  - profile / status：null 表示不过滤（caller 决定要不要降级）
+ *  - kind：仅 checkDocsText 使用，限定检查的文档类型 */
+export interface ListDocsOptions {
+  profile?: string | null;
+  status?: string | null;
+  kind?: DocKind;
+}
+
+/** Phase 3（issue pt-doc-index-and-schema L1）：/pt issues / manuals / designs 列表选项。
+ *  - profile / status 字段同时出现在 ListDocsOptions（设计文档共用）——为双注册提供统一形参 */
+export interface IssuesTextOptions extends ListDocsOptions {}
 
 /** /pt status 内核：返回状态摘要文本（单行 | 分隔）。 */
 export function statusText(session: SessionState): string {
@@ -443,4 +465,220 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
     warnings: warningCount,
     infos: infoCount,
   };
+}
+
+// =====================================================================
+// Phase 3（.pt/docs/issues/pt-doc-index-and-schema.md L1）：文档列表命令内核
+//
+// 设计动机：
+//   - /pt issues | /pt manuals | /pt designs | /pt check-docs 四个命令共享同一内核模式
+//   - frontmatter 是真相源，命令层实时聚合，不落盘 index.md
+//   - 纯函数：cwd + activeProfile + opts → 格式化字符串，可单测
+//   - 表格列：NAME / STATUS / SEVERITY / CREATED / PROFILE
+//   - 缺 frontmatter 的文档仍列出（PROFILE 列显 —），降级兼容未迁移文档
+//
+// 排序：
+//   - status 优先（open > in-progress > resolved > closed > 其他）
+//   - 同 status 按 created 倒序（newest first）
+// =====================================================================
+
+/** status 排序权重——值小=优先级高 */
+const STATUS_ORDER: Record<string, number> = {
+  open: 0,
+  "in-progress": 1,
+  resolved: 2,
+  closed: 3,
+  wontfix: 4,
+  rejected: 5,
+  active: 0, // design: active 排第一
+  draft: 1,
+  implemented: 2,
+  superseded: 3,
+  abandoned: 4,
+  completed: 0, // manual: completed 排第一（手动实例完成态是常态）
+  // 默认: 99 (其他值按 created 倒序)
+};
+
+/** DocRecord 排序比较器：status 优先 + created 倒序 */
+function compareDocRecords(a: DocRecord, b: DocRecord): number {
+  const sa = (a.frontmatter?.status as string | undefined) ?? "";
+  const sb = (b.frontmatter?.status as string | undefined) ?? "";
+  const oa = STATUS_ORDER[sa] ?? 99;
+  const ob = STATUS_ORDER[sb] ?? 99;
+  if (oa !== ob) return oa - ob;
+  const ca = (a.frontmatter?.created as string | undefined) ?? "";
+  const cb = (b.frontmatter?.created as string | undefined) ?? "";
+  return cb.localeCompare(ca); // 倒序——newest first
+}
+
+/** 把 profile 字段格式化为字符串（数组 → 逗号分隔 / 字符串原样 / 缺省 —） */
+function formatProfileField(fm: Record<string, unknown> | null): string {
+  if (!fm) return "—";
+  const p = fm.profile;
+  if (p === undefined || p === null) return "—";
+  if (typeof p === "string") return p;
+  if (Array.isArray(p)) return p.filter((s) => typeof s === "string").join(",");
+  return "—";
+}
+
+/** severity 缺省占位（issues 有 severity，designs/manuals 无） */
+function formatSeverityField(fm: Record<string, unknown> | null): string {
+  const sev = fm?.severity;
+  return typeof sev === "string" ? sev : "—";
+}
+
+/** created 字段格式化（兼容 ISO date / date-time） */
+function formatCreatedField(fm: Record<string, unknown> | null): string {
+  const c = fm?.created;
+  return typeof c === "string" ? c : "—";
+}
+
+/** 把 DocRecord 列表格式化为表格行（按指定列宽对齐，可单测断言）。
+ *  - columns：列名 → 取值函数（统一接口，issues/manuals/designs 三种格式复用） */
+function formatDocTable(
+  docs: DocRecord[],
+  title: string,
+  columns: Array<{ header: string; value: (d: DocRecord) => string; width: number }>
+): string {
+  const lines: string[] = [];
+  const total = docs.length;
+  const filtered = total; // 计数在调用方算
+  const parseErrs = countParseErrors(docs);
+
+  // header
+  lines.push(
+    `${title} (${filtered} shown${filtered !== total ? ` of ${total}` : ""}, ${parseErrs} parse errors)`
+  );
+
+  if (total === 0) {
+    lines.push("  (no documents match filter)");
+    return lines.join("\n");
+  }
+
+  // 排序
+  const sorted = [...docs].sort(compareDocRecords);
+
+  // 列宽
+  const computedWidths = columns.map((col) => {
+    let w = col.header.length;
+    for (const d of sorted) {
+      const v = col.value(d);
+      if (v.length > w) w = v.length;
+    }
+    return Math.min(w, col.width);
+  });
+
+  // 表头
+  const headerRow = columns
+    .map((col, i) => col.header.padEnd(computedWidths[i]))
+    .join("  ");
+  lines.push(`  ${headerRow}`);
+  // 分隔行（视觉分隔）
+  lines.push(
+    `  ${columns
+      .map((_, i) => "─".repeat(computedWidths[i]))
+      .join("  ")}`
+  );
+
+  // 数据行
+  for (const d of sorted) {
+    const row = columns
+      .map((col, i) => col.value(d).slice(0, computedWidths[i]).padEnd(computedWidths[i]))
+      .join("  ");
+    lines.push(`  ${row}`);
+  }
+  return lines.join("\n");
+}
+
+/** 优先级：opts.profile > activeProfile > null（不过滤）
+ *  整 null/undefined 为 null，让 doc-index 走"不过滤"分支 */
+function resolveProfile(
+  opts: { profile?: string | null } | undefined,
+  activeProfile: string | null
+): string | null {
+  const o = opts?.profile;
+  if (o !== undefined && o !== null && o !== "") return o;
+  return activeProfile;
+}
+
+/** /pt issues 内核：扫 .pt/docs/issues，按 profile/status 过滤 + 表格格式化 */
+export async function issuesText(
+  cwd: string,
+  activeProfile: string | null,
+  opts?: IssuesTextOptions
+): Promise<string> {
+  const profile = resolveProfile(opts, activeProfile);
+  let docs = await scanDocs(cwd, "issue");
+  const totalCount = docs.length;
+  docs = filterByProfile(docs, profile);
+  docs = filterByStatus(docs, opts?.status ?? null);
+  const afterFilter = totalCount - docs.length;
+  const title = `Issues (profile: ${profile ?? "(any)"}, status: ${opts?.status ?? "(any)"})`;
+  const table = formatDocTable(docs, title, [
+    { header: "NAME", value: (d) => d.fileName, width: 60 },
+    { header: "STATUS", value: (d) => (d.frontmatter?.status as string) ?? "—", width: 12 },
+    { header: "SEVERITY", value: (d) => formatSeverityField(d.frontmatter), width: 9 },
+    { header: "CREATED", value: (d) => formatCreatedField(d.frontmatter), width: 10 },
+    { header: "PROFILE", value: (d) => formatProfileField(d.frontmatter), width: 40 },
+  ]);
+  if (afterFilter > 0) {
+    return `${table}\n(${docs.length}/${totalCount} shown; ${afterFilter} filtered out)`;
+  }
+  return table;
+}
+
+/** /pt manuals 内核 */
+export async function manualsText(
+  cwd: string,
+  activeProfile: string | null,
+  opts?: IssuesTextOptions
+): Promise<string> {
+  const profile = resolveProfile(opts, activeProfile);
+  let docs = await scanDocs(cwd, "manual");
+  const totalCount = docs.length;
+  docs = filterByProfile(docs, profile);
+  docs = filterByStatus(docs, opts?.status ?? null);
+  const afterFilter = totalCount - docs.length;
+  const title = `Manuals (profile: ${profile ?? "(any)"}, status: ${opts?.status ?? "(any)"})`;
+  const table = formatDocTable(docs, title, [
+    { header: "NAME", value: (d) => d.fileName, width: 60 },
+    {
+      header: "PROCEDURE",
+      value: (d) => (d.frontmatter?.procedure as string) ?? "—",
+      width: 25,
+    },
+    { header: "STATUS", value: (d) => (d.frontmatter?.status as string) ?? "—", width: 12 },
+    { header: "CREATED", value: (d) => formatCreatedField(d.frontmatter), width: 25 },
+    { header: "PROFILE", value: (d) => formatProfileField(d.frontmatter), width: 40 },
+  ]);
+  if (afterFilter > 0) {
+    return `${table}\n(${docs.length}/${totalCount} shown; ${afterFilter} filtered out)`;
+  }
+  return table;
+}
+
+/** /pt designs 内核 */
+export async function designsText(
+  cwd: string,
+  activeProfile: string | null,
+  opts?: IssuesTextOptions
+): Promise<string> {
+  const profile = resolveProfile(opts, activeProfile);
+  let docs = await scanDocs(cwd, "design");
+  const totalCount = docs.length;
+  docs = filterByProfile(docs, profile);
+  docs = filterByStatus(docs, opts?.status ?? null);
+  const afterFilter = totalCount - docs.length;
+  const title = `Designs (profile: ${profile ?? "(any)"}, status: ${opts?.status ?? "(any)"})`;
+  const table = formatDocTable(docs, title, [
+    { header: "NAME", value: (d) => d.fileName, width: 60 },
+    { header: "DOMAIN", value: (d) => (d.frontmatter?.domain as string) ?? "—", width: 25 },
+    { header: "PHASE", value: (d) => (d.frontmatter?.phase as string) ?? "—", width: 10 },
+    { header: "CREATED", value: (d) => formatCreatedField(d.frontmatter), width: 10 },
+    { header: "PROFILE", value: (d) => formatProfileField(d.frontmatter), width: 40 },
+  ]);
+  if (afterFilter > 0) {
+    return `${table}\n(${docs.length}/${totalCount} shown; ${afterFilter} filtered out)`;
+  }
+  return table;
 }
