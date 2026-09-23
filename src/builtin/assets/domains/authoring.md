@@ -125,6 +125,15 @@ name: authoring
 ### renderer-registration
 - desc: 加新专用段名（如 `## Audit` / `## Glossary`）的扩展流程——(1) Domain 内用新 H2 段名；(2) `src/parse/profile.ts` 的 `KNOWN_SECTION_NAMES` 集合加新段名一行；(3) `src/compile/agent-context.ts` 的 `moduleRenderers` 注册一行（已有 renderer 复用，如复用 `renderSceneModule` 处理 Term[] 同构）；(4) `src/constants.ts` 加 `MOD_XXX = "XXX"` 常量一行（可选，但建议加——模块名常量集中管理便于跨文件引用）。**不需要改主循环**——加新 modName 走 renderer 注册表分发，generic fallback 兜底。
 
+### doc-schema-format
+- desc: 文档 frontmatter schema 协议——JSON Schema draft 2020-12 格式，放 `.pt/schemas/<type>.frontmatter.schema.json`。Pt 内置 3 个 schema（issue/manual/design）在 builtin (`src/builtin/schemas/`，随 npm 包发布)，probe 校验时两级查找：先查项目级 `.pt/schemas/`（用户覆盖），miss 则 fallback builtin。项目要自定义 = 放同名文件到 `.pt/schemas/` 即覆盖，**粒度是单文件名**（不改某个字段 = 覆盖整个 schema）。schema 定义 required（必填字段）+ properties（字段 type/enum/description）+ allOf（条件约束，如 status=resolved → requires resolved 日期）。
+
+### doc-schema-fields
+- desc: 内置 3 schema 的字段清单——**issue**（required: type/name/status/severity/created；optional: updated/resolved/domain/profile/parent/sub-issues/related/resolved-by/discovered-by/resolution/source/wontfix；status=resolved → requires resolved 日期；status=wontfix → requires wontfix 日期）；**manual**（required: procedure/domain/created/status；optional: type/updated/args/profile/issue/source/approach/branch/verified；status=completed → requires verified 布尔）；**design**（required: type/name/created/domain；optional: updated/profile/status/issue/parent/related/superseded-by/phase；status=superseded → requires superseded-by）。完整字段定义 + 描述见 builtin schemas/*.json 的 properties.description 字段。
+
+### doc-schema-custom
+- desc: 自定义新文档类型 schema——(1) 写 `.pt/schemas/<type>.frontmatter.schema.json`（JSON Schema draft 2020-12 格式，含 required + properties + allOf if/then）；(2) 调用 `validateDoc(cwd, docPath, schemaName)` 时传 schema 文件名；(3) `/pt check-docs --kind <type>` 要在 `src/commands.ts` 的 `KIND_SCHEMA` 注册一行。**无需改 Pt 核心代码**——schema 是数据，不是代码。三种场景：(a) 全用默认 = 不建 `.pt/schemas/`，3 个 schema 都走 builtin；(b) 改 1 个 = 只放同名 schema 到 `.pt/schemas/`（issue 走项目版，manual/design 仍走 builtin）；(c) 加新类型 = 放 `.pt/schemas/custom.frontmatter.schema.json` + 在 KIND_SCHEMA 注册 + 命令行调用。
+
 ## Flows
 
 ### create-domain-procedure

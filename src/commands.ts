@@ -733,7 +733,7 @@ export function parseListFlags(args: string): {
   return out;
 }
 
-/** kind → schema 名映射（查 .pt/schemas/） */
+/** kind → schema 名映射（两级查找：项目级 .pt/schemas/ 覆盖 > builtin fallback） */
 const KIND_SCHEMA: Record<DocKind, string> = {
   issue: "issue.frontmatter.schema.json",
   manual: "manual.frontmatter.schema.json",

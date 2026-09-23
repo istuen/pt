@@ -17,10 +17,16 @@
 //   validateDoc / docStructureMatch 两组 describe 内共享同一组文件。
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runVerify, listProbes } from "../../src/verify/index.js";
-import { validateDoc, docStructureMatch } from "../../src/verify/doc-structure-match.js";
+import {
+  validateDoc,
+  docStructureMatch,
+  resolveSchemaPath,
+} from "../../src/verify/doc-structure-match.js";
+import { BUILTIN_SCHEMAS_DIR } from "../../src/constants.js";
 
 describe("verify registry", () => {
   it("doc-structure-match 已注册", () => {
@@ -42,14 +48,15 @@ describe("docStructureMatch probe：参数缺失三态", () => {
   });
 });
 
-describe("docStructureMatch：真数据 .pt/docs/issues 校验（Phase 2 未迁移状态）", () => {
-  it("已迁移文档（pt-doc-index-and-schema）→ DEVIATED（缺 domain）", async () => {
+describe("docStructureMatch：真数据 .pt/docs/issues 校验", () => {
+  it("已迁移文档（pt-doc-index-and-schema）走 builtin schema → COMPLETED（domain 是 optional）", async () => {
+    // builtin issue schema required: type/name/status/severity/created；domain 是 optional。
+    // 文档不带 domain 仍属合规。
     const r = await docStructureMatch(process.cwd(), {
       path: ".pt/docs/issues/pt-doc-index-and-schema.md",
       schema: "issue.frontmatter.schema.json",
     });
-    expect(r.outcome).toBe("DEVIATED");
-    expect(r.message).toContain("domain");
+    expect(r.outcome).toBe("COMPLETED");
   });
 
   it("runVerify shell 调用：doc-structure-match 仍可走", async () => {
@@ -301,6 +308,180 @@ resolved-date: 2026-09-23
         schema: "test.schema.json",
       });
       expect(r.outcome).toBe("DEVIATED");
+    });
+  });
+});
+
+// =====================================================================
+// 两级查找测试（issue pt-builtin-schema-packaging §Step 6）
+//   - 项目级覆盖存在 → 用项目版
+//   - 项目级覆盖不存在 → fallback builtin
+//   - 两级都不存在 → resolveSchemaPath 返回 null
+//   - 通过 probe 验证 INCONCLUSIVE / DEVIATED / COMPLETED 三态
+//
+// 隔离原则：每个子 describe 用独立 tmpDir，避免 resolveSchemaPath 单测
+// 写入项目级 schema 后影响 probe 走 builtin fallback 的下一个测试。
+// =====================================================================
+describe("schema 两级查找（项目级覆盖 > builtin fallback）", () => {
+  describe("resolveSchemaPath 单测", () => {
+    it("builtin schema 存在 → 返回 builtin 路径", () => {
+      const emptyDir = "/var/folders/pt-resolve-empty";
+      const p = resolveSchemaPath(emptyDir, "issue.frontmatter.schema.json");
+      expect(p).not.toBeNull();
+      expect(p).toBe(join(BUILTIN_SCHEMAS_DIR, "issue.frontmatter.schema.json"));
+    });
+
+    it("项目级覆盖存在 → 返回项目级路径", async () => {
+      const projectDir = await mkdtemp(join(tmpdir(), "pt-resolve-override-"));
+      await mkdir(join(projectDir, ".pt/schemas"), { recursive: true });
+      await writeFile(
+        join(projectDir, ".pt/schemas/issue.frontmatter.schema.json"),
+        JSON.stringify({ type: "object" })
+      );
+      const p = resolveSchemaPath(projectDir, "issue.frontmatter.schema.json");
+      expect(p).toBe(join(projectDir, ".pt/schemas/issue.frontmatter.schema.json"));
+      await rm(projectDir, { recursive: true, force: true });
+    });
+
+    it("项目级 + builtin 都不存在 → 返回 null", async () => {
+      const emptyDir = await mkdtemp(join(tmpdir(), "pt-resolve-none-"));
+      const p = resolveSchemaPath(emptyDir, "non-existent.schema.json");
+      expect(p).toBeNull();
+      await rm(emptyDir, { recursive: true, force: true });
+    });
+  });
+
+  describe("probe 走 builtin fallback（项目无 .pt/schemas/）", () => {
+    let tmpRoot: string;
+
+    beforeAll(async () => {
+      // 干净 tmpDir（不预先建 .pt/schemas/）
+      tmpRoot = await mkdtemp(join(tmpdir(), "pt-builtin-fallback-"));
+      await writeFile(
+        join(tmpRoot, "issue-ok.md"),
+        `---
+type: issue
+name: builtin-issue-ok
+status: open
+severity: low
+created: 2026-09-23
+---
+`
+      );
+      await writeFile(
+        join(tmpRoot, "issue-violation.md"),
+        `---
+type: issue
+name: builtin-issue-bad
+status: NOT-IN-ENUM
+severity: low
+created: 2026-09-23
+---
+`
+      );
+    });
+
+    afterAll(async () => {
+      await rm(tmpRoot, { recursive: true, force: true });
+    });
+
+    it("builtin schema 校验合规文档 → COMPLETED", async () => {
+      const r = await docStructureMatch(tmpRoot, {
+        path: "issue-ok.md",
+        schema: "issue.frontmatter.schema.json",
+      });
+      expect(r.outcome).toBe("COMPLETED");
+    });
+
+    it("builtin schema 校验违规文档 → DEVIATED", async () => {
+      const r = await docStructureMatch(tmpRoot, {
+        path: "issue-violation.md",
+        schema: "issue.frontmatter.schema.json",
+      });
+      expect(r.outcome).toBe("DEVIATED");
+      expect(r.message).toContain("not in enum");
+    });
+
+    it("不存在 schema 名 → INCONCLUSIVE", async () => {
+      const r = await docStructureMatch(tmpRoot, {
+        path: "issue-ok.md",
+        schema: "no-such-schema.json",
+      });
+      expect(r.outcome).toBe("INCONCLUSIVE");
+      expect(r.message).toContain("schema 未找到");
+    });
+  });
+
+  describe("probe 走项目级覆盖（粒度 = 单文件名）", () => {
+    let overrideTmpRoot: string;
+
+    beforeAll(async () => {
+      overrideTmpRoot = await mkdtemp(join(tmpdir(), "pt-project-override-"));
+      // 自定义极简 schema（只 required type/name/status，无 severity/created）
+      await mkdir(join(overrideTmpRoot, ".pt/schemas"), { recursive: true });
+      await writeFile(
+        join(overrideTmpRoot, ".pt/schemas/issue.frontmatter.schema.json"),
+        JSON.stringify({
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "name", "status"],
+          properties: {
+            type: { const: "issue" },
+            name: { type: "string" },
+            status: { type: "string", enum: ["open", "in-progress", "resolved"] },
+          },
+        })
+      );
+      // 用宽松 schema 验证合规文档
+      await writeFile(
+        join(overrideTmpRoot, "loose-ok.md"),
+        `---
+type: issue
+name: loose-ok
+status: open
+---
+`
+      );
+      // 同样宽松 schema 验证违规（status 越界）
+      await writeFile(
+        join(overrideTmpRoot, "loose-bad.md"),
+        `---
+type: issue
+name: loose-bad
+status: WRONG
+---
+`
+      );
+    });
+
+    afterAll(async () => {
+      await rm(overrideTmpRoot, { recursive: true, force: true });
+    });
+
+    it("项目级覆盖生效（不强制 severity/created） → COMPLETED", async () => {
+      const r = await docStructureMatch(overrideTmpRoot, {
+        path: "loose-ok.md",
+        schema: "issue.frontmatter.schema.json",
+      });
+      expect(r.outcome).toBe("COMPLETED");
+    });
+
+    it("项目级覆盖仍按自家约束校验（enum）→ DEVIATED", async () => {
+      const r = await docStructureMatch(overrideTmpRoot, {
+        path: "loose-bad.md",
+        schema: "issue.frontmatter.schema.json",
+      });
+      expect(r.outcome).toBe("DEVIATED");
+      expect(r.message).toContain("not in enum");
+    });
+
+    it("覆盖内容确实是用户写的版本（内容核验）", async () => {
+      const p = resolveSchemaPath(overrideTmpRoot, "issue.frontmatter.schema.json");
+      expect(p).not.toBeNull();
+      const content = await readFile(p!, "utf8");
+      const parsed = JSON.parse(content);
+      // 项目版 required 不含 severity/created（builtin 版要求）
+      expect(parsed.required).toEqual(["type", "name", "status"]);
     });
   });
 });

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pt.dev/schemas/design.frontmatter.schema.json",
+  "title": "Pt Design Document Frontmatter",
+  "description": "Pt design 文档 frontmatter schema。design 文档放在 .pt/docs/designs/<name>.md，记录设计简报 / 执行方案 / 架构决策。当前 63 个 design 几乎全无 frontmatter（本 schema 落地后需批量补）。frontmatter 是唯一真相源——/pt designs 命令实时扫描聚合。design 的 profile 归属用数组表达（design 天然跨角色：pt-design 设计 → pt-dev 实现 → pt-devops 部署）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "name", "created", "domain"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "design",
+      "description": "文档类型标识，固定为 design。"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "design 标识，kebab-case。文件名须与 name 一致。"
+    },
+    "created": {
+      "type": "string",
+      "format": "date",
+      "description": "创建日期，YYYY-MM-DD。"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date",
+      "description": "最近更新日期，YYYY-MM-DD。"
+    },
+    "domain": {
+      "type": "string",
+      "description": "业务领域 Domain 名（如 dev-process / asset-workflow）。表达 design 归属的业务领域。"
+    },
+    "profile": {
+      "description": "Profile 归属（角色视角）。单个或数组。缺省=全 profile 可见。design 天然跨角色交接，用数组表达，如 [pt-design, pt-dev]。大多数 executor-brief 类 design 建议填 [pt-arch, pt-dev]。",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "active", "implemented", "superseded", "abandoned"],
+      "description": "design 生命周期状态。draft=草案 / active=执行中 / implemented=已落地 / superseded=被新 design 取代 / abandoned=放弃。缺省 draft。"
+    },
+    "issue": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "关联 issue 的 name。design 为某 issue 服务时填。"
+    },
+    "parent": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "父 design 的 name（design 拆分多阶段时用）。"
+    },
+    "related": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+      "uniqueItems": true,
+      "description": "相关 design 的 name 列表。"
+    },
+    "superseded-by": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "取代本 design 的新 design name。status=superseded 时必填。"
+    },
+    "phase": {
+      "type": "string",
+      "description": "阶段标识（如 P1 / PR2 / term-P9.3）。多阶段 design 拆分时用。"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "superseded" } }, "required": ["status"] },
+      "then": { "required": ["superseded-by"] }
+    }
+  ]
+}

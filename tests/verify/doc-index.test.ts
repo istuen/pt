@@ -34,8 +34,9 @@ describe("doc-index: scanDocs", () => {
       ]);
     });
 
-    it("issues 数量为 47（含 frontmatter 的文档都成功提取）", () => {
-      expect(issues.length).toBe(47);
+    it("issues 数量（含 frontmatter 的文档都成功提取）", () => {
+      // 锁下限避免脆弱断言——会话期间 issues 动态增加。
+      expect(issues.length).toBeGreaterThanOrEqual(47);
       // 已知：所有 issues 都有合规 frontmatter（searchError=0）
       expect(countParseErrors(issues)).toBe(0);
     });

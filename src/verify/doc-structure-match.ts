@@ -17,9 +17,10 @@
 //       path: .pt/docs/issues/<name>.md
 //       schema: issue.frontmatter.schema.json
 
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { BUILTIN_SCHEMAS_DIR } from "../constants.js";
 import type { ProbeOutcome } from "../schema.js";
 
 /** schema 极简结构（只取实现需要的字段） */
@@ -166,6 +167,18 @@ export interface DocValidationResult {
   reason?: string;
 }
 
+/** 两级查找 schema 文件路径：项目级覆盖 > builtin 默认。
+ *  - 项目级：`cwd/.pt/schemas/<schemaName>`（用户自建覆盖，粒度 = 单文件名）
+ *  - builtin fallback：`src/builtin/schemas/<schemaName>`（随包发布，跨项目复用）
+ *  - 返回 null 表示两级都不存在（调用方决定 INCONCLUSIVE / 抛错） */
+export function resolveSchemaPath(cwd: string, schemaName: string): string | null {
+  const projectSchemaPath = join(cwd, ".pt", "schemas", schemaName);
+  if (existsSync(projectSchemaPath)) return projectSchemaPath;
+  const builtinSchemaPath = join(BUILTIN_SCHEMAS_DIR, schemaName);
+  if (existsSync(builtinSchemaPath)) return builtinSchemaPath;
+  return null;
+}
+
 /** 内核函数：给定文档路径 + schema 名，返回校验结果（不构造 ProbeOutcome）。
  *  - 错误格式：完整错误描述列表（供 probe / 命令层格式化）
  *  - IO 错误不熔，抛 Error（命令层 / probe 层各自决定 INCONCLUSIVE / 错误提示） */
@@ -174,8 +187,13 @@ export async function validateDoc(
   docPath: string,
   schemaName: string
 ): Promise<DocValidationResult> {
-  // 1. 读 schema
-  const schemaPath = join(cwd, ".pt/schemas", schemaName);
+  // 1. 读 schema（两级查找：项目级覆盖 > builtin fallback）
+  const schemaPath = resolveSchemaPath(cwd, schemaName);
+  if (!schemaPath) {
+    throw new Error(
+      `schema 未找到：项目级 ${join(cwd, ".pt", "schemas", schemaName)} 与 builtin ${join(BUILTIN_SCHEMAS_DIR, schemaName)} 均不存在`
+    );
+  }
   const schema: SimpleSchema = JSON.parse(readFileSync(schemaPath, "utf8"));
 
   // 2. 读文档 frontmatter

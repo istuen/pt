@@ -55,6 +55,11 @@ export const MANUAL_DIR = ".pt/manuals";
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 export const BUILTIN_ASSETS_DIR = join(SRC_DIR, "builtin", "assets");
 
+/** 内建文档 frontmatter schema 目录（随 npm 包发布，跨项目复用）。
+ *  存 issue/manual/design 3 类文档的 JSON Schema，作为 probe 校验的 builtin fallback。
+ *  项目可在 cwd/.pt/schemas/ 放同名文件做项目级覆盖（粒度 = 单文件名）。 */
+export const BUILTIN_SCHEMAS_DIR = join(SRC_DIR, "builtin", "schemas");
+
 // ==================== Domain H2 段名常量 ====================
 
 /** Domain 的 Scene 段（Phase term-P9.3：统一为 Term[]，含可选 path 字段）
