@@ -19,7 +19,7 @@
 
 import { AGENT_PI, MOD_FLOWS, MOD_RULES } from "../constants.js";
 import { isFlowTemplateArray, isRuleArray } from "../compile/type-guards.js";
-import { renderInjectionFooter } from "../injection-status.js";
+import { refreshInjectionFooter } from "../manual-session.js";
 import { getSessionById } from "../session.js";
 import {
   filterDomainsByProfile,
@@ -120,27 +120,15 @@ export class PiAdapter implements AgentAdapter {
         const sessionState = sessionId ? getSessionById(sessionId) : null;
 
         const currentSegment = this.segment;
-        // v14.x（issue pt-asset-migration-visibility Layer 2）：footer 末尾追加 ⚠ N issues。
-        //   从 sessionState.assetHealthIssues 读计数——session_start 已批量体检过。
-        const healthCount = sessionState?.assetHealthIssues?.length ?? 0;
-        // v14.x（tagline）：footer 拼 `: <tagline>`。从 sessionState.cachedProfile 读——transpile 时已存。
-        const tagline = sessionState?.cachedProfile?.tagline ?? null;
         if (!currentSegment) {
           // 无 segment（未加载 Profile / 已被 reset）→ idle
           if (sessionState) {
             sessionState.injectionState = "idle";
             sessionState.injectionError = null;
-            api.ui?.setStatus(
-              "pt",
-              renderInjectionFooter(
-                "idle",
-                sessionState.activeProfile,
-                null,
-                healthCount,
-                "auto",
-                tagline
-              )
-            );
+            // v18.x（issue pt-footer-status-stale-cache）：改调 refreshInjectionFooter
+            // ——拼 manual suffix + 同步 lastFooterText，避免 PiAdapter 直写 setStatus
+            // 绕过缓存导致 manual suffix 丢失 / stale 缓存。
+            if (api.ui) refreshInjectionFooter(api.ui, sessionState);
           }
           return undefined;
         }
@@ -150,17 +138,7 @@ export class PiAdapter implements AgentAdapter {
           if (sessionState) {
             sessionState.injectionState = "idle";
             sessionState.injectionError = null;
-            api.ui?.setStatus(
-              "pt",
-              renderInjectionFooter(
-                "idle",
-                sessionState.activeProfile,
-                null,
-                healthCount,
-                "auto",
-                tagline
-              )
-            );
+            if (api.ui) refreshInjectionFooter(api.ui, sessionState);
           }
           return undefined;
         }
@@ -176,17 +154,7 @@ export class PiAdapter implements AgentAdapter {
           // 成功注入 → injected
           sessionState.injectionState = "injected";
           sessionState.injectionError = null;
-          api.ui?.setStatus(
-            "pt",
-            renderInjectionFooter(
-              "injected",
-              sessionState.activeProfile,
-              null,
-              healthCount,
-              "auto",
-              tagline
-            )
-          );
+          if (api.ui) refreshInjectionFooter(api.ui, sessionState);
         } else {
           api.onInjected?.(final);
         }
@@ -201,23 +169,10 @@ export class PiAdapter implements AgentAdapter {
         // 异常 → failed + 错误消息（footer 追加）
         const sessionId = sessionIdFromArgs(args);
         const sessionState = sessionId ? getSessionById(sessionId) : null;
-        // v14.x：catch 路径同样透传 healthCount + tagline（避免修复丢告警 / tagline）
-        const healthCount = sessionState?.assetHealthIssues?.length ?? 0;
-        const tagline = sessionState?.cachedProfile?.tagline ?? null;
         if (sessionState) {
           sessionState.injectionState = "failed";
           sessionState.injectionError = msg;
-          api.ui?.setStatus(
-            "pt",
-            renderInjectionFooter(
-              "failed",
-              sessionState.activeProfile,
-              msg,
-              healthCount,
-              "auto",
-              tagline
-            )
-          );
+          if (api.ui) refreshInjectionFooter(api.ui, sessionState);
         }
         return undefined; // 失败降级, 不影响主流程
       }

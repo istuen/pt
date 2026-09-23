@@ -304,6 +304,11 @@ export default function (pi: ExtensionAPI): void {
       return;
     }
     const s = getSessionById(sessionId);
+    // v18.x（issue pt-footer-status-stale-cache）：session 重建时（pi-web wrapper 重建 /
+    // idle timeout / reload）clearSessionById 可能未到达（shutdown event 丢失），导致
+    // SessionState 残留 stale lastFooterText。session_start 是 pt 唯一可靠的 session
+    // 边界感知入口——重置缓存确保首次 refreshInjectionFooter 必写 setStatus。
+    s.lastFooterText = null;
     s.sessionId = randomUUID().slice(0, 8); // 短期 ID for logger
     s.logger = new PtLogger(ctx.cwd, "", sessionId);
     s.logger.info("session:start", { sessionId: s.sessionId, cwd: ctx.cwd });

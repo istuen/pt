@@ -168,6 +168,9 @@ export function resetSessionState(s: SessionState): void {
   s.lastCacheHit = false;
   s.injectionState = "idle";
   s.injectionError = null;
+  // v18.x（issue pt-footer-status-stale-cache）：清 lastFooterText 让下次
+  // refreshInjectionFooter 必写 setStatus，避免 stale 缓存导致 footer 不更新。
+  s.lastFooterText = null;
 }
 
 /** 取指定 sessionId 的 state（lazy create）。TUI 模式下只有一个 entry。 */
