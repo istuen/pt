@@ -137,7 +137,13 @@ function renderActiveManualSuffix(session: SessionState): string {
  *  P1：与上次 setStatus 字符串比较去重——tool_result + turn_end 双钩子刷新时，injectionState
  *  与 activeProfile 等字段通常未变，footer 文本也不会变，跳过 setStatus 避免无变化 IPC。
  *  字符串比较覆盖所有写入 base/suffix/healthCount/tagline 的字段。 */
-function refreshInjectionFooter(ui: ExtensionUIContext, session: SessionState): void {
+// v18.x（issue pt-footer-status-stale-cache）：ui 参数类型从 ExtensionUIContext 收窄为
+//   { setStatus: ... }——refreshInjectionFooter 只用 setStatus，且 AgentAPI.ui（AgentUI interface）
+//   结构上兼容（同样有 setStatus），避免 PiAdapter 传 api.ui 时类型不兼容。
+function refreshInjectionFooter(
+  ui: { setStatus(name: string, text: string): void },
+  session: SessionState
+): void {
   const suffix = renderActiveManualSuffix(session);
   const healthCount = session.assetHealthIssues?.length ?? 0;
   const tagline = session.cachedProfile?.tagline ?? null;
