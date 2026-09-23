@@ -570,16 +570,10 @@ function formatDocTable(
   });
 
   // 表头
-  const headerRow = columns
-    .map((col, i) => col.header.padEnd(computedWidths[i]))
-    .join("  ");
+  const headerRow = columns.map((col, i) => col.header.padEnd(computedWidths[i])).join("  ");
   lines.push(`  ${headerRow}`);
   // 分隔行（视觉分隔）
-  lines.push(
-    `  ${columns
-      .map((_, i) => "─".repeat(computedWidths[i]))
-      .join("  ")}`
-  );
+  lines.push(`  ${columns.map((_, i) => "─".repeat(computedWidths[i])).join("  ")}`);
 
   // 数据行
   for (const d of sorted) {
@@ -734,7 +728,6 @@ export function parseListFlags(args: string): {
     }
     if (t.startsWith("--kind=")) {
       out.kind = t.slice("--kind=".length);
-      continue;
     }
   }
   return out;

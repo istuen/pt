@@ -111,11 +111,7 @@ function validateFieldSpec(fieldName: string, value: unknown, spec: PropertySpec
 }
 
 /** oneOf 分支解析——选第一条 type 匹配的分支校验 */
-function applyOneOf(
-  fieldName: string,
-  value: unknown,
-  branches: PropertySpec["oneOf"]
-): string[] {
+function applyOneOf(fieldName: string, value: unknown, branches: PropertySpec["oneOf"]): string[] {
   if (!branches || branches.length === 0) return [];
   // 选第一条 type 匹配的分支
   const valueType = Array.isArray(value) ? "array" : typeof value;
@@ -132,9 +128,7 @@ function applyOneOf(
           for (let i = 0; i < value.length; i++) {
             const itemGot = Array.isArray(value[i]) ? "array" : typeof value[i];
             if (itemGot !== branch.items.type) {
-              errs.push(
-                `${fieldName}[${i}]: expected ${branch.items.type}, got ${itemGot}`
-              );
+              errs.push(`${fieldName}[${i}]: expected ${branch.items.type}, got ${itemGot}`);
             }
           }
         }
@@ -157,7 +151,9 @@ function applyOneOf(
     }
   }
   // 没命中任一 type 分支
-  return [`${fieldName}: value type '${valueType}' not in oneOf [${branches.map((b) => b.type).join(", ")}]`];
+  return [
+    `${fieldName}: value type '${valueType}' not in oneOf [${branches.map((b) => b.type).join(", ")}]`,
+  ];
 }
 
 /** 文档校验结果（供 doc-structure-match probe + checkDocsText 命令共享） */
