@@ -682,3 +682,59 @@ export async function designsText(
   }
   return table;
 }
+
+/** Phase 3：subArgs 解析 --key 与 --key=value 形态（与 /pt make-manual 的 --issue 解析同模式）。
+ *  返回的对象只包含实际出现的 key；不出现的字段为 undefined。
+ *  v12.x：纯函数——单测只测字符串解析逻辑，不依赖 UI/session。 */
+export function parseListFlags(args: string): {
+  profile?: string;
+  status?: string;
+  kind?: string;
+} {
+  const tokens = args
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0);
+  const out: { profile?: string; status?: string; kind?: string } = {};
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t === undefined) continue;
+    if (t === "--profile" || t === "-p") {
+      const next = tokens[i + 1];
+      if (next && !next.startsWith("--")) {
+        out.profile = next;
+        i++;
+      }
+      continue;
+    }
+    if (t.startsWith("--profile=")) {
+      out.profile = t.slice("--profile=".length);
+      continue;
+    }
+    if (t === "--status") {
+      const next = tokens[i + 1];
+      if (next && !next.startsWith("--")) {
+        out.status = next;
+        i++;
+      }
+      continue;
+    }
+    if (t.startsWith("--status=")) {
+      out.status = t.slice("--status=".length);
+      continue;
+    }
+    if (t === "--kind") {
+      const next = tokens[i + 1];
+      if (next && !next.startsWith("--")) {
+        out.kind = next;
+        i++;
+      }
+      continue;
+    }
+    if (t.startsWith("--kind=")) {
+      out.kind = t.slice("--kind=".length);
+      continue;
+    }
+  }
+  return out;
+}
