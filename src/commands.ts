@@ -28,6 +28,7 @@ import {
   type DocRecord,
   type DocKind,
 } from "./doc-index.js";
+import { validateDoc, type DocValidationResult } from "./verify/doc-structure-match.js";
 import { filterDomainsByProfile } from "./schema.js";
 import { isFlowTemplateLike } from "./compile/type-guards.js";
 
@@ -737,4 +738,101 @@ export function parseListFlags(args: string): {
     }
   }
   return out;
+}
+
+/** kind → schema 名映射（查 .pt/schemas/） */
+const KIND_SCHEMA: Record<DocKind, string> = {
+  issue: "issue.frontmatter.schema.json",
+  manual: "manual.frontmatter.schema.json",
+  design: "design.frontmatter.schema.json",
+};
+
+/** /pt check-docs 内核：批量 schema 校验（biome 风格输出）。
+ *  - kind：指定扫哪类文档；不传则扫全部 issue/manual/design
+ *  - 每类文档同时过滤 profile（与 issuesText / manualsText / designsText 一致） */
+export async function checkDocsText(
+  cwd: string,
+  activeProfile: string | null,
+  opts?: IssuesTextOptions
+): Promise<string> {
+  const kinds: DocKind[] = opts?.kind ? [opts.kind] : ["issue", "manual", "design"];
+  const profile = opts?.profile !== undefined ? opts.profile : activeProfile;
+
+  let totalFiles = 0;
+  let totalViolations = 0;
+  const allViolations: Array<{
+    path: string;
+    errors: string[];
+    reason?: string;
+    kind: DocKind;
+  }> = [];
+  const allParseErrors: Array<{ path: string; err: string }> = [];
+
+  for (const kind of kinds) {
+    let docs = await scanDocs(cwd, kind);
+    docs = filterByProfile(docs, profile);
+    totalFiles += docs.length;
+    for (const d of docs) {
+      if (d.parseError) {
+        allParseErrors.push({ path: d.filePath, err: d.parseError });
+      }
+    }
+    for (const d of docs) {
+      if (d.parseError) continue; // frontmatter 都解析不动 + 前一个循环入了 parse errors
+      try {
+        const r: DocValidationResult = await validateDoc(cwd, d.filePath, KIND_SCHEMA[kind]);
+        if (r.ok) continue;
+        if (r.reason) {
+          allViolations.push({ path: d.filePath, errors: [], reason: r.reason, kind });
+        } else {
+          totalViolations += 1;
+          allViolations.push({ path: d.filePath, errors: r.errors, kind });
+        }
+      } catch (e) {
+        // IO 错（如 schema 文件被删）——归为 parse error
+        allParseErrors.push({ path: d.filePath, err: e instanceof Error ? e.message : String(e) });
+      }
+    }
+  }
+
+  // 格式化输出
+  const lines: string[] = [];
+  const kindLabel = opts?.kind ? `${opts.kind}` : "all";
+  lines.push(
+    `Doc schema check (kind: ${kindLabel}, profile: ${profile ?? "(any)"}) — ${totalFiles} files, ${totalViolations} violations, ${allParseErrors.length} parse errors`
+  );
+  lines.push("");
+  // biome 风格：× 违规文件清单
+  if (allViolations.length === 0) {
+    lines.push(`✓ ${totalFiles}/${totalFiles} files OK`);
+    if (allParseErrors.length > 0) {
+      lines.push("");
+      lines.push(`Parse errors (${allParseErrors.length}):`);
+      for (const pe of allParseErrors.slice(0, 20)) {
+        lines.push(`  ✖ ${pe.path}`);
+        lines.push(`    ${pe.err}`);
+      }
+      if (allParseErrors.length > 20) {
+        lines.push(`  ... and ${allParseErrors.length - 20} more`);
+      }
+    }
+    return lines.join("\n");
+  }
+  for (const v of allViolations) {
+    lines.push(`✖ ${v.path}`);
+    if (v.reason) {
+      lines.push(`  ${v.reason}`);
+    } else {
+      for (const e of v.errors) {
+        lines.push(`  ${e}`);
+      }
+    }
+    lines.push("");
+  }
+  // trim trailing blank
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  const okCount = totalFiles - allViolations.length;
+  lines.push("");
+  lines.push(`  ${okCount}/${totalFiles} files OK`);
+  return lines.join("\n");
 }

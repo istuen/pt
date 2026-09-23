@@ -58,6 +58,7 @@ import {
 import {
   buildFullPrompt,
   buildManualDoc,
+  checkDocsText,
   checkText,
   designsText,
   flowsText,
@@ -907,8 +908,23 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
+      // Phase 3 §Step 5：/pt check-docs [--kind issue|manual|design] —— 批量 schema 校验
+      if (sub === "check-docs") {
+        const flags = parseListFlags(subArgs);
+        const profile = flags.profile ?? s.activeProfile ?? null;
+        // kind 限定到三个合法值，其它作为 undefined → 走全集
+        const allowedKind = flags.kind;
+        const kind =
+          allowedKind === "issue" || allowedKind === "manual" || allowedKind === "design"
+            ? allowedKind
+            : undefined;
+        const text = await checkDocsText(ctx.cwd, profile, kind ? { kind } : { profile });
+        ctx.ui.notify(text, "info");
+        return;
+      }
+
       ctx.ui.notify(
-        "用法: /pt [status|flows|raw|full|manual|check|issues|manuals|designs|packs|logs|logs:clear|sessions]",
+        "用法: /pt [status|flows|raw|full|manual|check|check-docs|issues|manuals|designs|packs|logs|logs:clear|sessions]",
         "warning"
       );
     },

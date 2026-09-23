@@ -160,47 +160,40 @@ function applyOneOf(
   return [`${fieldName}: value type '${valueType}' not in oneOf [${branches.map((b) => b.type).join(", ")}]`];
 }
 
-/** doc-structure-match probe：校验文档 frontmatter 是否符合指定 schema 文件。
- *  - params.path：文档相对路径（如 .pt/docs/issues/xxx.md）
- *  - params.schema：schema 文件名（如 issue.frontmatter.schema.json） */
-export async function docStructureMatch(
-  cwd: string,
-  params: Record<string, string>
-): Promise<ProbeOutcome> {
-  const docPath = params.path;
-  if (!docPath) return { outcome: "INCONCLUSIVE", message: "缺少参数: path" };
-  const schemaName = params.schema;
-  if (!schemaName) {
-    return { outcome: "INCONCLUSIVE", message: "缺少参数: schema（如 issue.frontmatter.schema.json）" };
-  }
+/** 文档校验结果（供 doc-structure-match probe + checkDocsText 命令共享） */
+export interface DocValidationResult {
+  ok: boolean;
+  errors: string[];
+  /** 仅供错误信息输出——文档路径（绝对或相对） */
+  docPath: string;
+  /** 内联原因（如 “无 frontmatter”） */
+  reason?: string;
+}
 
-  // 1. 读 schema 文件
-  let schema: SimpleSchema;
-  try {
-    const schemaPath = join(cwd, ".pt/schemas", schemaName);
-    schema = JSON.parse(readFileSync(schemaPath, "utf8")) as SimpleSchema;
-  } catch (e) {
-    return {
-      outcome: "INCONCLUSIVE",
-      message: `无法读 schema ${schemaName}: ${e instanceof Error ? e.message : String(e)}`,
-    };
-  }
+/** 内核函数：给定文档路径 + schema 名，返回校验结果（不构造 ProbeOutcome）。
+ *  - 错误格式：完整错误描述列表（供 probe / 命令层格式化）
+ *  - IO 错误不熔，抛 Error（命令层 / probe 层各自决定 INCONCLUSIVE / 错误提示） */
+export async function validateDoc(
+  cwd: string,
+  docPath: string,
+  schemaName: string
+): Promise<DocValidationResult> {
+  // 1. 读 schema
+  const schemaPath = join(cwd, ".pt/schemas", schemaName);
+  const schema: SimpleSchema = JSON.parse(readFileSync(schemaPath, "utf8"));
 
   // 2. 读文档 frontmatter
-  let fm: Record<string, unknown> | null;
-  try {
-    fm = readFrontmatter(readFileSync(join(cwd, docPath), "utf8"));
-  } catch (e) {
+  const fm = readFrontmatter(readFileSync(join(cwd, docPath), "utf8"));
+  if (!fm) {
     return {
-      outcome: "INCONCLUSIVE",
-      message: `无法读 ${docPath}: ${e instanceof Error ? e.message : String(e)}`,
+      ok: false,
+      errors: [],
+      docPath,
+      reason: "无 frontmatter 或 frontmatter 不是对象",
     };
   }
-  if (!fm) {
-    return { outcome: "DEVIATED", message: `${docPath}: 无 frontmatter 或 frontmatter 不是对象` };
-  }
 
-  // 3. 校验 required 字段
+  // 3. 校验 required
   const errors: string[] = [];
   for (const field of schema.required ?? []) {
     if (!(field in fm) || fm[field] === undefined || fm[field] === null) {
@@ -212,35 +205,66 @@ export async function docStructureMatch(
   for (const [fieldName, spec] of Object.entries(schema.properties ?? {})) {
     const value = fm[fieldName];
     if (value === undefined) continue;
-    // type + enum + const + items + minItems + uniqueItems
     errors.push(...validateFieldSpec(fieldName, value, spec));
-    // oneOf
     if (spec.oneOf) {
       errors.push(...applyOneOf(fieldName, value, spec.oneOf));
     }
   }
 
-  // 5. 校验 allOf 中的简单 if/then（status=resolved → required resolved）
+  // 5. simple if/then
   for (const rule of schema.allOf ?? []) {
     const cond = rule.if;
     if (!cond?.properties || !rule.then?.required) continue;
-    // 简单 if 形态：`if.properties.<field>.const === <value>`
     for (const [condField, condSpec] of Object.entries(cond.properties)) {
       if (condSpec.const === undefined) continue;
       if (fm[condField] !== condSpec.const) continue;
-      // 条件命中：then.required 必填
       for (const required of rule.then.required) {
         if (!(required in fm) || fm[required] === undefined || fm[required] === null) {
-          errors.push(`missing required (conditional): ${required} (status=${String(condSpec.const)} requires ${required})`);
+          errors.push(
+            `missing required (conditional): ${required} (status=${String(condSpec.const)} requires ${required})`
+          );
         }
       }
     }
   }
 
-  if (errors.length > 0) {
+  return { ok: errors.length === 0, errors, docPath };
+}
+
+/** doc-structure-match probe：校验文档 frontmatter 是否符合指定 schema 文件。
+ *  - params.path：文档相对路径（如 .pt/docs/issues/xxx.md）
+ *  - params.schema：schema 文件名（如 issue.frontmatter.schema.json） */
+export async function docStructureMatch(
+  cwd: string,
+  params: Record<string, string>
+): Promise<ProbeOutcome> {
+  const docPath = params.path;
+  if (!docPath) return { outcome: "INCONCLUSIVE", message: "缺少参数: path" };
+  const schemaName = params.schema;
+  if (!schemaName) {
+    return {
+      outcome: "INCONCLUSIVE",
+      message: "缺少参数: schema（如 issue.frontmatter.schema.json）",
+    };
+  }
+
+  let result: DocValidationResult;
+  try {
+    result = await validateDoc(cwd, docPath, schemaName);
+  } catch (e) {
+    return {
+      outcome: "INCONCLUSIVE",
+      message: e instanceof Error ? e.message : String(e),
+    };
+  }
+
+  if (result.reason) {
+    return { outcome: "DEVIATED", message: `${docPath}: ${result.reason}` };
+  }
+  if (!result.ok) {
     return {
       outcome: "DEVIATED",
-      message: `${docPath} ≠ ${schemaName}: ${errors.join("; ")}`,
+      message: `${docPath} ≠ ${schemaName}: ${result.errors.join("; ")}`,
     };
   }
   return { outcome: "COMPLETED", message: `${docPath} ✓ ${schemaName}` };
