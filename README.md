@@ -205,22 +205,37 @@ domains: ["@fullstack/team-stdlib", workflow]    # @fullstack 限定 + 无前缀
 
 ## 命令速查
 
+### 用户命令（slash command）
+
 | 命令 | 作用 |
 |---|---|
-| `/pt-profile` | 列出所有可用 Profile |
-| `/pt-profile <name>` | 切换 Profile（下一轮生效） |
-| `/pt` | 查看当前编译状态 |
-| `/pt flows` | 列出可触发手册 |
-| `/manual:<domain>` | 注入该 Domain 的手册段到 TurnInject |
-| `/<flow> <args>` | 触发 Domain 的 FlowTemplate |
 | `--pt-profile <name>` | Pi 启动时激活 Profile（CLI 优先级最高） |
+| `/pt-profile` | 弹出 Profile 选择器 |
+| `/pt-profile <name>` | 切换 Profile（下一轮生效） |
+| `/pt` | 查看当前编译状态（同 `/pt status`） |
+| `/pt status` | 编译状态 + segment/cache/pack 健康摘要 |
+| `/pt packs` | 各 Pack 加载详情（name / version / asset 计数 / DEGRADED 原因） |
+| `/pt flows` | 列出当前 Profile 可触发的 FlowTemplate |
+| `/pt check [--profile X] [--fix]` | 项目配置体检（missing ### Modules / 悬挂引用 / 未知 modName） |
+| `/pt make-manual <flow> [args...] [--issue <name>]` | 创建 FlowTemplate 实例文档（写入 `.pt/manuals/`） |
+| `/pt raw` | 把当前 segment 写入 `.pt/cache/raws/` |
+| `/pt full` | 完整 systemPrompt 落盘（写入 `.pt/cache/fulls/`） |
+| `/pt logs` | tail 最近 50 条日志 |
+| `/pt logs:clear` | 清空当前 session 日志 |
+| `/pt sessions` | 列出所有 session 日志文件 |
 
-LLM 工具（Agent 可调用）：
-- `pt_status`
-- `pt_flows`
-- `pt_manual`
-- `pt_verify`
-- `pt_check_refs`
+### LLM 工具（Agent 可调用）
+
+| 工具 | 作用 |
+|---|---|
+| `pt_status` | 编译状态（profile / domain / flow 计数 / cache hit） |
+| `pt_packs` | Pack 详情（name/version/desc/asset 计数） |
+| `pt_flows` | 当前 Profile 可触发的 FlowTemplate 列表 |
+| `pt_make_manual` | 创建手册实例文档（`procedure` / `args` / `issue`） |
+| `pt_turn_inject <domain-or-flow>` | 按需注入 Domain 手册段或展开 FlowTemplate |
+| `pt_verify` | 跑 verify probe，写回 manual checklist |
+| `pt_check` | 扫描项目配置问题（missing Modules / 悬挂引用 / 未知 modName） |
+| `pt_check_refs` | Profile→Blueprint→Domain 引用完整性 |
 
 ---
 
