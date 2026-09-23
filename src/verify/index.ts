@@ -12,6 +12,7 @@ import { tsCompiles } from "./ts-compiles.js";
 import { testPass } from "./test-pass.js";
 import { gitStatusClean } from "./git-status-clean.js";
 import { fileHash } from "./file-hash.js";
+import { docStructureMatch } from "./doc-structure-match.js";
 
 /** verify 函数签名：纯函数，接收 cwd + 参数，返回 ProbeOutcome。 */
 export type VerifyFunction = (cwd: string, params: Record<string, string>) => Promise<ProbeOutcome>;
@@ -26,6 +27,8 @@ const registry: Record<string, VerifyFunction> = {
   "test-pass": testPass,
   "git-status-clean": gitStatusClean,
   "file-hash": fileHash,
+  // Phase 3 (issue pt-doc-index-and-schema §L1) — doc-structure-match probe
+  "doc-structure-match": docStructureMatch,
 };
 
 /** 列出所有已注册的 probe 名（pt_verify tool 的错误提示用）。 */

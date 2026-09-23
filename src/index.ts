@@ -58,9 +58,14 @@ import {
 import {
   buildFullPrompt,
   buildManualDoc,
+  checkDocsText,
   checkText,
+  designsText,
   flowsText,
+  issuesText,
+  manualsText,
   packsText,
+  parseListFlags,
   statusText,
 } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
@@ -886,8 +891,40 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
+      // Phase 3（.pt/docs/issues/pt-doc-index-and-schema.md L1）：
+      //   /pt issues | /pt manuals | /pt designs — frontmatter 即索引，实时聚合
+      //   共享 parseListFlags 解析 --profile / --status（designs 忽略 --status 因 enum 不同）
+      //   profile 优先级：opts.profile > s.activeProfile > null
+      if (sub === "issues" || sub === "manuals" || sub === "designs") {
+        const flags = parseListFlags(subArgs);
+        const profile = flags.profile ?? s.activeProfile ?? null;
+        const text =
+          sub === "issues"
+            ? await issuesText(ctx.cwd, profile, { status: flags.status })
+            : sub === "manuals"
+              ? await manualsText(ctx.cwd, profile, { status: flags.status })
+              : await designsText(ctx.cwd, profile, { status: flags.status });
+        ctx.ui.notify(text, "info");
+        return;
+      }
+
+      // Phase 3 §Step 5：/pt check-docs [--kind issue|manual|design] —— 批量 schema 校验
+      if (sub === "check-docs") {
+        const flags = parseListFlags(subArgs);
+        const profile = flags.profile ?? s.activeProfile ?? null;
+        // kind 限定到三个合法值，其它作为 undefined → 走全集
+        const allowedKind = flags.kind;
+        const kind =
+          allowedKind === "issue" || allowedKind === "manual" || allowedKind === "design"
+            ? allowedKind
+            : undefined;
+        const text = await checkDocsText(ctx.cwd, profile, kind ? { kind } : { profile });
+        ctx.ui.notify(text, "info");
+        return;
+      }
+
       ctx.ui.notify(
-        "用法: /pt [status|flows|raw|full|manual|check|packs|logs|logs:clear|sessions]",
+        "用法: /pt [status|flows|raw|full|manual|check|check-docs|issues|manuals|designs|packs|logs|logs:clear|sessions]",
         "warning"
       );
     },
