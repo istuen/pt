@@ -587,4 +587,132 @@ domains: []
       expect(noMatch[0]?.msg).toContain("@prj/d2");
     });
   });
+
+  // v18+（issue pt-pack-ref-drift-detection 方案 A）：
+  // scan 末尾合并 checkAllRefs，新增规则 9 dangling-domain-ref。
+  // 覆盖矩阵：
+  //   - 全局悬空 Domain 引用（profile.domains）
+  //   - 聚合组悬空 Domain 引用（profile.groups[X].domains）
+  //   - 规则 2/3 已覆盖的（dangling-blueprint-ref / orphan-h2）不重复推
+  //   - 未实例化聚合组 warning 不纳入 scan（设计信号）
+  describe("9. dangling-domain-ref (error) — settings pack 删 domain 静默破坏兜底", () => {
+    it("profile.domains 引用悬空 Domain → 推 1 条 error（field=domains）", async () => {
+      const cwd = await makeCwd();
+      // d1 存在（makeDomain 默认），但 profile.domains 又多引用一个 d-ghost（不存在）
+      const profile = makeProfile({
+        domains: ["d1", "d-ghost"],
+      });
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const dangling = r.issues.filter((i) => i.msg.includes("全局 domains 引用悬空"));
+      expect(dangling.length).toBe(1);
+      expect(dangling[0]?.severity).toBe("error");
+      expect(dangling[0]?.scope).toBe("profile");
+      expect(dangling[0]?.name).toBe("ok-profile");
+      expect(dangling[0]?.field).toBe("domains");
+      expect(dangling[0]?.msg).toContain("d-ghost");
+      // hint 给 actionable 路径
+      expect(dangling[0]?.hint).toContain("settings pack");
+      expect(dangling[0]?.hint).toContain("从 profile.domains 移除该引用");
+    });
+
+    it("profile.groups[X].domains 引用悬空 Domain → 推 1 条 error（field=groups.X.domains）", async () => {
+      const cwd = await makeCwd();
+      // group.domains 引用一个不存在的 domain
+      const profile = makeProfile({
+        domains: [],
+        groups: [
+          {
+            name: "session-context",
+            domains: ["d1", "d-ghost-in-group"],
+            modules: [{ section: "Scene" }],
+          },
+        ],
+      });
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      const dangling = r.issues.filter((i) => i.msg.includes("聚合组「session-context」引用悬空"));
+      expect(dangling.length).toBe(1);
+      expect(dangling[0]?.severity).toBe("error");
+      expect(dangling[0]?.scope).toBe("profile");
+      expect(dangling[0]?.name).toBe("ok-profile");
+      expect(dangling[0]?.field).toBe("groups.session-context.domains");
+      expect(dangling[0]?.msg).toContain("d-ghost-in-group");
+      expect(dangling[0]?.hint).toContain("从聚合组");
+    });
+
+    it("规则 2/3 已覆盖的项不重复推 dangling-domain-ref（去重）", async () => {
+      const cwd = await makeCwd();
+      // case A: 规则 2（dangling-blueprint-ref）—— blueprint="ghost" 独立触发
+      // checkAllRefs 会报 `Profile "X" 引用的 Blueprint "ghost" 不存在` 但 scan 不重复推
+      const bpGhost = makeProfile({ name: "overlap-bp", blueprint: "ghost" });
+      const rA = await scan(cwd, [bpGhost], [makeBlueprint()], [makeDomain()]);
+      expect(rA.issues.filter((i) => i.msg.includes("Blueprint「ghost」不存在")).length).toBe(1);
+      // scan 不重复推 "引用悬空 Blueprint" 类的 dangling-domain-ref（只报 Domain 类）
+      expect(
+        rA.issues.filter(
+          (i) => i.msg.includes("引用悬空 Domain") || i.msg.includes("全局 domains 引用悬空")
+        ).length
+      ).toBe(0);
+
+      // case B: 规则 3（orphan-h2）—— blueprint 存在但 group 越权
+      // checkAllRefs 会报 `Profile "X" 的聚合组 "未知聚合组" 在 Blueprint ... 里无对应` 但 scan 不重复推
+      const orphanGroup = makeProfile({
+        name: "overlap-orphan",
+        groups: [
+          { name: "session-context", domains: [], modules: [{ section: "Scene" }] },
+          { name: "未知聚合组", domains: [], modules: [{ section: "Scene" }] },
+        ],
+      });
+      const rB = await scan(cwd, [orphanGroup], [makeBlueprint()], [makeDomain()]);
+      expect(rB.issues.filter((i) => i.msg.includes("不在 Blueprint")).length).toBe(1);
+      // scan 不重复推 group-domains 类的 dangling-domain-ref
+      expect(
+        rB.issues.filter(
+          (i) => i.msg.includes("引用悬空 Domain") || i.msg.includes("全局 domains 引用悬空")
+        ).length
+      ).toBe(0);
+    });
+
+    it("checkAllRefs warning（未实例化聚合组）不纳入 scan——scan 不越界判断设计选择", async () => {
+      const cwd = await makeCwd();
+      // bp 有 2 个 bpGroup，profile 只实例化 1 个
+      // checkAllRefs 会报 warning "未实例化"，但 scan 不接
+      const blueprint: Blueprint = {
+        name: "bp-multi",
+        groups: [
+          { name: "session-context", inject: "session", mode: "hybrid" },
+          { name: "reference-manual", inject: "turn" },
+        ],
+      };
+      const profile = makeProfile({
+        groups: [{ name: "session-context", domains: [], modules: [{ section: "Scene" }] }],
+      });
+      const r = await scan(cwd, [profile], [blueprint], [makeDomain()]);
+      // 不该有 "未实例化" 相关 issue（scan 不接 ref-check warning）
+      const uninstantiated = r.issues.filter((i) => i.msg.includes("未实例化"));
+      expect(uninstantiated.length).toBe(0);
+    });
+
+    it("正常 profile（所有 Domain 引用存在）→ 不推 dangling-domain-ref", async () => {
+      const cwd = await makeCwd();
+      const r = await scan(cwd, [makeProfile()], [makeBlueprint()], [makeDomain()]);
+      const dangling = r.issues.filter(
+        (i) => i.msg.includes("引用悬空 Domain") || i.msg.includes("全局 domains 引用悬空")
+      );
+      expect(dangling.length).toBe(0);
+    });
+
+    it("规则 9 与规则 4（empty-segment）独立：悬空 Domain 引用同时产 empty-segment", async () => {
+      const cwd = await makeCwd();
+      // profile 全局 domains 引用悬空 → compile 产空段
+      const profile = makeProfile({ domains: ["d-ghost"] });
+      const r = await scan(cwd, [profile], [makeBlueprint()], [makeDomain()]);
+      // 规则 9 报悬空
+      const dangling = r.issues.filter((i) => i.msg.includes("全局 domains 引用悬空"));
+      expect(dangling.length).toBe(1);
+      // 规则 4 报 empty-segment（领域加载空 → 编译产空）
+      const empty = r.issues.filter((i) => i.msg.includes("全聚合组空字符串"));
+      expect(empty.length).toBe(1);
+      // 两条独立 issue，不去重（语义不同：rule 9 指根因，rule 4 指症状）
+    });
+  });
 });

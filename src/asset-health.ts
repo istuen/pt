@@ -40,6 +40,7 @@ import {
 } from "./compile/resolve-use.js";
 import { resolveAndDedupRefs } from "./parse/ref-resolver.js";
 import type { AssetPack } from "./schema.js";
+import { checkAllRefs } from "./verify/ref-check.js";
 import { refName } from "./schema.js";
 import { PROFILES_DIR } from "./constants.js";
 import { KNOWN_SECTION_NAMES } from "./parse/profile.js";
@@ -69,7 +70,7 @@ export interface AssetHealthIssue {
   fix?: string;
 }
 
-/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id；v16+ optional-domains 诊断；v17+ use 链错误诊断。 */
+/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id；v16+ optional-domains 诊断；v17+ use 链错误诊断；v18+ 引用完整性合并。 */
 export type HealthRuleId =
   | "missing-modules"
   | "dangling-blueprint-ref"
@@ -77,7 +78,8 @@ export type HealthRuleId =
   | "empty-segment"
   | "unknown-modname"
   | "optional-domain-no-matching-section" // v16+：可选 ref 加载但 H2 段全不匹配任一 bpGroup 的 modules（warning，per-domain 聚合）
-  | "use-expansion-error"; // v17+：use 链展开失败（UseTargetNotFound/UseChainCycle/BlueprintGroupOutOfScope）→ warning
+  | "use-expansion-error" // v17+：use 链展开失败（UseTargetNotFound/UseChainCycle/BlueprintGroupOutOfScope）→ warning
+  | "dangling-domain-ref"; // v18+（issue pt-pack-ref-drift-detection 方案 A）：profile.domains / profile.groups[X].domains 引用悬空 Domain（settings pack 删 domain 后静默破坏）→ error
 
 /** 资产健康扫描结果（按 profile 聚合）。 */
 export interface AssetHealthReport {
@@ -367,6 +369,49 @@ export async function scanProjectHealth(
         err: e instanceof Error ? e.message : String(e),
       });
     }
+  }
+
+  // ===== 9. dangling-domain-ref（issue pt-pack-ref-drift-detection 方案 A）=====
+  // settings pack（如 @fullstack）独立演进，删 domain 后 prj profile 引用静默悬空。
+  // checkAllRefs（verify/ref-check.ts）能查 3 类，但 (1) 悬空 Blueprint + (3a) 聚合组名
+  // 不在 Blueprint 已被规则 2/3 覆盖——跳过避免重复 issue。
+  // 此处只新增两类：(2) profile.domains 引用悬空 + (3b) profile.groups[X].domains 引用悬空。
+  // ref-check 是单一来源；regex 解析其 error 字符串提取 profile/group/domain ref。
+  // 警告（未实例化聚合组）不纳入 scan——设计信号，scan 不越界判断。
+  const refCheck = checkAllRefs(profiles, blueprints, domains);
+  for (const err of refCheck.errors) {
+    // 格式：`Profile "X" 的 domains 引用悬空 Domain "Y"`
+    const mGlobal = err.match(/^Profile "([^"]+)" 的 domains 引用悬空 Domain "([^"]+)"$/);
+    if (mGlobal) {
+      const profileName = mGlobal[1] ?? "";
+      const domainRef = mGlobal[2] ?? "";
+      issues.push({
+        severity: "error",
+        scope: "profile",
+        name: profileName,
+        field: "domains",
+        msg: `Profile「${profileName}」全局 domains 引用悬空 Domain「${domainRef}」`,
+        hint: `检查 settings pack 是否仍提供该 domain / 拼写是否正确 / 从 profile.domains 移除该引用`,
+      });
+      continue;
+    }
+    // 格式：`Profile "X" 聚合组 "Y" 引用悬空 Domain "Z"`
+    const mGroup = err.match(/^Profile "([^"]+)" 聚合组 "([^"]+)" 引用悬空 Domain "([^"]+)"$/);
+    if (mGroup) {
+      const profileName = mGroup[1] ?? "";
+      const groupName = mGroup[2] ?? "";
+      const domainRef = mGroup[3] ?? "";
+      issues.push({
+        severity: "error",
+        scope: "profile",
+        name: profileName,
+        field: `groups.${groupName}.domains`,
+        msg: `Profile「${profileName}」聚合组「${groupName}」引用悬空 Domain「${domainRef}」`,
+        hint: `检查 settings pack 是否仍提供该 domain / 拼写是否正确 / 从聚合组 ### Domains 移除该引用`,
+      });
+      continue;
+    }
+    // 其余错误（悬空 Blueprint / 聚合组名不在 Blueprint）已被规则 2/3 覆盖，忽略
   }
 
   const errors = issues.filter((i) => i.severity === "error").length;
