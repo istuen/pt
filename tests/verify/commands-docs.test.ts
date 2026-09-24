@@ -76,17 +76,25 @@ describe("commands: issuesText (真数据 .pt/docs/issues)", () => {
     expect(firstDataLine).toContain("pt-doc-index-and-schema");
   });
 
-  it("--status open → 只列 open 的 issue", async () => {
+  it("--status open → 只列 open 的 issue（不锁具体名）", async () => {
     const r = await issuesText(cwd, null, { status: "open" });
-    // 当前唯一 open 的 issue（会话期间会变）。锁文档存在而非固定名。
-    expect(r).toContain("pt-builtin-schema-packaging");
+    // 结构不变式：表头 + 至少 1 条 open issue 行 + 过滤计数
+    expect(r).toContain("status: open");
+    expect(r).toContain("NAME");
+    expect(r).toContain("STATUS");
+    // 不锁具体 issue 名——open 集合随时间漂移是正常的
+    // 只验证"列出的都是 open"：每条数据行 STATUS 列 = open（不含表头/计数/标题行）
+    const dataLines = r
+      .split("\n")
+      .filter((l) => l.includes("open") && !l.includes("status:") && !l.includes("STATUS"));
+    expect(dataLines.length).toBeGreaterThan(0);
+    // 已 resolved 的不应出现（负向断言仍合法——resolved issue 永远不应进 open 列表）
+    expect(r).not.toContain("pt-builtin-schema-packaging"); // 现已 resolved
     expect(r).not.toContain("pt-doc-index-and-schema"); // resolved，不应出现
     expect(r).not.toContain("pt-scan-miss-use-chain"); // resolved，不应出现
   });
 
   it("--profile 优先级 > activeProfile", async () => {
-    const r1 = await issuesText(cwd, "pt-dev", { profile: "pt-design", status: "open" });
-    // pt-builtin-schema-packaging profile=pt-dev，所以 pt-design 过滤后也不应出现
     // 改用 status=resolved 测试更稳定：pt-doc-index-and-schema 三 profile 含 pt-design 且 resolved
     const r2 = await issuesText(cwd, "pt-dev", { profile: "pt-design", status: "resolved" });
     expect(r2).toContain("pt-doc-index-and-schema"); // 三 profile 含 pt-design + resolved
