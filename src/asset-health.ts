@@ -38,7 +38,7 @@ import {
   UseChainCycle,
   UseTargetNotFound,
 } from "./compile/resolve-use.js";
-import { resolveAndDedupRefs } from "./parse/ref-resolver.js";
+import { resolveAndDedupRefs, parseRef } from "./parse/ref-resolver.js";
 import type { AssetPack } from "./schema.js";
 import { checkAllRefs } from "./verify/ref-check.js";
 import { refName } from "./schema.js";
@@ -120,7 +120,6 @@ export async function scanProjectHealth(
   adapterCtx?: SourceAdapterContext
 ): Promise<AssetHealthReport> {
   const issues: AssetHealthIssue[] = [];
-  const blueprintNames = new Set(blueprints.map((b) => b.name));
   const _domainByName = new Map(domains.map((d) => [d.name, d]));
 
   // ===== v17+（issue pt-scan-miss-use-chain）：scan 与 transpile 对齐 use 链解析 =====
@@ -228,19 +227,57 @@ export async function scanProjectHealth(
     // ===== IR-only 规则（1-3）on effectiveProfile =====
     // 2. dangling-blueprint-ref：使用 effectiveProfile.blueprint（use 继承场景下原
     //    profile.blueprint 可能为空，由 useExpanded 提供）
-    if (!blueprintNames.has(effectiveProfile.blueprint)) {
+    // v17+（issue pt-scan-qualified-ref-pack-blind）：限定 ref 走 pack-aware 查找
+    // （parseRef + blueprintWS 精确匹配）；不限定 ref 走尾段 fallback（按 packNames 顺序）。
+    // packAware=false 时退化为纯 name 查找（旧行为，back-compat）。
+    const blueprintRef = effectiveProfile.blueprint;
+    let blueprintFound: (typeof blueprints)[0] | undefined;
+    let blueprintDriftMsg: string | undefined;
+    if (blueprintRef.startsWith("@")) {
+      try {
+        const { kind, pack, name } = parseRef(blueprintRef, "");
+        const ws = kind === "location" ? blueprintLocWS : blueprintIdWS;
+        const entry = ws.get(`${pack}/${name}`);
+        if (entry) {
+          blueprintFound = entry.asset;
+        } else {
+          blueprintDriftMsg = `（限定 pack "${pack}" 中无该 Blueprint——可能是 pack 改名漂移）`;
+        }
+      } catch {
+        // malformed ref — fall through to generic error
+      }
+    } else {
+      // 不限定 ref：尾段 fallback（按 packNames 顺序）
+      for (const pack of [
+        effectivePackName,
+        ...packs.filter((p) => p.name !== effectivePackName).map((p) => p.name),
+      ]) {
+        const entry = blueprintIdWS.get(`${pack}/${blueprintRef}`);
+        if (entry) {
+          blueprintFound = entry.asset;
+          break;
+        }
+      }
+      if (!blueprintFound) {
+        // 退化：纯 name 查找（旧行为，给出更准确的错误）
+        blueprintFound = blueprints.find((b) => b.name === blueprintRef);
+      }
+    }
+    if (!blueprintFound) {
       issues.push({
         severity: "error",
         scope: "profile",
         name: effectiveProfile.name,
         field: "blueprint",
-        msg: `Profile「${effectiveProfile.name}」引用 Blueprint「${effectiveProfile.blueprint}」不存在`,
-        hint: `检查拼写 / 项目 .pt/assets/blueprints/ 是否漏文件 / 备选内建 blueprint`,
+        msg: `Profile「${effectiveProfile.name}」引用 Blueprint「${blueprintRef}」不存在${blueprintDriftMsg ?? ""}`,
+        hint: blueprintDriftMsg
+          ? `检查 pack 是否改名（profile 里的 @pack/name 前缀可能过期）`
+          : `检查拼写 / 项目 .pt/assets/blueprints/ 是否漏文件 / 备选内建 blueprint`,
       });
       continue; // 无 Blueprint 引用，下面的 group 检查无意义
     }
 
-    const blueprint = blueprints.find((b) => b.name === effectiveProfile.blueprint);
+    const blueprint = blueprintFound;
     if (!blueprint) continue; // 上一步已 guard（type guard 收窄需要）
     const bpGroupNames = new Set(blueprint.groups.map((g) => g.name));
 
@@ -378,38 +415,57 @@ export async function scanProjectHealth(
   // 此处只新增两类：(2) profile.domains 引用悬空 + (3b) profile.groups[X].domains 引用悬空。
   // ref-check 是单一来源；regex 解析其 error 字符串提取 profile/group/domain ref。
   // 警告（未实例化聚合组）不纳入 scan——设计信号，scan 不越界判断。
-  const refCheck = checkAllRefs(profiles, blueprints, domains);
+  // v17（issue pt-scan-qualified-ref-pack-blind）：传 domainWS + packNames 让 checkAllRefs 走 pack-aware 查找
+  const loadedPackNames = packs.map((p) => p.name);
+  const refCheck = checkAllRefs(profiles, blueprints, domains, {
+    domainWS: { location: domainLocWS, identity: domainIdWS },
+    packNames: loadedPackNames,
+  });
   for (const err of refCheck.errors) {
-    // 格式：`Profile "X" 的 domains 引用悬空 Domain "Y"`
-    const mGlobal = err.match(/^Profile "([^"]+)" 的 domains 引用悬空 Domain "([^"]+)"$/);
+    // 格式：`Profile "X" 的 domains 引用悬空 Domain "Y"[（限定 pack "Z" 中无该 asset）]`
+    // 后缀可选——pack-aware 查找报告 pack 漂移时附带。
+    const mGlobal = err.match(
+      /^Profile "([^"]+)" 的 domains 引用悬空 Domain "([^"]+)"(?:（限定 pack "([^"]+)" 中无该 asset）)?$/
+    );
     if (mGlobal) {
       const profileName = mGlobal[1] ?? "";
       const domainRef = mGlobal[2] ?? "";
+      const driftPack = mGlobal[3]; // undefined 或限定 pack 名
       issues.push({
         severity: "error",
         scope: "profile",
         name: profileName,
         field: "domains",
-        msg: `Profile「${profileName}」全局 domains 引用悬空 Domain「${domainRef}」`,
-        hint: `检查 settings pack 是否仍提供该 domain / 拼写是否正确 / 从 profile.domains 移除该引用`,
+        msg: `Profile「${profileName}」全局 domains 引用悬空 Domain「${domainRef}」${
+          driftPack ? `（限定 pack "${driftPack}" 中无该 asset——可能是 pack 改名漂移）` : ""
+        }`,
+        hint: driftPack
+          ? `检查 pack 是否改名（profile 里的 @pack/name 前缀可能过期）`
+          : `检查 settings pack 是否仍提供该 domain / 拼写是否正确 / 从 profile.domains 移除该引用`,
       });
       continue;
     }
-    // 格式：`Profile "X" 聚合组 "Y" 引用悬空 Domain "Z"`
-    const mGroup = err.match(/^Profile "([^"]+)" 聚合组 "([^"]+)" 引用悬空 Domain "([^"]+)"$/);
+    // 格式：`Profile "X" 聚合组 "Y" 引用悬空 Domain "Z"[（限定 pack "W" 中无该 asset）]`
+    const mGroup = err.match(
+      /^Profile "([^"]+)" 聚合组 "([^"]+)" 引用悬空 Domain "([^"]+)"(?:（限定 pack "([^"]+)" 中无该 asset）)?$/
+    );
     if (mGroup) {
       const profileName = mGroup[1] ?? "";
       const groupName = mGroup[2] ?? "";
       const domainRef = mGroup[3] ?? "";
+      const driftPack = mGroup[4]; // undefined 或限定 pack 名
       issues.push({
         severity: "error",
         scope: "profile",
         name: profileName,
         field: `groups.${groupName}.domains`,
-        msg: `Profile「${profileName}」聚合组「${groupName}」引用悬空 Domain「${domainRef}」`,
-        hint: `检查 settings pack 是否仍提供该 domain / 拼写是否正确 / 从聚合组 ### Domains 移除该引用`,
+        msg: `Profile「${profileName}」聚合组「${groupName}」引用悬空 Domain「${domainRef}」${
+          driftPack ? `（限定 pack "${driftPack}" 中无该 asset——可能是 pack 改名漂移）` : ""
+        }`,
+        hint: driftPack
+          ? `检查 pack 是否改名（profile 里的 @pack/name 前缀可能过期）`
+          : `检查 settings pack 是否仍提供该 domain / 拼写是否正确 / 从聚合组 ### Domains 移除该引用`,
       });
-      continue;
     }
     // 其余错误（悬空 Blueprint / 聚合组名不在 Blueprint）已被规则 2/3 覆盖，忽略
   }

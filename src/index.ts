@@ -1216,7 +1216,11 @@ export default function (pi: ExtensionAPI): void {
       const s = sessionId ? getSessionById(sessionId) : null;
       const r = await loadAndTranspile(ctx.cwd, s?.activeProfile ?? "");
       const b = r.bundles[0];
-      const result = checkAllRefs(b.profiles, b.blueprints, b.domains);
+      // v17（issue pt-scan-qualified-ref-pack-blind）：传 workingSet 让 checkAllRefs 走 pack-aware 查找
+      const result = checkAllRefs(b.profiles, b.blueprints, b.domains, {
+        domainWS: b.workingSet.domains,
+        packNames: b.packs.map((p) => p.name),
+      });
       return {
         content: [{ type: "text", text: formatRefCheckResult(result) }],
         details: result,
