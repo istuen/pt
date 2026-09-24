@@ -78,16 +78,23 @@ describe("commands: issuesText (真数据 .pt/docs/issues)", () => {
 
   it("--status open → 只列 open 的 issue（不锁具体名）", async () => {
     const r = await issuesText(cwd, null, { status: "open" });
-    // 结构不变式：表头 + 至少 1 条 open issue 行 + 过滤计数
+    // 结构不变式：标题含过滤态 + 列出正确语义（表头 or 空集提示）
     expect(r).toContain("status: open");
-    expect(r).toContain("NAME");
-    expect(r).toContain("STATUS");
-    // 不锁具体 issue 名——open 集合随时间漂移是正常的
-    // 只验证"列出的都是 open"：每条数据行 STATUS 列 = open（不含表头/计数/标题行）
-    const dataLines = r
-      .split("\n")
-      .filter((l) => l.includes("open") && !l.includes("status:") && !l.includes("STATUS"));
-    expect(dataLines.length).toBeGreaterThan(0);
+    // 不锁具体 issue 名——open 集合随时间漂移是正常的。
+    // 当前所有 open issue 已 resolved，输出可能走空集提示分支；只要标题正确就通过。
+    // 至少验证输出包含标题 + status: open 过滤态。
+    if (r.includes("(no documents match filter)")) {
+      // 空集分支（当前现实）：只验证标题、过滤态、计数行
+      expect(r).toMatch(/\(0 shown/);
+    } else {
+      // 有 open issue 分支：验证表头 + 数据行（每行 status=open）
+      expect(r).toContain("NAME");
+      expect(r).toContain("STATUS");
+      const dataLines = r
+        .split("\n")
+        .filter((l) => l.includes("open") && !l.includes("status:") && !l.includes("STATUS"));
+      expect(dataLines.length).toBeGreaterThan(0);
+    }
     // 已 resolved 的不应出现（负向断言仍合法——resolved issue 永远不应进 open 列表）
     expect(r).not.toContain("pt-builtin-schema-packaging"); // 现已 resolved
     expect(r).not.toContain("pt-doc-index-and-schema"); // resolved，不应出现
