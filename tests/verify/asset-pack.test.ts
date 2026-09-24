@@ -106,7 +106,7 @@ describe("tryLoadPack reserved name（v15.x §2.4.2 双层语义）", () => {
     expect(pack.name).toBe("pt");
     expect(pack.source).toBe("builtin");
     expect(pack.rootDir).toBe(BUILTIN_ASSETS_DIR);
-    expect(pack.version).toBe("0.0.0");
+    expect(pack.version).toBe("0.2.0");
     expect(pack.description).toMatch(/builtin/i);
   });
 

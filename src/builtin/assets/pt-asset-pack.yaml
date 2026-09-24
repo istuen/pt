@@ -18,5 +18,5 @@
 #     身份 alias 优先；只是 builtin 的"身份"恰好等于位置别名）
 
 name: pt
-version: 0.0.0
+version: 0.2.0
 description: Pt builtin assets（随 npm 包发布，跨项目复用——guide profile + usage/authoring 等参考文档）
