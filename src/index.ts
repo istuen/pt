@@ -484,6 +484,7 @@ export default function (pi: ExtensionAPI): void {
           healthBundle.domains,
           healthBundle.packs,
           healthBundle.activeProfilePack,
+          healthBundle.workingSet,
           { log: s.logger?.toWriter() }
         );
         s.assetHealthIssues = report.issues;

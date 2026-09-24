@@ -44,7 +44,7 @@ import { checkAllRefs } from "./verify/ref-check.js";
 import { refName } from "./schema.js";
 import { PROFILES_DIR } from "./constants.js";
 import { KNOWN_SECTION_NAMES } from "./parse/profile.js";
-import type { Blueprint, Domain, Profile, SourceAdapterContext } from "./schema.js";
+import type { Blueprint, Domain, Profile, SourceAdapterContext, WorkingSet } from "./schema.js";
 
 // ==================== 公共类型 ====================
 
@@ -117,6 +117,15 @@ export async function scanProjectHealth(
   domains: Domain[],
   packs: AssetPack[], // v15.x PR2：compileAgentContext 需要 packs 进 sourceHash
   profilePack: string, // v15.x PR2：scan 时用 default "prj"——不真正读 pack 信息
+  // v17.1（issue pt-scan-qualified-ref-pack-blind 完整修复）：
+  // scan 需要按 pack 区分 asset 归属（限限定 ref 查找必须 preserve pack identity）.
+  // 调用方可从 SchemaBundle.workingSet 直接传，避免 scan 从扁数组 + packs 重建（有信息损失）。
+  // 缺省时退回原有行为（从 packs + 属数组构造），供测试场景使用。
+  workingSet?: {
+    domains?: WorkingSet<Domain>;
+    blueprints?: WorkingSet<Blueprint>;
+    profiles?: WorkingSet<Profile>;
+  },
   adapterCtx?: SourceAdapterContext
 ): Promise<AssetHealthReport> {
   const issues: AssetHealthIssue[] = [];
@@ -150,23 +159,32 @@ export async function scanProjectHealth(
     };
   // v15.x §4.4.2：scan 临时构造双索引 workingSet——location（按位置 alias）+ identity（按 pack.name）
   // scan 场景 targetPack 是 project source → locAlias = "prj"
-  const domainLocWS = new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
-  const domainIdWS = new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
-  for (const d of domains) {
-    domainIdWS.set(`${targetPack.name}/${d.name}`, { pack: targetPack, asset: d });
-    domainLocWS.set(`prj/${d.name}`, { pack: targetPack, asset: d });
+  // v17.1（issue pt-scan-qualified-ref-pack-blind 完整修复）：
+  // 如果调用方传入了 workingSet（如 SchemaBundle.workingSet），直接复用——preserve 每个 asset 的 pack identity。
+  // 否则从扁平 domains/blueprints 数组 + targetPack 重建（老路径，测试用——所有 asset 归 project pack）。
+  const domainLocWS =
+    workingSet?.domains?.location ??
+    new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
+  const domainIdWS =
+    workingSet?.domains?.identity ??
+    new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
+  if (!workingSet?.domains) {
+    for (const d of domains) {
+      domainIdWS.set(`${targetPack.name}/${d.name}`, { pack: targetPack, asset: d });
+      domainLocWS.set(`prj/${d.name}`, { pack: targetPack, asset: d });
+    }
   }
-  const blueprintLocWS = new Map<
-    string,
-    { pack: typeof targetPack; asset: (typeof blueprints)[0] }
-  >();
-  const blueprintIdWS = new Map<
-    string,
-    { pack: typeof targetPack; asset: (typeof blueprints)[0] }
-  >();
-  for (const b of blueprints) {
-    blueprintIdWS.set(`${targetPack.name}/${b.name}`, { pack: targetPack, asset: b });
-    blueprintLocWS.set(`prj/${b.name}`, { pack: targetPack, asset: b });
+  const blueprintLocWS =
+    workingSet?.blueprints?.location ??
+    new Map<string, { pack: typeof targetPack; asset: (typeof blueprints)[0] }>();
+  const blueprintIdWS =
+    workingSet?.blueprints?.identity ??
+    new Map<string, { pack: typeof targetPack; asset: (typeof blueprints)[0] }>();
+  if (!workingSet?.blueprints) {
+    for (const b of blueprints) {
+      blueprintIdWS.set(`${targetPack.name}/${b.name}`, { pack: targetPack, asset: b });
+      blueprintLocWS.set(`prj/${b.name}`, { pack: targetPack, asset: b });
+    }
   }
 
   // v17+（issue pt-scan-miss-use-chain）：expandProfile 所需的 profile/blueprint 视图
@@ -178,12 +196,16 @@ export async function scanProjectHealth(
     const packName = p.sourcePack ?? effectivePackName;
     profileByQualifiedName.set(`${packName}/${p.name}`, p);
   }
-  const blueprintByQualifiedName = new Map<
-    string,
-    { pack: typeof targetPack; asset: (typeof blueprints)[0] }
-  >();
-  for (const b of blueprints) {
-    blueprintByQualifiedName.set(`${effectivePackName}/${b.name}`, { pack: targetPack, asset: b });
+  const blueprintByQualifiedName =
+    workingSet?.blueprints?.identity ??
+    new Map<string, { pack: typeof targetPack; asset: (typeof blueprints)[0] }>();
+  if (!workingSet?.blueprints) {
+    for (const b of blueprints) {
+      blueprintByQualifiedName.set(`${effectivePackName}/${b.name}`, {
+        pack: targetPack,
+        asset: b,
+      });
+    }
   }
 
   // ===== 单 profile 循环：展开 → 规则 1/2/3 → 规则 4/7 =====
