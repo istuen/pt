@@ -10,9 +10,10 @@ import { getAgentAdapter } from "../../src/agent/index.js";
 
 describe("Profile 触发手册（listManuals）", () => {
   it("pt-design Profile 包含reference-manual注入点（Phase term-P9.2：Rules/Flows/Checklists 三段）", async () => {
-    // pt-design 是设计型 profile（user-info + agent-info + product-design + asset-workflow + pt-collab）
-    // —— 当前未含 Rules/Flows/Checklists 段内容，但 Blueprint 的"reference-manual"注入点已声明三段 schema。
-    // 验证：listManuals 返空（domain 没装手册内容时） + 注入点结构完整。
+    // pt-design 是设计型 profile（user-info + agent-info + product-design + asset-workflow + pt-collab + good-design）
+    // —— 引用域含 good-design（有 ## Rules 段，16 条规范），Blueprint 的"reference-manual"注入点声明三段 schema。
+    // 验证：listManuals 返非空（pt-design 引了含 Rules/Flows/Checklists 段的 domain）+ 注入点结构完整。
+    // 不锁"返空"——profile domains 追加是正常演进，测试应跟资产走（issue pt-flows-test-brittle-empty-assertion）。
     const r = await loadAndTranspile(process.cwd(), "pt-design");
     const b = r.bundles[0];
     expect(b).toBeDefined();
@@ -22,8 +23,16 @@ describe("Profile 触发手册（listManuals）", () => {
     const adapter = getAgentAdapter({} as never, "pi");
     adapter.setAgentContext(r.agentContext, r.blueprint, b.domains, r.profile);
     const flows = adapter.listManuals?.(r.agentContext, r.blueprint, b.domains) ?? [];
-    // pt-design 当前 domains 不含 Rules/Flows/Checklists 段内容——返空是预期
-    expect(flows).toEqual([]);
+
+    // 结构不变式：pt-design 至少引了一个含 Rules/Flows/Checklists 段的 domain
+    expect(flows.length).toBeGreaterThan(0);
+
+    // good-design 项的 name 格式契约（v18.x #7 防 regression）—— listManuals 的 term-Domain name 格式是 /pt_turn_inject <domain>
+    // 找不到不 fail（profile 可能换 domain），跳过格式校验；找到则校验 name 格式
+    const goodDesign = flows.find((f) => f.domain === "good-design");
+    if (goodDesign) {
+      expect(goodDesign.name).toMatch(/^\/pt_turn_inject good-design$/);
+    }
 
     // Blueprint 注入点声明 inject=turn——modules 由 ProfileGroup 提供（v9.1）
     const manualIp = r.blueprint.groups.find((ip) => ip.name === "reference-manual");
