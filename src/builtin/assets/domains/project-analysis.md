@@ -45,7 +45,7 @@ name: project-analysis
 - argument-hint: (无)
 - intent: 新手 5 步上手引导
 - vars: []
-- step: npm install @issac/pi-pt + 配置 pi.extensions（见 README）
+- step: npm install @istuen/pt + 配置 pi.extensions（见 README）
 - step: 激活内建 guide Profile——pi --pt-profile guide，或不设配置装包即自动激活
 - step: /pt 查看当前编译状态（profile + segment 长度 + cache hit）
 - step: 读 project-analysis 的 analyze-steps + section-as-namespace + role-isolation 分析自己项目的知识结构
