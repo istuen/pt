@@ -240,6 +240,13 @@ export interface AssetPack {
   readonly description?: string;
   readonly rootDir: string;
   readonly source: PackSource;
+  /** issue pt-cold-start-warning-noise（§短期方案 2）：manifest 警告列表。
+   *  parseManifest 收集的 name/version/desc 校验失败信息——由 /pt packs 展示。
+   *  空数组 = 无 manifest 警告（健康状态）。MdFilePack 实现填充。 */
+  readonly manifestWarnings: string[];
+  /** issue pt-cold-start-warning-noise（§短期方案 2）：settings pack 无 manifest 提示。
+   *  undefined = 无需提示（reserved pack 缺 manifest 是 back-compat 设计）。 */
+  readonly manifestMissingHint?: string;
   loadDomains(): Promise<Domain[]>;
   loadBlueprints(): Promise<Blueprint[]>;
   loadProfiles(): Promise<Profile[]>;

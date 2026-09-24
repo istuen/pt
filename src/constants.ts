@@ -49,6 +49,12 @@ export const FULL_DIR = ".pt/cache/fulls";
 /** /pt make-manual 输出目录（手册实例文档） */
 export const MANUAL_DIR = ".pt/manuals";
 
+/** pt 持久化 state 目录（issue pt-cold-start-warning-noise）：
+ *  跨 session 持久化需要变化检测的状态——典型用例：health-hash 持久化避免
+ *  反复弹"项目有 N errors"通知（issue §短期方案 1）。
+ *  不入 git（运行产物），与 .pt/cache 同层。 */
+export const STATE_DIR = ".pt/state";
+
 /** 内建资产根目录（随 npm 包发布，跨项目复用）。
  *  用 import.meta.url 定位包自身路径——不能用 cwd 相对路径（外部用户 cwd ≠ 包路径）。
  *  mdAdapter fallback：项目 .pt/assets/ 优先，内建补充；同名时项目覆盖内建。 */

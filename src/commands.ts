@@ -175,6 +175,18 @@ export function packsText(session: SessionState): string {
       const profiles = countByPrefix(ws.profiles.identity, prefix);
       lines.push(`    ${domains} domains, ${blueprints} blueprints, ${profiles} profiles`);
     }
+    // issue pt-cold-start-warning-noise（§短期方案 2）：manifest 警告被动展示位。
+    // session_start 不再弹 notify（消除冷启动噪音），用户主动 /pt packs 查时显示。
+    // - manifestWarnings: parseManifest 校验失败（name/version 非标准格式）
+    // - manifestMissingHint: settings pack 缺 manifest（reserved pack 缺是 back-compat，不显示）
+    const hints: string[] = [];
+    if (r.manifestWarnings.length > 0) {
+      hints.push(...r.manifestWarnings.map((w) => `manifest: ${w}`));
+    }
+    if (hints.length > 0) {
+      lines.push(`    ⚠ manifest hints:`);
+      for (const h of hints) lines.push(`      - ${h}`);
+    }
   }
   return lines.join("\n");
 }
