@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanProjectHealth } from "../../src/asset-health.js";
-import type { AssetPack, Blueprint, Domain, Profile } from "../../src/schema.js";
+import type { AssetPack, Blueprint, Domain, Profile, WorkingSet } from "../../src/schema.js";
 
 // v15.x PR2：scanProjectHealth 加 packs + profilePack 参数——测试用空 packs + "prj" 占位
 function scan(cwd: string, profiles: Profile[], blueprints: Blueprint[], domains: Domain[]) {
@@ -714,5 +714,84 @@ domains: []
       expect(empty.length).toBe(1);
       // 两条独立 issue，不去重（语义不同：rule 9 指根因，rule 4 指症状）
     });
+  });
+});
+
+// ==================== v17.1 regression: pack-aware lookup with proper workingSet ====================
+// c963bd4 + 76d1b46：scan 加 workingSet 参数以保留 per-asset pack identity。
+// 此组测试验证：scan 收到正确 workingSet 后，不会把 `@fullstack/foo` 误报为 pack drift。
+
+function makeMockPack(name: string): AssetPack {
+  return {
+    name,
+    version: "0.0.0",
+    rootDir: `/test/${name}`,
+    source: "settings",
+    loadDomains: () => Promise.resolve([]),
+    loadBlueprints: () => Promise.resolve([]),
+    loadProfiles: () => Promise.resolve([]),
+  };
+}
+
+describe("v17.1：scan 接收 workingSet 保留 pack identity", () => {
+  it("profile 引用 @fullstack/known-domain（限限定 ref，pack 正确）→ 不报 pack drift", async () => {
+    const cwd = await makeCwd();
+    const knownDomain = makeDomain({ name: "foo" });
+    const fullstackPack = makeMockPack("fullstack");
+    const projectPack = makeMockPack("prj");
+    const workingSet: { domains: WorkingSet<typeof knownDomain> } = {
+      domains: {
+        location: new Map([["prj/foo", { pack: projectPack, asset: knownDomain }]]),
+        identity: new Map([
+          ["fullstack/foo", { pack: fullstackPack, asset: knownDomain }],
+          ["prj/foo", { pack: projectPack, asset: knownDomain }],
+        ]),
+      },
+    };
+    const profile = makeProfile({
+      name: "test",
+      domains: ["@fullstack/foo"], // 限限定 ref 指向正确 pack
+    });
+    const r = await scanProjectHealth(
+      cwd,
+      [profile],
+      [makeBlueprint()],
+      [knownDomain],
+      [projectPack, fullstackPack],
+      "prj",
+      workingSet
+    );
+    // 修包后不应报 pack drift（issue pt-scan-pack-identity-fix）
+    const drift = r.issues.filter((i) => i.msg.includes("pack 改名漂移"));
+    expect(drift.length).toBe(0);
+  });
+
+  it("profile 引用 @fullstack/missing-domain（pack 改名漂移场景）→ 报 pack drift", async () => {
+    const cwd = await makeCwd();
+    const knownDomain = makeDomain({ name: "foo" });
+    const projectPack = makeMockPack("prj");
+    // 只有 project pack 的 workingSet，没有 fullstack pack
+    const workingSet: { domains: WorkingSet<typeof knownDomain> } = {
+      domains: {
+        location: new Map(),
+        identity: new Map([["prj/foo", { pack: projectPack, asset: knownDomain }]]),
+      },
+    };
+    const profile = makeProfile({
+      name: "test",
+      domains: ["@fullstack/foo"], // 限限定 ref 指向不存在的 pack
+    });
+    const r = await scanProjectHealth(
+      cwd,
+      [profile],
+      [makeBlueprint()],
+      [knownDomain],
+      [projectPack],
+      "prj",
+      workingSet
+    );
+    const drift = r.issues.filter((i) => i.msg.includes("pack 改名漂移"));
+    expect(drift.length).toBe(1);
+    expect(drift[0]?.msg).toContain("fullstack");
   });
 });
