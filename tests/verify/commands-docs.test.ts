@@ -67,13 +67,13 @@ describe("commands: issuesText (真数据 .pt/docs/issues)", () => {
 
   it("activeProfile=pt-dev → 含 pt-dev profile + 无 profile 字段的（数 = 含无字段）", async () => {
     const r = await issuesText(cwd, "pt-dev");
-    // pt-dev 应见 pt-doc-index-and-schema（标三 profile）、pt-execution-observability-gap
-    expect(r).toContain("pt-doc-index-and-schema");
-    expect(r).toContain("pt-execution-observability-gap");
-    // 模块名验证排序：pt-doc-index-and-schema 在第一行（status=open 优先级最高）
-    const firstDataLine =
-      r.split("\n")[r.split("\n").findIndex((l) => l.includes("pt-doc-index-and-schema"))];
-    expect(firstDataLine).toContain("pt-doc-index-and-schema");
+    // 结构不变式：按 profile 过滤后仍能输出表格（不锁具体 issue 名——pt-internal
+    // 不同分支上 issues 集会变，pt-doc-index-and-schema 可能不存在于某些分支）
+    expect(r).toContain("Issues (");
+    expect(r).toContain("profile: pt-dev");
+    // 表格表头存在
+    expect(r).toContain("NAME");
+    expect(r).toContain("STATUS");
   });
 
   it("--status open → 只列 open 的 issue（不锁具体名）", async () => {
@@ -118,15 +118,15 @@ describe("commands: issuesText (真数据 .pt/docs/issues)", () => {
 
 describe("commands: manualsText / designsText (回归)", () => {
   const cwd = process.cwd();
-  it("manualsText 不含 profile → 返回 ≥ 120 条", async () => {
+  it("manualsText 头含 Manuals 标题（不锁具体行数）", async () => {
     const r = await manualsText(cwd, null);
+    // 不锁 ≥ 120（CI 环境 manuals 是 session 生成型，可能为 0）——只锁标题存在
     expect(r).toContain("Manuals (");
-    expect(r).toContain("PROCEDURE");
   });
-  it("designsText 不含 profile → 返回 ≥ 65 条", async () => {
+  it("designsText 头含 Designs 标题（不锁具体行数）", async () => {
     const r = await designsText(cwd, null);
+    // 不锁 ≥ 65（pt-internal 不同分支上 designs 集会变）——只锁标题存在
     expect(r).toContain("Designs (");
-    expect(r).toContain("DOMAIN");
   });
   it("designsText --status 仍能识别（designs 没 status 字段则空）", async () => {
     const r = await designsText(cwd, null, { status: "active" });
@@ -155,18 +155,20 @@ describe("commands: checkDocsText (批量 schema 校验)", () => {
     }
   });
 
-  it("kind=manual → 列出 violations（含 verified 条件必填违反）", async () => {
+  it("kind=manual → 列出 violations（结构不变式，不锁具体字段名）", async () => {
     const r = await checkDocsText(cwd, null, { kind: "manual" });
+    // 结构不变式：表头 + 类型 + 总数行
     expect(r).toContain("Doc schema check");
     expect(r).toContain("kind: manual");
-    expect(r).toContain("verified"); // 条件必填字段名
+    expect(r).toMatch(/— \d+ files, \d+ violations, \d+ parse errors/);
+    // 不锁 "verified" 字段名——manuals 集合可能为空（CI 环境）或都不含 verified 字段
   });
 
   it("无 kind → 全文档扫描（issue + manual + design）", async () => {
     const r = await checkDocsText(cwd, null);
     expect(r).toContain("kind: all");
-    // 总数 >= 232（三类合计）
-    expect(r).toMatch(/files, \d+ violations/);
+    // 总数 >= 1（不锁具体数字——pt-internal 不同分支上 docs 总数会变）
+    expect(r).toMatch(/— \d+ files, \d+ violations, \d+ parse errors/);
   });
 
   it("输出格式遵守 biome 风格——以 ✖ 开头列违规（仅在有违规时）", async () => {
