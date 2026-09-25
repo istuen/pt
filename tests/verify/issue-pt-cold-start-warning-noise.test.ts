@@ -178,7 +178,12 @@ describe("MdFilePack.create 静默（issue pt-cold-start-warning-noise §短期�
   it("settings pack 无 manifest → 不 notify，manifestMissingHint 填充", async () => {
     const root = await mkAssetRoot("silent-settings-no-manifest");
     const adapterCtx = {
-      log: { warn: () => undefined, info: () => undefined, error: () => undefined, debug: () => undefined },
+      log: {
+        warn: () => undefined,
+        info: () => undefined,
+        error: () => undefined,
+        debug: () => undefined,
+      },
       notify: () => {
         throw new Error("notify should NOT be called by MdFilePack.create");
       },
@@ -193,7 +198,12 @@ describe("MdFilePack.create 静默（issue pt-cold-start-warning-noise §短期�
     const root = await mkAssetRoot("silent-settings-bad-name");
     await writeFile(join(root, "pt-asset-pack.yaml"), `name: "Bad Name"\n`);
     const adapterCtx = {
-      log: { warn: () => undefined, info: () => undefined, error: () => undefined, debug: () => undefined },
+      log: {
+        warn: () => undefined,
+        info: () => undefined,
+        error: () => undefined,
+        debug: () => undefined,
+      },
       notify: () => {
         throw new Error("notify should NOT be called");
       },
@@ -206,7 +216,12 @@ describe("MdFilePack.create 静默（issue pt-cold-start-warning-noise §短期�
   it("reserved pack（project）无 manifest → 不 notify，不填 hint（back-compat 设计）", async () => {
     const root = await mkAssetRoot("silent-project-no-manifest");
     const adapterCtx = {
-      log: { warn: () => undefined, info: () => undefined, error: () => undefined, debug: () => undefined },
+      log: {
+        warn: () => undefined,
+        info: () => undefined,
+        error: () => undefined,
+        debug: () => undefined,
+      },
       notify: () => {
         throw new Error("notify should NOT be called");
       },

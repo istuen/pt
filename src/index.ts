@@ -388,8 +388,7 @@ export default function (pi: ExtensionAPI): void {
       if (projectResult && !projectResult.ok) {
         s.projectPackDegraded = true;
         const firstErr = projectResult.errors[0];
-        const projectFailCount =
-          s.transientValidationFailures.get(projectResult.pack) ?? 0;
+        const projectFailCount = s.transientValidationFailures.get(projectResult.pack) ?? 0;
         if (projectFailCount >= TRANSIENT_NOTIFY_THRESHOLD) {
           // 达到阈值才 notify——前 N-1 次仅 log（已在 transientValidation:failed 记录）
           ctx.ui.notify(

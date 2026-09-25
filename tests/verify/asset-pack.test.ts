@@ -1723,6 +1723,9 @@ describe("M2 PR4 session_start settings pack 校验预警（§6.7.5）", () => {
     const settingsWarn = notifs.find(
       (n) => n.level === "warning" && n.msg.includes("settings pack") && n.msg.includes("已跳过")
     );
-    expect(settingsWarn, `expected NO settings pack warn on first fail, got: ${JSON.stringify(notifs)}`).toBeUndefined();
+    expect(
+      settingsWarn,
+      `expected NO settings pack warn on first fail, got: ${JSON.stringify(notifs)}`
+    ).toBeUndefined();
   });
 });
