@@ -38,7 +38,7 @@ import { parseManifest } from "./manifest.js";
  *
  * PR2：构造从 sync 改 async（读 manifest），走 `MdFilePack.create()` 工厂方法。
  * name 解析优先级（§2.4.2）：
- *   - reserved pack（source=project/global/builtin）→ 固定名 prj/gbl/pt，跳过 manifest
+ *   - reserved pack（source=project/builtin）→ 固定名 prj/pt，跳过 manifest
  *   - 显式 pack + 合法 manifest.name → manifest.name
  *   - 隐式 pack（无 manifest / manifest 无 name / name 校验失败）→ basename 兜底
  *
@@ -54,6 +54,12 @@ export class MdFilePack implements AssetPack {
   readonly source: PackSource;
   /** adapterCtx 可选——parse 失败时调 reportError 走 notify + log 通道。 */
   private readonly adapterCtx: SourceAdapterContext | undefined;
+  /** issue pt-cold-start-warning-noise（§短期方案 2）：manifest 警告列表（name/version/desc 校验失败）。
+   *  parseManifest.warnings 原样透传——session_start 不弹通知，由 /pt packs 主动展示。 */
+  readonly manifestWarnings: string[];
+  /** issue pt-cold-start-warning-noise（§短期方案 2）：settings pack 无 manifest 时的提示。
+   *  undefined = 不展示（reserved pack 无 manifest 是 back-compat 设计）。 */
+  readonly manifestMissingHint: string | undefined;
 
   private constructor(args: {
     rootDir: string;
@@ -62,6 +68,11 @@ export class MdFilePack implements AssetPack {
     description?: string;
     source: PackSource;
     adapterCtx?: SourceAdapterContext;
+    manifestWarnings: string[];
+    /** issue pt-cold-start-warning-noise（§短期方案 2）：manifest 缺失提示。
+     *  仅 settings pack 缺失 manifest 时填字符串（reserved pack 无 manifest 是 back-compat 设计）。
+     *  在 /pt packs 输出，session_start 不弹窗。 */
+    manifestMissingHint?: string;
   }) {
     this.rootDir = args.rootDir;
     this.name = args.name;
@@ -69,6 +80,10 @@ export class MdFilePack implements AssetPack {
     this.description = args.description;
     this.source = args.source;
     this.adapterCtx = args.adapterCtx;
+    this.manifestWarnings = args.manifestWarnings;
+    if (args.manifestMissingHint !== undefined) {
+      this.manifestMissingHint = args.manifestMissingHint;
+    }
   }
 
   /** 位置别名退化表（v15.x §2.4.2 缺口 1-b）：reserved pack 无 manifest 时 name 退化到位置别名。
@@ -93,28 +108,17 @@ export class MdFilePack implements AssetPack {
     const manifest = await parseManifest(args.rootDir, args.source);
     const dirName = pathBasename(args.rootDir);
 
-    // manifest warnings 上抛 notify（不阻断——parseManifest 已容错）
-    if (args.adapterCtx?.notify) {
-      if (manifest.warnings.length > 0) {
-        // 检测 [repair-required] 前缀的 warnings——加 manual hint 引导 LLM 调 /pt_turn_inject pack-management
-        const hasRepairRequired = manifest.warnings.some((w) => w.startsWith("[repair-required]"));
-        const manualHint = hasRepairRequired
-          ? "\n→ 调 /pt_turn_inject pack-management 让 LLM 自动修复"
-          : "";
-        args.adapterCtx.notify(
-          `Pt: pack "${dirName}" manifest 警告：${manifest.warnings.join("; ")}${manualHint}`,
-          "warning"
-        );
-      } else if (!manifest.ok && args.source === "settings") {
-        // v15.x §2.4.2 + pack-naming：reserved pack（project/builtin）无 manifest 是
-        // back-compat 退化路径（退到位置别名 prj/pt），设计预期——silent。
-        // 只有 settings pack（用户主动声明）无 manifest 时才通知：basename 兜底"易碎"，
-        // 建议加 pt-asset-pack.yaml 让 pack 成为自描述实体，/pt_turn_inject pack-management#pack-create。
-        args.adapterCtx.notify(
-          `Pt: pack "${dirName}" 无 manifest（basename 兜底）— 建议添加 pt-asset-pack.yaml 让 pack 成为自描述实体。/pt_turn_inject pack-management#pack-create`,
-          "warning"
-        );
-      }
+    // issue pt-cold-start-warning-noise（§短期方案 2）：manifest 警告不再 notify——
+    //   改为存到 MdFilePack.manifestWarnings / manifestMissingHint 字段，
+    //   装载到 ValidationResult.manifestWarnings 后由 /pt packs 主动展示。
+    //   删 notify 之前行为：每次 session_start 弹 "pack X manifest 警告..." 噪音；
+    //   user 反馈"我没改任何东西却反复被警告轰炸"。
+    //   替代通道：user 主动跑 /pt packs 或 pt_packs tool 看到 manifestWarnings；
+    //   pack 作者关心 → /pt_turn_inject pack-management#pack-repair 自动 fix。
+    let manifestMissingHint: string | undefined;
+    if (manifest.warnings.length === 0 && !manifest.ok && args.source === "settings") {
+      // 仅 settings pack 缺失 manifest 时存 hint——reserved pack 缺 manifest 是 back-compat 设计。
+      manifestMissingHint = `pack "${dirName}" 无 manifest（basename 兜底）— 建议添加 pt-asset-pack.yaml 让 pack 成为自描述实体。/pt_turn_inject pack-management#pack-create`;
     }
 
     // name 解析优先级（§2.4.2）：
@@ -131,6 +135,8 @@ export class MdFilePack implements AssetPack {
       description: manifest.description,
       source: args.source,
       adapterCtx: args.adapterCtx,
+      manifestWarnings: manifest.warnings,
+      manifestMissingHint,
     });
   }
 

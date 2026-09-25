@@ -20,8 +20,31 @@ import { MANUAL_DIR, MOD_FLOWS } from "./constants.js";
 import { bindFlowTemplate, findFlowInBlueprint } from "./render/turn-inject.js";
 import type { AssetHealthIssue } from "./asset-health.js";
 import type { SessionState } from "./session.js";
+import {
+  scanDocs,
+  filterByProfile,
+  filterByStatus,
+  countParseErrors,
+  type DocRecord,
+  type DocKind,
+} from "./doc-index.js";
+import { validateDoc, type DocValidationResult } from "./verify/doc-structure-match.js";
 import { filterDomainsByProfile } from "./schema.js";
 import { isFlowTemplateLike } from "./compile/type-guards.js";
+
+/**
+ * Issue L1 命令层选项（Phase 3，§Issue pt-doc-index-and-schema L1）。
+ *  - profile / status：null 表示不过滤（caller 决定要不要降级）
+ *  - kind：仅 checkDocsText 使用，限定检查的文档类型 */
+export interface ListDocsOptions {
+  profile?: string | null;
+  status?: string | null;
+  kind?: DocKind;
+}
+
+/** Phase 3（issue pt-doc-index-and-schema L1）：/pt issues / manuals / designs 列表选项。
+ *  - profile / status 字段同时出现在 ListDocsOptions（设计文档共用）——为双注册提供统一形参 */
+export interface IssuesTextOptions extends ListDocsOptions {}
 
 /** /pt status 内核：返回状态摘要文本（单行 | 分隔）。 */
 export function statusText(session: SessionState): string {
@@ -151,6 +174,18 @@ export function packsText(session: SessionState): string {
       const blueprints = countByPrefix(ws.blueprints.identity, prefix);
       const profiles = countByPrefix(ws.profiles.identity, prefix);
       lines.push(`    ${domains} domains, ${blueprints} blueprints, ${profiles} profiles`);
+    }
+    // issue pt-cold-start-warning-noise（§短期方案 2）：manifest 警告被动展示位。
+    // session_start 不再弹 notify（消除冷启动噪音），用户主动 /pt packs 查时显示。
+    // - manifestWarnings: parseManifest 校验失败（name/version 非标准格式）
+    // - manifestMissingHint: settings pack 缺 manifest（reserved pack 缺是 back-compat，不显示）
+    const hints: string[] = [];
+    if (r.manifestWarnings.length > 0) {
+      hints.push(...r.manifestWarnings.map((w) => `manifest: ${w}`));
+    }
+    if (hints.length > 0) {
+      lines.push(`    ⚠ manifest hints:`);
+      for (const h of hints) lines.push(`      - ${h}`);
     }
   }
   return lines.join("\n");
@@ -443,4 +478,366 @@ export function checkText(session: SessionState, opts: CheckOptions = {}): Check
     warnings: warningCount,
     infos: infoCount,
   };
+}
+
+// =====================================================================
+// Phase 3（.pt/docs/issues/pt-doc-index-and-schema.md L1）：文档列表命令内核
+//
+// 设计动机：
+//   - /pt issues | /pt manuals | /pt designs | /pt check-docs 四个命令共享同一内核模式
+//   - frontmatter 是真相源，命令层实时聚合，不落盘 index.md
+//   - 纯函数：cwd + activeProfile + opts → 格式化字符串，可单测
+//   - 表格列：NAME / STATUS / SEVERITY / CREATED / PROFILE
+//   - 缺 frontmatter 的文档仍列出（PROFILE 列显 —），降级兼容未迁移文档
+//
+// 排序：
+//   - status 优先（open > in-progress > resolved > closed > 其他）
+//   - 同 status 按 created 倒序（newest first）
+// =====================================================================
+
+/** status 排序权重——值小=优先级高 */
+const STATUS_ORDER: Record<string, number> = {
+  open: 0,
+  "in-progress": 1,
+  resolved: 2,
+  closed: 3,
+  wontfix: 4,
+  rejected: 5,
+  active: 0, // design: active 排第一
+  draft: 1,
+  implemented: 2,
+  superseded: 3,
+  abandoned: 4,
+  completed: 0, // manual: completed 排第一（手动实例完成态是常态）
+  // 默认: 99 (其他值按 created 倒序)
+};
+
+/** DocRecord 排序比较器：status 优先 + created 倒序 */
+function compareDocRecords(a: DocRecord, b: DocRecord): number {
+  const sa = (a.frontmatter?.status as string | undefined) ?? "";
+  const sb = (b.frontmatter?.status as string | undefined) ?? "";
+  const oa = STATUS_ORDER[sa] ?? 99;
+  const ob = STATUS_ORDER[sb] ?? 99;
+  if (oa !== ob) return oa - ob;
+  const ca = (a.frontmatter?.created as string | undefined) ?? "";
+  const cb = (b.frontmatter?.created as string | undefined) ?? "";
+  return cb.localeCompare(ca); // 倒序——newest first
+}
+
+/** 把 profile 字段格式化为字符串（数组 → 逗号分隔 / 字符串原样 / 缺省 —） */
+function formatProfileField(fm: Record<string, unknown> | null): string {
+  if (!fm) return "—";
+  const p = fm.profile;
+  if (p === undefined || p === null) return "—";
+  if (typeof p === "string") return p;
+  if (Array.isArray(p)) return p.filter((s) => typeof s === "string").join(",");
+  return "—";
+}
+
+/** severity 缺省占位（issues 有 severity，designs/manuals 无） */
+function formatSeverityField(fm: Record<string, unknown> | null): string {
+  const sev = fm?.severity;
+  return typeof sev === "string" ? sev : "—";
+}
+
+/** created 字段格式化（兼容 ISO date / date-time） */
+function formatCreatedField(fm: Record<string, unknown> | null): string {
+  const c = fm?.created;
+  return typeof c === "string" ? c : "—";
+}
+
+/** 把 DocRecord 列表格式化为表格行（按指定列宽对齐，可单测断言）。
+ *  - columns：列名 → 取值函数（统一接口，issues/manuals/designs 三种格式复用） */
+function formatDocTable(
+  docs: DocRecord[],
+  title: string,
+  columns: Array<{ header: string; value: (d: DocRecord) => string; width: number }>
+): string {
+  const lines: string[] = [];
+  const total = docs.length;
+  const filtered = total; // 计数在调用方算
+  const parseErrs = countParseErrors(docs);
+
+  // header
+  lines.push(
+    `${title} (${filtered} shown${filtered !== total ? ` of ${total}` : ""}, ${parseErrs} parse errors)`
+  );
+
+  if (total === 0) {
+    lines.push("  (no documents match filter)");
+    return lines.join("\n");
+  }
+
+  // 排序
+  const sorted = [...docs].sort(compareDocRecords);
+
+  // 列宽
+  const computedWidths = columns.map((col) => {
+    let w = col.header.length;
+    for (const d of sorted) {
+      const v = col.value(d);
+      if (v.length > w) w = v.length;
+    }
+    return Math.min(w, col.width);
+  });
+
+  // 表头
+  const headerRow = columns.map((col, i) => col.header.padEnd(computedWidths[i])).join("  ");
+  lines.push(`  ${headerRow}`);
+  // 分隔行（视觉分隔）
+  lines.push(`  ${columns.map((_, i) => "─".repeat(computedWidths[i])).join("  ")}`);
+
+  // 数据行
+  for (const d of sorted) {
+    const row = columns
+      .map((col, i) => col.value(d).slice(0, computedWidths[i]).padEnd(computedWidths[i]))
+      .join("  ");
+    lines.push(`  ${row}`);
+  }
+  return lines.join("\n");
+}
+
+/** 优先级：opts.profile > activeProfile > null（不过滤）
+ *  整 null/undefined 为 null，让 doc-index 走"不过滤"分支 */
+function resolveProfile(
+  opts: { profile?: string | null } | undefined,
+  activeProfile: string | null
+): string | null {
+  const o = opts?.profile;
+  if (o !== undefined && o !== null && o !== "") return o;
+  return activeProfile;
+}
+
+/** /pt issues 内核：扫 .pt/docs/issues，按 profile/status 过滤 + 表格格式化 */
+export async function issuesText(
+  cwd: string,
+  activeProfile: string | null,
+  opts?: IssuesTextOptions
+): Promise<string> {
+  const profile = resolveProfile(opts, activeProfile);
+  let docs = await scanDocs(cwd, "issue");
+  const totalCount = docs.length;
+  docs = filterByProfile(docs, profile);
+  docs = filterByStatus(docs, opts?.status ?? null);
+  const afterFilter = totalCount - docs.length;
+  const title = `Issues (profile: ${profile ?? "(any)"}, status: ${opts?.status ?? "(any)"})`;
+  const table = formatDocTable(docs, title, [
+    { header: "NAME", value: (d) => d.fileName, width: 60 },
+    { header: "STATUS", value: (d) => (d.frontmatter?.status as string) ?? "—", width: 12 },
+    { header: "SEVERITY", value: (d) => formatSeverityField(d.frontmatter), width: 9 },
+    { header: "CREATED", value: (d) => formatCreatedField(d.frontmatter), width: 10 },
+    { header: "PROFILE", value: (d) => formatProfileField(d.frontmatter), width: 40 },
+  ]);
+  if (afterFilter > 0) {
+    return `${table}\n(${docs.length}/${totalCount} shown; ${afterFilter} filtered out)`;
+  }
+  return table;
+}
+
+/** /pt manuals 内核 */
+export async function manualsText(
+  cwd: string,
+  activeProfile: string | null,
+  opts?: IssuesTextOptions
+): Promise<string> {
+  const profile = resolveProfile(opts, activeProfile);
+  let docs = await scanDocs(cwd, "manual");
+  const totalCount = docs.length;
+  docs = filterByProfile(docs, profile);
+  docs = filterByStatus(docs, opts?.status ?? null);
+  const afterFilter = totalCount - docs.length;
+  const title = `Manuals (profile: ${profile ?? "(any)"}, status: ${opts?.status ?? "(any)"})`;
+  const table = formatDocTable(docs, title, [
+    { header: "NAME", value: (d) => d.fileName, width: 60 },
+    {
+      header: "PROCEDURE",
+      value: (d) => (d.frontmatter?.procedure as string) ?? "—",
+      width: 25,
+    },
+    { header: "STATUS", value: (d) => (d.frontmatter?.status as string) ?? "—", width: 12 },
+    { header: "CREATED", value: (d) => formatCreatedField(d.frontmatter), width: 25 },
+    { header: "PROFILE", value: (d) => formatProfileField(d.frontmatter), width: 40 },
+  ]);
+  if (afterFilter > 0) {
+    return `${table}\n(${docs.length}/${totalCount} shown; ${afterFilter} filtered out)`;
+  }
+  return table;
+}
+
+/** /pt designs 内核 */
+export async function designsText(
+  cwd: string,
+  activeProfile: string | null,
+  opts?: IssuesTextOptions
+): Promise<string> {
+  const profile = resolveProfile(opts, activeProfile);
+  let docs = await scanDocs(cwd, "design");
+  const totalCount = docs.length;
+  docs = filterByProfile(docs, profile);
+  docs = filterByStatus(docs, opts?.status ?? null);
+  const afterFilter = totalCount - docs.length;
+  const title = `Designs (profile: ${profile ?? "(any)"}, status: ${opts?.status ?? "(any)"})`;
+  const table = formatDocTable(docs, title, [
+    { header: "NAME", value: (d) => d.fileName, width: 60 },
+    { header: "DOMAIN", value: (d) => (d.frontmatter?.domain as string) ?? "—", width: 25 },
+    { header: "PHASE", value: (d) => (d.frontmatter?.phase as string) ?? "—", width: 10 },
+    { header: "CREATED", value: (d) => formatCreatedField(d.frontmatter), width: 10 },
+    { header: "PROFILE", value: (d) => formatProfileField(d.frontmatter), width: 40 },
+  ]);
+  if (afterFilter > 0) {
+    return `${table}\n(${docs.length}/${totalCount} shown; ${afterFilter} filtered out)`;
+  }
+  return table;
+}
+
+/** Phase 3：subArgs 解析 --key 与 --key=value 形态（与 /pt make-manual 的 --issue 解析同模式）。
+ *  返回的对象只包含实际出现的 key；不出现的字段为 undefined。
+ *  v12.x：纯函数——单测只测字符串解析逻辑，不依赖 UI/session。 */
+export function parseListFlags(args: string): {
+  profile?: string;
+  status?: string;
+  kind?: string;
+} {
+  const tokens = args
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0);
+  const out: { profile?: string; status?: string; kind?: string } = {};
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t === undefined) continue;
+    if (t === "--profile" || t === "-p") {
+      const next = tokens[i + 1];
+      if (next && !next.startsWith("--")) {
+        out.profile = next;
+        i++;
+      }
+      continue;
+    }
+    if (t.startsWith("--profile=")) {
+      out.profile = t.slice("--profile=".length);
+      continue;
+    }
+    if (t === "--status") {
+      const next = tokens[i + 1];
+      if (next && !next.startsWith("--")) {
+        out.status = next;
+        i++;
+      }
+      continue;
+    }
+    if (t.startsWith("--status=")) {
+      out.status = t.slice("--status=".length);
+      continue;
+    }
+    if (t === "--kind") {
+      const next = tokens[i + 1];
+      if (next && !next.startsWith("--")) {
+        out.kind = next;
+        i++;
+      }
+      continue;
+    }
+    if (t.startsWith("--kind=")) {
+      out.kind = t.slice("--kind=".length);
+    }
+  }
+  return out;
+}
+
+/** kind → schema 名映射（两级查找：项目级 .pt/schemas/ 覆盖 > builtin fallback） */
+const KIND_SCHEMA: Record<DocKind, string> = {
+  issue: "issue.frontmatter.schema.json",
+  manual: "manual.frontmatter.schema.json",
+  design: "design.frontmatter.schema.json",
+};
+
+/** /pt check-docs 内核：批量 schema 校验（biome 风格输出）。
+ *  - kind：指定扫哪类文档；不传则扫全部 issue/manual/design
+ *  - 每类文档同时过滤 profile（与 issuesText / manualsText / designsText 一致） */
+export async function checkDocsText(
+  cwd: string,
+  activeProfile: string | null,
+  opts?: IssuesTextOptions
+): Promise<string> {
+  const kinds: DocKind[] = opts?.kind ? [opts.kind] : ["issue", "manual", "design"];
+  const profile = opts?.profile !== undefined ? opts.profile : activeProfile;
+
+  let totalFiles = 0;
+  let totalViolations = 0;
+  const allViolations: Array<{
+    path: string;
+    errors: string[];
+    reason?: string;
+    kind: DocKind;
+  }> = [];
+  const allParseErrors: Array<{ path: string; err: string }> = [];
+
+  for (const kind of kinds) {
+    let docs = await scanDocs(cwd, kind);
+    docs = filterByProfile(docs, profile);
+    totalFiles += docs.length;
+    for (const d of docs) {
+      if (d.parseError) {
+        allParseErrors.push({ path: d.filePath, err: d.parseError });
+      }
+    }
+    for (const d of docs) {
+      if (d.parseError) continue; // frontmatter 都解析不动 + 前一个循环入了 parse errors
+      try {
+        const r: DocValidationResult = await validateDoc(cwd, d.filePath, KIND_SCHEMA[kind]);
+        if (r.ok) continue;
+        if (r.reason) {
+          allViolations.push({ path: d.filePath, errors: [], reason: r.reason, kind });
+        } else {
+          totalViolations += 1;
+          allViolations.push({ path: d.filePath, errors: r.errors, kind });
+        }
+      } catch (e) {
+        // IO 错（如 schema 文件被删）——归为 parse error
+        allParseErrors.push({ path: d.filePath, err: e instanceof Error ? e.message : String(e) });
+      }
+    }
+  }
+
+  // 格式化输出
+  const lines: string[] = [];
+  const kindLabel = opts?.kind ? `${opts.kind}` : "all";
+  lines.push(
+    `Doc schema check (kind: ${kindLabel}, profile: ${profile ?? "(any)"}) — ${totalFiles} files, ${totalViolations} violations, ${allParseErrors.length} parse errors`
+  );
+  lines.push("");
+  // biome 风格：× 违规文件清单
+  if (allViolations.length === 0) {
+    lines.push(`✓ ${totalFiles}/${totalFiles} files OK`);
+    if (allParseErrors.length > 0) {
+      lines.push("");
+      lines.push(`Parse errors (${allParseErrors.length}):`);
+      for (const pe of allParseErrors.slice(0, 20)) {
+        lines.push(`  ✖ ${pe.path}`);
+        lines.push(`    ${pe.err}`);
+      }
+      if (allParseErrors.length > 20) {
+        lines.push(`  ... and ${allParseErrors.length - 20} more`);
+      }
+    }
+    return lines.join("\n");
+  }
+  for (const v of allViolations) {
+    lines.push(`✖ ${v.path}`);
+    if (v.reason) {
+      lines.push(`  ${v.reason}`);
+    } else {
+      for (const e of v.errors) {
+        lines.push(`  ${e}`);
+      }
+    }
+    lines.push("");
+  }
+  // trim trailing blank
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  const okCount = totalFiles - allViolations.length;
+  lines.push("");
+  lines.push(`  ${okCount}/${totalFiles} files OK`);
+  return lines.join("\n");
 }

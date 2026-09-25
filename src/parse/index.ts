@@ -5,11 +5,11 @@
 // 按目录位置分发载体（domains/ → domain adapter / blueprints/ → blueprint adapter / profiles/ → profile adapter）。
 //
 // v15.x PR1（§3.1）：mdAdapter.load 改为构造 AssetPack[] → 加载 → N 元 dedupByNameN。
-//   - 加载顺序：project → settings → global → builtin（settings PR1 stub 返空）
+//   - 加载顺序：project → settings → builtin
 //   - settings 数组内部 reverse（§3.3.1 后者赢）
 //   - 删除 loadAllDomains/loadAllBlueprints/loadAllProfiles/loadAllBuiltin* 旧函数
 //     ——它们的逻辑已迁入 src/asset-pack/md-file-pack.ts
-//   - back-compat：settingsPacks=[] 时，dedupByNameN([project, global, builtin])
+//   - back-compat：settingsPacks=[] 时，dedupByNameN([project, builtin])
 //     退化等价于今天的 dedupByName(project, builtin)（project 前者赢，builtin 补充）。
 
 import type {
@@ -176,7 +176,7 @@ export const mdAdapter: SourceAdapter = {
 };
 
 /** v15.x PR3：找 active profile——支持 "foo" 和 "@pack/foo" 两种。
- *  限定 ref 直接查目标 pack；不限定按 packs 顺序前者赢（project > settings 倒序 > global > builtin）。
+ *  限定 ref 直接查目标 pack；不限定按 packs 顺序前者赢（project > settings 倒序 > builtin）。
  *  v15.x PR4：settings 倒序逻辑由 mdAdapter.load 构造 packs 时已处理，findActiveProfile 不变。 */
 function findActiveProfile(
   packs: AssetPack[],
@@ -232,7 +232,7 @@ function findProfilePack(
  *  3 个场景区分：
  *    - 场景 A（路径重叠）：settings pack rootDir 与 project pack 一致 → throw + "路径重叠"
  *    - 场景 B（不同路径同名）：多个 settings pack 同 manifest.name 但 rootDir 不同 → throw + "不同路径同 name"
- *    - back-compat：project/settings 覆盖 global/builtin 是合理优先级 → 不 throw，静默（§3.4 表）
+ *    - back-compat：project/settings 覆盖 builtin 是合理优先级 → 不 throw，静默（§3.4 表）
  *  错误从 session_start catch 透出到 ctx.ui.notify("error")——用户能直接看到场景区分。
  *
  *  reserved 名（prj/gbl/pt）只 1 份，不会冲突。settings pack manifest.name 不能是 reserved 名
@@ -249,7 +249,7 @@ function checkPackNameConflicts(packs: AssetPack[], _adapterCtx?: SourceAdapterC
     // 同 name 多份——按是否含 settings source 分类处理
     const hasSettings = group.some((p) => p.source === "settings");
     if (!hasSettings) {
-      // 没有 settings 来源：project+global/builtin 同名 = 合理优先级（§3.4 表），静默
+      // 没有 settings 来源：project+builtin 同名 = 合理优先级（§3.4 表），静默
       // 不可能发生（manifest 校验挡 reserved name）；保留分支以防未来加新 source
       continue;
     }

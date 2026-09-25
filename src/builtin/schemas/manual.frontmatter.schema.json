@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pt.dev/schemas/manual.frontmatter.schema.json",
+  "title": "Pt Manual Instance Frontmatter",
+  "description": "Pt manual 实例 frontmatter schema。manual 实例放在 .pt/manuals/<procedure>-<ts>.md，由 pt_make_manual 生成，含 checklist + 执行状态表 + 产物日志。frontmatter 是唯一真相源——/pt manuals 命令实时扫描聚合。domain 字段表达 FlowTemplate 归属（如 development / dev-workflow），profile 字段表达角色归属（跨角色交接时用数组）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["procedure", "domain", "created", "status"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "manual",
+      "description": "文档类型标识，固定为 manual。可选字段——pt_make_manual 生成的实例可不写。"
+    },
+    "procedure": {
+      "type": "string",
+      "description": "FlowTemplate 名（如 deliver-feature / feature-lifecycle / issue-lifecycle / regression-verify）。对应 /pt flows 列出的可用手册。"
+    },
+    "domain": {
+      "type": "string",
+      "description": "FlowTemplate 归属的 Domain 名（如 development / dev-workflow / issue-workflow）。表达'用哪个工作流'，不是角色 Profile 名。"
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time",
+      "description": "创建时间，ISO 8601 datetime。pt_make_manual 自动写入 Date.now()。"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "最近更新时间，ISO 8601 datetime。"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["in-progress", "completed", "abandoned"],
+      "description": "manual 实例生命周期状态。in-progress=执行中 / completed=已完成 / abandoned=放弃。原 rejected 统一为 abandoned。"
+    },
+    "args": {
+      "type": "string",
+      "description": "传给 FlowTemplate 的参数（如 task-id / issue name / feature 描述）。pt_make_manual 的 args 参数。"
+    },
+    "profile": {
+      "description": "Profile 归属（角色视角）。单个或数组。缺省=全 profile 可见。manual 天然跨角色交接（设计→实现→部署），用数组表达，如 [pt-arch, pt-dev, pt-devops]。",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true }
+      ]
+    },
+    "issue": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "关联 issue 的 name（单值）。manual 为某 issue 服务时填。统一字段名：原 issue-link → issue。"
+    },
+    "source": {
+      "type": "string",
+      "description": "来源 design 文档路径。manual 由某 design 派生时填。"
+    },
+    "approach": {
+      "type": "string",
+      "description": "采用的方案标识（多方案择一时记录选了哪个）。"
+    },
+    "branch": {
+      "type": "string",
+      "description": "执行 manual 时的工作分支名。"
+    },
+    "verified": {
+      "type": "boolean",
+      "description": "是否已独立验收。completed 状态建议填 true。"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+      "then": { "required": ["verified"] }
+    }
+  ]
+}

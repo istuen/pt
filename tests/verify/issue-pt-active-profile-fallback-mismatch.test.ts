@@ -19,7 +19,9 @@ function makePack(name: string, rootDir: string): AssetPack {
     name,
     rootDir,
     version: "0.0.0",
-    source: name === "prj" ? "project" : name === "pt" ? "builtin" : "global",
+    // v15.x PR7（issue pt-remove-global-pack 移除）：fallback 默认值改 "settings"（"global" 已不在 PackSource）
+    source: name === "prj" ? "project" : "settings",
+    manifestWarnings: [],
     loadDomains: () => Promise.resolve([]),
     loadBlueprints: () => Promise.resolve([]),
     loadProfiles: () => Promise.resolve([]),

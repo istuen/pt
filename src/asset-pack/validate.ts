@@ -49,6 +49,12 @@ export interface ValidationResult {
   description?: string;
   /** v15.x PR2（§6.7.6 展示用）：pack rootDir。 */
   rootDir: string;
+  /** issue pt-cold-start-warning-noise（§短期方案 2）：manifest 警告搬运。
+   *  parseManifest 收到的非致命警告（如未知字段 / 缺 schema-version）——以前在
+   *  MdFilePack.create 内 `args.adapterCtx.notify(..., "warning")` 弹窗轰炸。
+   *  现挪到 /pt packs 主动展示：session_start 不再弹通知，user 跑 /pt packs 自助查看。
+   *  空数组 = 无 manifest 警告（健康状态）。 */
+  manifestWarnings: string[];
 }
 
 /** 单条校验问题。code 机器可读，msg 人类可读，hint 修复建议。 */
@@ -96,6 +102,7 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
       warnings,
       version: pack.version,
       rootDir: pack.rootDir,
+      manifestWarnings: pack.manifestWarnings,
     };
   }
 
@@ -118,6 +125,7 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
       warnings,
       version: pack.version,
       rootDir: pack.rootDir,
+      manifestWarnings: pack.manifestWarnings,
     };
   }
 
@@ -150,6 +158,10 @@ export async function validatePack(pack: AssetPack): Promise<ValidationResult> {
     version: pack.version,
     description: pack.description,
     rootDir: pack.rootDir,
+    // issue pt-cold-start-warning-noise（§短期方案 2）：从 pack 字段透传 manifest 警告。
+    //   警告源头在 MdFilePack.create()（pack 构造时），不在 validate 阶段。
+    //   validate 不感知 manifest 内容，只透传字段。
+    manifestWarnings: pack.manifestWarnings,
   };
 }
 

@@ -106,7 +106,7 @@ describe("tryLoadPack reserved name（v15.x §2.4.2 双层语义）", () => {
     expect(pack.name).toBe("pt");
     expect(pack.source).toBe("builtin");
     expect(pack.rootDir).toBe(BUILTIN_ASSETS_DIR);
-    expect(pack.version).toBe("0.0.0");
+    expect(pack.version).toBe("0.2.0");
     expect(pack.description).toMatch(/builtin/i);
   });
 
@@ -286,6 +286,7 @@ describe("validatePack", () => {
         version: "0.0.0",
         rootDir: dirWithSubs,
         source: "project",
+        manifestWarnings: [],
         loadDomains: () => Promise.reject(new Error("parse error")),
         loadBlueprints: () => Promise.resolve([]),
         loadProfiles: () => Promise.resolve([]),
@@ -713,7 +714,7 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
     expect(out).toContain("[@pt-internal] v2.0.0 ✅");
   });
 
-  it("v15.x §4.4.4（缺口 5）：/pt packs 输出 desc + asset 计数", async () => {
+  it("v15.x §4.4.4（缺口 5）：/pt packs 输出 desc + asset 计数 + manifest hints（issue pt-cold-start-warning-noise §短期方案 2）", async () => {
     const { packsText } = await import("../../src/commands.js");
     const { createSessionState } = await import("../../src/session.js");
     const s = createSessionState();
@@ -728,6 +729,7 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
         version: "1.0.0",
         rootDir: "/x",
         description: "Test pack desc",
+        manifestWarnings: ["name-kebab: bad name"],
       },
       {
         pack: "prj",
@@ -738,6 +740,7 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
         warnings: [],
         version: "0.0.0",
         rootDir: "/y",
+        manifestWarnings: [],
       },
     ];
     const out = packsText(s);
@@ -747,6 +750,30 @@ describe("formatPackHealthLine（§6.7.6 /pt status pack 健康展示）", () =>
     expect(out).toContain("Test pack desc"); // desc 走 packsText
     // reserved 退化场景：pack.name=位置别名，不显 name 行
     expect(out).toContain("[@prj] v0.0.0 ✅");
+    // issue pt-cold-start-warning-noise §短期方案 2：manifest 警告被动展示
+    expect(out).toContain("⚠ manifest hints:");
+    expect(out).toContain("manifest: name-kebab: bad name");
+  });
+
+  it("manifestWarnings=[] → /pt packs 不出现 manifest hints 行", async () => {
+    const { packsText } = await import("../../src/commands.js");
+    const { createSessionState } = await import("../../src/session.js");
+    const s = createSessionState();
+    s.packValidation = [
+      {
+        pack: "pt",
+        source: "builtin",
+        reservedAlias: "pt",
+        ok: true,
+        errors: [],
+        warnings: [],
+        version: "0.0.0",
+        rootDir: "/y",
+        manifestWarnings: [],
+      },
+    ];
+    const out = packsText(s);
+    expect(out).not.toContain("manifest hints");
   });
 });
 
@@ -853,7 +880,7 @@ description: Pt 项目内部共享资产
 // 设计依据（§2.4.2 + builtin 特例）：
 //   - builtin pack 的"身份"就是"内置"（位置 slot @pt 是其完整身份表达）
 //   - manifest.name="pt" 合法——位置 alias @pt = 身份 alias 合一
-//   - project/global/settings pack 仍禁用保留名（保护位置 slot，避免占用 reserved pack 的物理位置）
+//   - project/settings pack 仍禁用保留名（保护位置 slot，避免占用 reserved pack 的物理位置）
 
 describe("parseManifest 保留名规则（v15.x builtin 特例）", () => {
   it("source=builtin + manifest.name='pt'（保留名）→ ok=true + name='pt'（不放 warning）", async () => {
@@ -930,7 +957,7 @@ describe("parseManifest 保留名规则（v15.x builtin 特例）", () => {
 // ==================== notify 分流：reserved silent / settings 提示 ====================
 //
 // 设计依据：v15.x §2.4.2 + pack-management 域 pack-naming 段
-//   - reserved pack（project/global/builtin）无 manifest → 退化到位置别名（prj/gbl/pt），
+//   - reserved pack（project/builtin）无 manifest → 退化到位置别名（prj/pt），
 //     back-compat 设计预期——silent 不通知
 //   - settings pack 无 manifest → basename 兜底"易碎"，建议加 manifest 让 pack 自描述
 
@@ -984,7 +1011,7 @@ describe("MdFilePack.create notify 分流（reserved silent / settings 提示）
     }
   });
 
-  it("settings pack 无 manifest → notify 引导创建 manifest", async () => {
+  it("settings pack 无 manifest → 不 notify，改填 manifestMissingHint（issue pt-cold-start-warning-noise §短期方案 2）", async () => {
     const root = await mkAssetRoot("notify-settings-no-manifest");
     const { notifs, adapterCtx } = captureNotify();
     try {
@@ -994,10 +1021,11 @@ describe("MdFilePack.create notify 分流（reserved silent / settings 提示）
         adapterCtx,
       });
       expect(pack.name).toMatch(/notify-settings-no-manifest/); // basename 兜底
-      expect(notifs.length).toBe(1);
-      expect(notifs[0].level).toBe("warning");
-      expect(notifs[0].msg).toContain("无 manifest");
-      expect(notifs[0].msg).toContain("/pt_turn_inject pack-management#pack-create");
+      // issue pt-cold-start-warning-noise：session_start 不弹窗，改存到 pack 字段。
+      expect(notifs.length).toBe(0);
+      expect(pack.manifestWarnings).toEqual([]);
+      expect(pack.manifestMissingHint).toContain("无 manifest");
+      expect(pack.manifestMissingHint).toContain("/pt_turn_inject pack-management#pack-create");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1026,7 +1054,7 @@ description: ok
     }
   });
 
-  it("settings pack manifest name 非 kebab → 走 warnings 路径", async () => {
+  it("settings pack manifest name 非 kebab → 走 warnings 字段，不 notify（issue pt-cold-start-warning-noise §短期方案 2）", async () => {
     const root = await mkAssetRoot("notify-settings-bad-name");
     await writeFile(join(root, "pt-asset-pack.yaml"), `name: "Bad Name"\n`);
     const { notifs, adapterCtx } = captureNotify();
@@ -1037,9 +1065,11 @@ description: ok
         adapterCtx,
       });
       expect(pack.name).toMatch(/notify-settings-bad-name/); // basename 兜底
-      expect(notifs.length).toBe(1);
-      expect(notifs[0].msg).toContain("manifest 警告");
-      expect(notifs[0].msg).not.toContain("无 manifest（basename 兜底）");
+      // issue pt-cold-start-warning-noise：session_start 不弹窗，改存到 pack.manifestWarnings
+      expect(notifs.length).toBe(0);
+      expect(pack.manifestWarnings.length).toBeGreaterThan(0);
+      expect(pack.manifestWarnings[0]).toContain("name-kebab");
+      expect(pack.manifestMissingHint).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1225,7 +1255,7 @@ description: test desc
     try {
       const pack = await MdFilePack.create({
         rootDir: root,
-        source: "global",
+        source: "settings", // v15.x PR7（issue pt-remove-global-pack 移除）：source 改 "settings"（"global" 已不在 PackSource）
       });
       const result = await validatePack(pack);
       expect(result.version).toBe("1.0.0");
@@ -1594,7 +1624,7 @@ describe("M2 PR4 session_start settings pack 校验预警（§6.7.5）", () => {
     expect(invalidResult?.source).toBe("settings"); // 确认是 settings 来源
   });
 
-  it("session_start settings pack 校验失败触发 ui.notify 预警（§6.7.5 集成）", async () => {
+  it("session_start settings pack 校验失败触发 ui.notify 预警（§6.7.5 集成，issue pt-cold-start-warning-noise §短期方案 3：需要连续 N=3 次失败）", async () => {
     // 构造 settings pack path 不存在 + 真实集成调用 session_start
     const invalidPath = "/nonexistent/never/created/this/path";
     mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
@@ -1632,15 +1662,70 @@ describe("M2 PR4 session_start settings pack 校验预警（§6.7.5）", () => {
     installExtension(pi as never);
     const sessionStart = events.get("session_start")?.[0];
     expect(sessionStart).toBeDefined();
-    await sessionStart({ type: "session_start" }, ctx);
 
-    // §6.7.5 预警触发：settings pack 校验失败 → notify("⚠ Pt: settings pack ...", "warning")
+    // issue pt-cold-start-warning-noise §短期方案 3：transient validation 静默化——
+    //   同 pack 名连续失败 N=3 次才 notify。模拟 3 次 session_start 触发叠加。
+    for (let i = 0; i < 3; i++) {
+      notifs.length = 0; // 清空上一轮 notifications
+      await sessionStart({ type: "session_start" }, ctx);
+    }
+
+    // §6.7.5 预警触发：settings pack 校验失败达阈值 → notify("⚠ Pt: settings pack ...", "warning")
     const settingsWarn = notifs.find(
       (n) => n.level === "warning" && n.msg.includes("settings pack") && n.msg.includes("已跳过")
     );
     expect(
       settingsWarn,
-      `expected settings pack warn, got: ${JSON.stringify(notifs)}`
+      `expected settings pack warn after 3 transient fails, got: ${JSON.stringify(notifs)}`
     ).toBeDefined();
+  });
+
+  it("session_start settings pack 失败 < N=3 次 → 不 notify（transient 静默化）", async () => {
+    const invalidPath = "/nonexistent/never/created/this/path";
+    mkdirSync(join(tmpCwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpCwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { "asset-packs": [{ path: invalidPath }] } }),
+      "utf8"
+    );
+
+    const installExtension = (await import("../../src/index.js")).default;
+    const events = new Map<string, Array<(...args: unknown[]) => unknown>>();
+    const notifs: Array<{ msg: string; level: string }> = [];
+    const pi = {
+      registerFlag: () => undefined,
+      registerCommand: () => undefined,
+      registerTool: () => undefined,
+      on: (event: string, handler: (...args: unknown[]) => unknown) => {
+        events.set(event, [...(events.get(event) ?? []), handler]);
+      },
+      getFlag: () => undefined,
+      appendEntry: () => undefined,
+    };
+    const ctx = {
+      cwd: tmpCwd,
+      sessionManager: { getEntries: () => [], getSessionId: () => "test-session-m2-silent" },
+      hasUI: true,
+      ui: {
+        notify: (msg: string, level: "info" | "warning" | "error") => notifs.push({ msg, level }),
+        setStatus: () => undefined,
+        setWidget: () => undefined,
+      },
+      getSystemPrompt: () => "BASE",
+    };
+    installExtension(pi as never);
+    const sessionStart = events.get("session_start")?.[0];
+    expect(sessionStart).toBeDefined();
+
+    // 只跑一次 session_start（首次失败，未达阈值 N=3）——不期望 settings pack warn notify
+    await sessionStart({ type: "session_start" }, ctx);
+
+    const settingsWarn = notifs.find(
+      (n) => n.level === "warning" && n.msg.includes("settings pack") && n.msg.includes("已跳过")
+    );
+    expect(
+      settingsWarn,
+      `expected NO settings pack warn on first fail, got: ${JSON.stringify(notifs)}`
+    ).toBeUndefined();
   });
 });

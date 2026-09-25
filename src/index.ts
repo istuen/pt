@@ -28,9 +28,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { FULL_DIR, MANUAL_DIR, PROFILES_DIR, RAW_DIR } from "./constants.js";
+import {
+  computeHealthHash,
+  readPersistedHealthHash,
+  writePersistedHealthHash,
+} from "./health-state.js";
 import { toAgentAPI } from "./agent/api-bridge.js";
 import { getAgentAdapter } from "./agent/index.js";
-import { scanProjectHealth } from "./asset-health.js";
+import { scanProjectHealth, formatHealthSummary } from "./asset-health.js";
 import {
   applyProjectPackDegrade,
   loadBuiltinPack,
@@ -58,9 +63,14 @@ import {
 import {
   buildFullPrompt,
   buildManualDoc,
+  checkDocsText,
   checkText,
+  designsText,
   flowsText,
+  issuesText,
+  manualsText,
   packsText,
+  parseListFlags,
   statusText,
 } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
@@ -304,6 +314,11 @@ export default function (pi: ExtensionAPI): void {
       return;
     }
     const s = getSessionById(sessionId);
+    // v18.x（issue pt-footer-status-stale-cache）：session 重建时（pi-web wrapper 重建 /
+    // idle timeout / reload）clearSessionById 可能未到达（shutdown event 丢失），导致
+    // SessionState 残留 stale lastFooterText。session_start 是 pt 唯一可靠的 session
+    // 边界感知入口——重置缓存确保首次 refreshInjectionFooter 必写 setStatus。
+    s.lastFooterText = null;
     s.sessionId = randomUUID().slice(0, 8); // 短期 ID for logger
     s.logger = new PtLogger(ctx.cwd, "", sessionId);
     s.logger.info("session:start", { sessionId: s.sessionId, cwd: ctx.cwd });
@@ -318,6 +333,12 @@ export default function (pi: ExtensionAPI): void {
     // v15.x PR4（§6.7.1 + §6.7.5）：pack 校验 + settings pack 接通
     // 两段独立 try/catch 兑底——任一异常都不能阻塞 session_start。
     // v15.x PR7（issue pt-remove-global-pack 移除）：globalPack 槽位删除，3 类 pack。
+    // issue pt-cold-start-warning-noise（§短期方案 3）：transient validation 静默化——
+    //   同 pack 名连续失败 N 次才 notify，避免 cache miss + reload race 弹窗轰炸。
+    //   - 本次失败 → 增计数，连续 < TRANSIENT_NOTIFY_THRESHOLD 仅 log
+    //   - 达到阈值 → notify "这真有问题"
+    //   - 本次成功 → 清零计数（连续失败终止）
+    const TRANSIENT_NOTIFY_THRESHOLD = 3;
     try {
       const projectPack = await loadProjectPack(ctx.cwd);
       const settingsPacks = await loadSettingsPacks(ctx.cwd); // PR4 接通
@@ -328,38 +349,78 @@ export default function (pi: ExtensionAPI): void {
       const results = await Promise.all(packsForValidate.map(validatePack));
       s.packValidation = results;
 
-      // project pack 降级（§6.7.3）—— 警告 + 强制回 guide
+      // 更新 transientValidationFailures 计数——validation 结果中能定位到原始 pack 实例的
+      // 只有 manifestWarnings 这类静态信息（assets 已加载），与 validation 状态独立。
+      // 计数仅跟踪 validation 成功/失败（ok=true/false），与 manifest warnings 无关。
+      const seenPackNames = new Set<string>();
+      for (const r of results) {
+        seenPackNames.add(r.pack);
+        const prevCount = s.transientValidationFailures.get(r.pack) ?? 0;
+        if (r.ok) {
+          // 本次成功 → 清零（连续失败终止）
+          if (prevCount > 0) {
+            s.transientValidationFailures.set(r.pack, 0);
+            s.logger?.debug("transientValidation:cleared", {
+              pack: r.pack,
+              source: r.source,
+            });
+          }
+        } else {
+          // 本次失败 → 增计数
+          const newCount = prevCount + 1;
+          s.transientValidationFailures.set(r.pack, newCount);
+          s.logger?.warn("transientValidation:failed", {
+            pack: r.pack,
+            source: r.source,
+            count: newCount,
+            firstErr: r.errors[0]?.msg ?? "unknown",
+          });
+        }
+      }
+      // 清除已不存在的 pack 计数（settings pack 被项目移除后不增长）
+      for (const k of [...s.transientValidationFailures.keys()]) {
+        if (!seenPackNames.has(k)) s.transientValidationFailures.delete(k);
+      }
+
+      // project pack 降级（§6.7.3）—— 行为变化必须保留（强制回 guide），
+      // 但通知受 transient threshold 控制（issue §短期方案 3）。
       const projectResult = results.find((r) => r.source === "project");
       if (projectResult && !projectResult.ok) {
         s.projectPackDegraded = true;
         const firstErr = projectResult.errors[0];
-        ctx.ui.notify(
-          `⚠ Pt: project pack 校验失败（${firstErr?.msg ?? "未知错误"}）。已降级到 builtin guide。`,
-          "warning"
-        );
-        // issue pt-pack-repair-cwd-home-edge-case：cwd=~ 时附加决策引导——
-        // ~/.pt/assets/ 在 home 通常无项目上下文，prj pack 无意义；引导用户三选一
-        // （切到项目目录 / 临时 mkdir 骨架 / 啥都不做）。
-        const isCwdHome = ctx.cwd === homedir();
-        if (isCwdHome) {
+        const projectFailCount = s.transientValidationFailures.get(projectResult.pack) ?? 0;
+        if (projectFailCount >= TRANSIENT_NOTIFY_THRESHOLD) {
+          // 达到阈值才 notify——前 N-1 次仅 log（已在 transientValidation:failed 记录）
           ctx.ui.notify(
-            `  ⚠ 检测到 cwd=~（${homedir()}）—— project pack 在 home 无项目上下文（pack 落点 ${projectPack.rootDir} 曾是 global pack 路径，v15.x PR7 移除）。建议：1) 切到项目目录后再跑（pack-repair 在项目目录才有意义）；2) 仅临时调试可 mkdir -p ${projectPack.rootDir}/{domains,blueprints,profiles} 创建空骨架；3) 啥都不做（builtin guide 已可用）`,
-            "info"
+            `⚠ Pt: project pack 连续 ${projectFailCount} 次校验失败（${firstErr?.msg ?? "未知错误"}）。已降级到 builtin guide。`,
+            "warning"
           );
-        } else {
-          ctx.ui.notify(`  修复：/pt_turn_inject pack-repair`, "info");
+          // issue pt-pack-repair-cwd-home-edge-case：cwd=~ 时附加决策引导
+          const isCwdHome = ctx.cwd === homedir();
+          if (isCwdHome) {
+            ctx.ui.notify(
+              `  ⚠ 检测到 cwd=~（${homedir()}）—— project pack 在 home 无项目上下文。建议：1) 切到项目目录后再跑；2) 临时调试可 mkdir -p ${projectPack.rootDir}/{domains,blueprints,profiles}；3) 啥都不做（builtin guide 已可用）`,
+              "info"
+            );
+          } else {
+            ctx.ui.notify(`  修复：/pt_turn_inject pack-repair`, "info");
+          }
         }
       }
 
       // v15.x PR4（§6.7.5）：settings pack 校验失败预警——跳过该 pack，不阻断其他
+      // issue pt-cold-start-warning-noise（§短期方案 3）：同样受 transient threshold 控制。
       for (const r of results) {
         if (r.source === "settings" && !r.ok) {
-          const firstErr = r.errors[0];
-          ctx.ui.notify(
-            `⚠ Pt: settings pack [@${r.pack}] 校验失败（${firstErr?.msg ?? "未知"}）。已跳过该 pack。`,
-            "warning"
-          );
-          ctx.ui.notify(`  修复：/pt_turn_inject pack-repair`, "info");
+          const failCount = s.transientValidationFailures.get(r.pack) ?? 0;
+          if (failCount >= TRANSIENT_NOTIFY_THRESHOLD) {
+            const firstErr = r.errors[0];
+            ctx.ui.notify(
+              `⚠ Pt: settings pack [@${r.pack}] 连续 ${failCount} 次校验失败（${firstErr?.msg ?? "未知"}）。已跳过该 pack。`,
+              "warning"
+            );
+            ctx.ui.notify(`  修复：/pt_turn_inject pack-repair`, "info");
+          }
         }
       }
 
@@ -370,6 +431,7 @@ export default function (pi: ExtensionAPI): void {
           source: r.source,
           ok: r.ok,
           errorCount: r.errors.length,
+          transientFailCount: s.transientValidationFailures.get(r.pack) ?? 0,
         })),
       });
     } catch (e) {
@@ -464,6 +526,9 @@ export default function (pi: ExtensionAPI): void {
       // v14.x（issue pt-asset-migration-visibility Layer 2）：
       //   session_start 末尾批量体检项目所有 profile——主动告知存量项目 schema 错误，
       //   避免"切换才暴露"。失败降级（不阻塞 session 启动）——scan 内部已 try/catch。
+      // issue pt-cold-start-warning-noise（§短期方案 1）：hash 去重 + 跨 session 持久化——
+      //   项目存量 issues 不变时不 notify，仅 footer 染色 + /pt check 查详情。
+      //   user 反馈"我没改任何东西却反复被警告轰炸"——这里根治。
       const bundles = s.cachedBundles ?? [];
       const healthBundle = bundles[0];
       if (healthBundle) {
@@ -474,22 +539,45 @@ export default function (pi: ExtensionAPI): void {
           healthBundle.domains,
           healthBundle.packs,
           healthBundle.activeProfilePack,
+          healthBundle.workingSet,
           { log: s.logger?.toWriter() }
         );
         s.assetHealthIssues = report.issues;
+
+        // 计算新 hash，与上次跨 session 持久化的 hash 比较——
+        // 不同才 notify（变化告知）。同时刷新 footer（footer 数字变化才染色，刷新本身无害）。
+        const newHash = computeHealthHash(report.issues);
+        const lastHash = s.lastHealthHash ?? (await readPersistedHealthHash(ctx.cwd));
+        const hashChanged = newHash !== lastHash;
         if (report.errors > 0 || report.warnings > 0) {
-          const summary =
-            report.issues.length === 1
-              ? `[pt] 项目有 1 个配置问题：${report.issues[0]?.msg ?? ""}（运行 /pt check 查看详情）`
-              : `[pt] 项目有 ${report.errors} errors + ${report.warnings} warnings（运行 /pt check 查看详情）`;
-          ctx.ui.notify(summary, "warning");
-          // 体检结果变化了，刷新 footer 染色
+          if (hashChanged) {
+            // 仅在 hash 变化时 notify——否则仅 footer 染色（表示"持续问题"但不消费通知额度）
+            // v0.3.0（issue pt-asset-health-diag-report-format）：用 formatHealthSummary 输出分类 + 路径
+            // 取代原“纯计数 + 运行 /pt check”的冷冰冰文案。
+            const summary = formatHealthSummary(report);
+            ctx.ui.notify(
+              summary ||
+                `[pt] 项目有 ${report.issues.length} 项配置问题（运行 /pt check 查看详情）`,
+              "warning"
+            );
+          }
+          // 体检结果（不论 hash 是否变）都刷新 footer 染色（statusText / footer 会显示 issue 数）
           refreshInjectionFooter(ctx.ui, s);
         }
+        s.lastHealthHash = newHash;
+        // 跨 session 持久化——next session_start 时能正确去重
+        await writePersistedHealthHash(
+          ctx.cwd,
+          newHash,
+          report.issues.length,
+          s.logger?.toWriter()
+        );
         s.logger?.info("session:health scan done", {
           issueCount: report.issues.length,
           errors: report.errors,
           warnings: report.warnings,
+          hashChanged,
+          hash: newHash || "(empty)",
         });
       }
 
@@ -881,8 +969,40 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
+      // Phase 3（.pt/docs/issues/pt-doc-index-and-schema.md L1）：
+      //   /pt issues | /pt manuals | /pt designs — frontmatter 即索引，实时聚合
+      //   共享 parseListFlags 解析 --profile / --status（designs 忽略 --status 因 enum 不同）
+      //   profile 优先级：opts.profile > s.activeProfile > null
+      if (sub === "issues" || sub === "manuals" || sub === "designs") {
+        const flags = parseListFlags(subArgs);
+        const profile = flags.profile ?? s.activeProfile ?? null;
+        const text =
+          sub === "issues"
+            ? await issuesText(ctx.cwd, profile, { status: flags.status })
+            : sub === "manuals"
+              ? await manualsText(ctx.cwd, profile, { status: flags.status })
+              : await designsText(ctx.cwd, profile, { status: flags.status });
+        ctx.ui.notify(text, "info");
+        return;
+      }
+
+      // Phase 3 §Step 5：/pt check-docs [--kind issue|manual|design] —— 批量 schema 校验
+      if (sub === "check-docs") {
+        const flags = parseListFlags(subArgs);
+        const profile = flags.profile ?? s.activeProfile ?? null;
+        // kind 限定到三个合法值，其它作为 undefined → 走全集
+        const allowedKind = flags.kind;
+        const kind =
+          allowedKind === "issue" || allowedKind === "manual" || allowedKind === "design"
+            ? allowedKind
+            : undefined;
+        const text = await checkDocsText(ctx.cwd, profile, kind ? { kind } : { profile });
+        ctx.ui.notify(text, "info");
+        return;
+      }
+
       ctx.ui.notify(
-        "用法: /pt [status|flows|raw|full|manual|check|packs|logs|logs:clear|sessions]",
+        "用法: /pt [status|flows|raw|full|manual|check|check-docs|issues|manuals|designs|packs|logs|logs:clear|sessions]",
         "warning"
       );
     },
@@ -1174,7 +1294,11 @@ export default function (pi: ExtensionAPI): void {
       const s = sessionId ? getSessionById(sessionId) : null;
       const r = await loadAndTranspile(ctx.cwd, s?.activeProfile ?? "");
       const b = r.bundles[0];
-      const result = checkAllRefs(b.profiles, b.blueprints, b.domains);
+      // v17（issue pt-scan-qualified-ref-pack-blind）：传 workingSet 让 checkAllRefs 走 pack-aware 查找
+      const result = checkAllRefs(b.profiles, b.blueprints, b.domains, {
+        domainWS: b.workingSet.domains,
+        packNames: b.packs.map((p) => p.name),
+      });
       return {
         content: [{ type: "text", text: formatRefCheckResult(result) }],
         details: result,

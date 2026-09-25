@@ -29,6 +29,7 @@ function makePack(
     rootDir,
     version,
     source: inferredSource,
+    manifestWarnings: [],
     loadDomains: () => Promise.resolve([]),
     loadBlueprints: () => Promise.resolve([]),
     loadProfiles: () => Promise.resolve([]),

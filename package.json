@@ -1,6 +1,6 @@
 {
   "name": "@istuen/pt",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Pt — Turn domain knowledge into configurable Agent Context.",
   "type": "module",
   "keywords": [

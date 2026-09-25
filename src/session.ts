@@ -112,6 +112,16 @@ export interface SessionState {
   packValidation: ValidationResult[] | null;
   /** v15.x PR1（§6.7.3）：project pack 校验失败时标 true，transpileActive 强制回 guide。 */
   projectPackDegraded: boolean;
+  /** issue pt-cold-start-warning-noise（§短期方案 1）：上次 health scan hash。
+   *  session_start 体检时计算新 hash，与上次比较——变化才 notify，避免反复警告轰炸。
+   *  null = 未扫过（首次启动 / cache miss 后第一次）。 */
+  lastHealthHash: string | null;
+  /** issue pt-cold-start-warning-noise（§短期方案 3）：pack validation 失败计数。
+   *  key = pack 名（results[i].pack），value = 连续失败次数。
+   *  跨 session_start 调用累计——同一 session 多次（reload / 切换 profile 触发重 validate）
+   *  都增计数。超过阈值（默认 3）才 `ctx.ui.notify`，避免 transient race 噪音。
+   *  validation 成功 → 清零该 key（连续失败终止）。 */
+  transientValidationFailures: Map<string, number>;
 }
 
 /** 默认空 SessionState。 */
@@ -140,6 +150,8 @@ export function createSessionState(): SessionState {
     assetHealthIssues: null,
     packValidation: null,
     projectPackDegraded: false,
+    lastHealthHash: null,
+    transientValidationFailures: new Map(),
   };
 }
 
@@ -168,6 +180,9 @@ export function resetSessionState(s: SessionState): void {
   s.lastCacheHit = false;
   s.injectionState = "idle";
   s.injectionError = null;
+  // v18.x（issue pt-footer-status-stale-cache）：清 lastFooterText 让下次
+  // refreshInjectionFooter 必写 setStatus，避免 stale 缓存导致 footer 不更新。
+  s.lastFooterText = null;
 }
 
 /** 取指定 sessionId 的 state（lazy create）。TUI 模式下只有一个 entry。 */

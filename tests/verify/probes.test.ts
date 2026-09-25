@@ -10,7 +10,7 @@ describe("P1: verify 模块", () => {
     expect(probes).toContain("fs-content-match");
     expect(probes).toContain("ts-compiles");
     expect(probes).toContain("test-pass");
-    expect(probes.length).toBe(8);
+    expect(probes.length).toBe(9);
   });
 
   it("未知 probe 返回 INCONCLUSIVE", async () => {

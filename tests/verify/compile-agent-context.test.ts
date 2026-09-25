@@ -78,6 +78,7 @@ function makePack(name: string, rootDir: string): AssetPack {
     rootDir,
     version: "0.0.0",
     source: "project",
+    manifestWarnings: [],
     loadDomains: () => Promise.resolve([]),
     loadBlueprints: () => Promise.resolve([]),
     loadProfiles: () => Promise.resolve([]),

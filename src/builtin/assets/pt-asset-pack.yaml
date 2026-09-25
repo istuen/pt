@@ -9,7 +9,7 @@
 #   - 不需要额外身份别名（如 pt-builtin）——跨项目身份寻址对 npm 内嵌 pack 无意义
 #   - 与 back-compat 默认行为一致（无 manifest 时 pack.name=位置别名）
 #   - 保留名规则对 builtin 特例放行（manifest.ts:name-validation）：builtin 允许用
-#     "prj/gbl/pt" 作 manifest.name；project/global/settings pack 仍禁用保留名
+#     "prj/pt" 作 manifest.name；project/settings pack 仍禁用保留名
 #
 # 加 manifest 的好处（§2.4.2）：
 #   - /pt status 显示真实 version/description（不再永远 v0.0.0 / undefined）
@@ -18,5 +18,5 @@
 #     身份 alias 优先；只是 builtin 的"身份"恰好等于位置别名）
 
 name: pt
-version: 0.0.0
+version: 0.2.0
 description: Pt builtin assets（随 npm 包发布，跨项目复用——guide profile + usage/authoring 等参考文档）

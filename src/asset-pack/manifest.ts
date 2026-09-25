@@ -56,7 +56,7 @@ const KEBAB_RE = /^[a-z0-9-]{1,64}$/;
  *
  * v15.x builtin 特例：source="builtin" 时 manifest.name 等于保留名合法
  * （位置 alias @pt = 身份 alias 合一；builtin pack 的"身份"就是"内置"）。
- * project/global/settings pack 仍禁用保留名（保护位置 slot）。
+ * project/settings pack 仍禁用保留名（保护位置 slot）。
  *
  * 永远不抛异常（§2.2 校验规则：解析失败当无 manifest 处理，不阻断加载）。
  */

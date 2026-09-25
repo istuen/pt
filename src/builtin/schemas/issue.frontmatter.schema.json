@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pt.dev/schemas/issue.frontmatter.schema.json",
+  "title": "Pt Issue Document Frontmatter",
+  "description": "Pt issue 文档 frontmatter schema。issue 文档放在 .pt/docs/issues/<name>.md，记录问题追踪。frontmatter 是唯一真相源——/pt issues 命令实时扫描聚合，不维护 index.md 副本。字段名统一：parent-issue→parent, related-issues→related, issue-link→issue。domain 回归 Domain 名语义（如 dev-process），不再放 Profile 名（角色归属用 profile 字段）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "name", "status", "severity", "created"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "issue",
+      "description": "文档类型标识，固定为 issue。"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "issue 标识，kebab-case。文件名须与 name 一致（<name>.md）。"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "in-progress", "resolved", "wontfix", "closed", "rejected"],
+      "description": "issue 生命周期状态。open=记录 / in-progress=有人认领 / resolved=已修复+验证 / wontfix=不修 / closed=已关闭 / rejected=驳回。"
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"],
+      "description": "严重程度。critical=阻断 / high=重要 / medium=一般 / low=次要。"
+    },
+    "created": {
+      "type": "string",
+      "format": "date",
+      "description": "创建日期，YYYY-MM-DD。"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date",
+      "description": "最近更新日期，YYYY-MM-DD。状态变更时同步。"
+    },
+    "resolved": {
+      "type": "string",
+      "format": "date",
+      "description": "解决日期，YYYY-MM-DD。status=resolved 时必填。"
+    },
+    "domain": {
+      "type": "string",
+      "description": "业务领域 Domain 名（如 dev-process / pt-quality / asset-workflow）。表达 issue 归属的业务领域，不是角色 Profile 名。optional——issue 的业务领域归属本就模糊，profile（角色归属）+ related（关联）已足够表达组织维度；有准确归属时才填。"
+    },
+    "profile": {
+      "description": "Profile 归属（角色视角）。单个 profile 名或数组。缺省=全 profile 可见（向后兼容）。表达'这个 issue 归哪个角色管'，如 pt-design / pt-dev / pt-devops。跨角色交接用数组，如 [pt-design, pt-dev]。",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true }
+      ]
+    },
+    "parent": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "父 issue 的 name（单值）。本 issue 是父 issue 的子问题，父 issue 用 sub-issues 反向列出。统一字段名：原 parent-issue → parent。"
+    },
+    "sub-issues": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+      "uniqueItems": true,
+      "description": "子 issue 的 name 列表。父 issue 用此字段反向关联子问题。"
+    },
+    "related": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+      "uniqueItems": true,
+      "description": "相关 issue 的 name 列表（非父子关系，仅关联参考）。统一字段名：原 related-issues → related；原逗号分隔串 → YAML 数组。"
+    },
+    "resolved-by": {
+      "type": "string",
+      "description": "修复追溯——commit hash / 分支名 / 修复 issue name。status=resolved 时建议填。"
+    },
+    "discovered-by": {
+      "type": "string",
+      "description": "发现追溯——描述如何发现的（用户反馈 / 某次 /pt check 暴露 / 某 issue 修复后暴露）。"
+    },
+    "resolution": {
+      "type": "string",
+      "description": "解决方案摘要。wontfix/rejected 时填不修/驳回理由。"
+    },
+    "source": {
+      "type": "string",
+      "description": "来源 design 文档路径（如 .pt/docs/designs/xxx-executor-brief.md）。issue 由某 design 派生时填。"
+    },
+    "wontfix": {
+      "type": "string",
+      "format": "date",
+      "description": "wontfix 决策日期，YYYY-MM-DD。status=wontfix 时必填。"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "resolved" } }, "required": ["status"] },
+      "then": { "required": ["resolved"] }
+    },
+    {
+      "if": { "properties": { "status": { "const": "wontfix" } }, "required": ["status"] },
+      "then": { "required": ["wontfix"] }
+    }
+  ]
+}

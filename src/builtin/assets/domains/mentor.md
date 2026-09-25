@@ -22,7 +22,7 @@ builtin profile `mentor` 引用本 domain 做主线，深度参考通过 `/pt_tu
 - depth: 概念深度参考 /pt_turn_inject project-analysis（what-is-pt / four-layer-model）
 
 ### step-2-setup
-- desc: 第 2 步——启用 Pt 并切换到 mentor。CLI 启动用 `--pt-profile mentor` 指定 profile；会话中用 `/pt-profile mentor` 切换（下一轮生效）；`/pt` 查看当前状态（profile + segment 长度 + cache hit）。第一次可先 `/pt-profile guide` 看 Pt 自描述全貌，再切 mentor 跟着学。
+- desc: 第 2 步——启用 Pt 并切换到 mentor。CLI 启动用 `--pt-profile mentor` 指定 profile；会话中用 `/pt-profile mentor` 切换（下一轮生效）；`/pt` 查看当前状态（profile + segment 长度 + cache hit）。第一次可先 `/pt-profile guide` 看 Pt 自描述全貌，再切 mentor 跟着学。**启用后立刻个性化 user-info**——builtin `user-info.md` 三个 H3（who-am-i / preferences / goals）都是占位符"修改为你的真实身份/偏好/目标"，不改的话 Agent 上下文是字面量提示，Session Context 注入的是占位符。改法：编辑 `.pt/assets/domains/user-info.md` 把 desc 文本改成自己的内容，删 cache 重编译即可生效。mentor profile `### Modules: [User]` 整段聚合 user-info，所以改这一处就够。
 - depth: 命令深度参考 /pt_turn_inject usage（pt-commands / pt-profile-command）
 
 ### step-3-analyze-project
@@ -75,4 +75,4 @@ builtin profile `mentor` 引用本 domain 做主线，深度参考通过 `/pt_tu
 ## Checklists
 
 ### mentor-checklist
-- items: [能说出 Pt 四层模型（Domain/Blueprint/Profile/Agent Context）各自职责, 能用 /pt-profile 切换 profile + /pt 看状态, 用三步法识别了项目至少 1 个知识单元, 创作了第一个 Domain（frontmatter name + ## Scene + ### H3 + - desc）, 创作了第一个 Profile（frontmatter + 3 个 H2 聚合组 + ### Modules）, 删 cache + /pt 验证产物 + /pt raw 看到 segment, 进入迭代循环（改→删cache→验证）]
+- items: [能说出 Pt 四层模型（Domain/Blueprint/Profile/Agent Context）各自职责, 能用 /pt-profile 切换 profile + /pt 看状态, 个性化了 user-info（改 who-am-i / preferences / goals 三个占位符为自己的真实身份 / 偏好 / 目标，否则 Agent 上下文是占位符提示）, 用三步法识别了项目至少 1 个知识单元, 创作了第一个 Domain（frontmatter name + ## Scene + ### H3 + - desc）, 创作了第一个 Profile（frontmatter + 3 个 H2 聚合组 + ### Modules）, 删 cache + /pt 验证产物 + /pt raw 看到 segment, 进入迭代循环（改→删cache→验证）]

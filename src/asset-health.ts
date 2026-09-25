@@ -38,12 +38,13 @@ import {
   UseChainCycle,
   UseTargetNotFound,
 } from "./compile/resolve-use.js";
-import { resolveAndDedupRefs } from "./parse/ref-resolver.js";
+import { resolveAndDedupRefs, parseRef } from "./parse/ref-resolver.js";
 import type { AssetPack } from "./schema.js";
+import { checkAllRefs } from "./verify/ref-check.js";
 import { refName } from "./schema.js";
 import { PROFILES_DIR } from "./constants.js";
 import { KNOWN_SECTION_NAMES } from "./parse/profile.js";
-import type { Blueprint, Domain, Profile, SourceAdapterContext } from "./schema.js";
+import type { Blueprint, Domain, Profile, SourceAdapterContext, WorkingSet } from "./schema.js";
 
 // ==================== 公共类型 ====================
 
@@ -69,7 +70,7 @@ export interface AssetHealthIssue {
   fix?: string;
 }
 
-/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id；v16+ optional-domains 诊断；v17+ use 链错误诊断。 */
+/** 规则 id。issue §Layer 2 5 条规则 → 5 个 id；v16+ optional-domains 诊断；v17+ use 链错误诊断；v18+ 引用完整性合并。 */
 export type HealthRuleId =
   | "missing-modules"
   | "dangling-blueprint-ref"
@@ -77,7 +78,8 @@ export type HealthRuleId =
   | "empty-segment"
   | "unknown-modname"
   | "optional-domain-no-matching-section" // v16+：可选 ref 加载但 H2 段全不匹配任一 bpGroup 的 modules（warning，per-domain 聚合）
-  | "use-expansion-error"; // v17+：use 链展开失败（UseTargetNotFound/UseChainCycle/BlueprintGroupOutOfScope）→ warning
+  | "use-expansion-error" // v17+：use 链展开失败（UseTargetNotFound/UseChainCycle/BlueprintGroupOutOfScope）→ warning
+  | "dangling-domain-ref"; // v18+（issue pt-pack-ref-drift-detection 方案 A）：profile.domains / profile.groups[X].domains 引用悬空 Domain（settings pack 删 domain 后静默破坏）→ error
 
 /** 资产健康扫描结果（按 profile 聚合）。 */
 export interface AssetHealthReport {
@@ -86,6 +88,74 @@ export interface AssetHealthReport {
   warnings: number;
   /** v16：info 数（optional-domain-unresolved 等预期行为的诊断）。 */
   infos?: number;
+}
+
+// ==================== 通知格式化 ====================
+
+/** 简报格式选项（issue pt-asset-health-diag-report-format）。
+ *  - maxItems：最大列出项数；超限时附加一条「→ /pt check 查看全部」引导。
+ *  - prefix：默认 "[pt] 诊断："；可换为 "[pt] " 或空。 */
+export interface FormatHealthSummaryOpts {
+  maxItems?: number;
+  prefix?: string;
+}
+
+/** scope → 修复路径与人类可读分组名（issue pt-asset-health-diag-report-format §短期修复方向）。 */
+const SCOPE_TO_ACTION: Record<IssueScope, { group: string; path: string }> = {
+  profile: { group: "profile 配置问题", path: "/pt check" },
+  blueprint: { group: "blueprint 配置问题", path: "/pt check" },
+  domain: { group: "domain 引用问题", path: "/pt check" },
+};
+
+/** 把 AssetHealthReport 格式化为人类可读分类简报（不输出逐条详情——那是 /pt check 的职责）。
+ *  输出形如：
+ *  ```
+ *  [pt] 诊断：4 项配置问题（不阻断）
+ *    · 2× profile 配置问题 → /pt check
+ *    · 1× domain 引用问题 → /pt check
+ *    · 1× manifest 警告 → /pt packs
+ *  ```
+ *  超 maxItems 时追加 `→ /pt check 查看全部`。
+ *
+ *  v0.3.0 随 pt-cold-start-warning-noise 一起发版。 */
+export function formatHealthSummary(
+  report: AssetHealthReport,
+  opts: FormatHealthSummaryOpts = {}
+): string {
+  const { maxItems = 6, prefix = "[pt] 诊断：" } = opts;
+
+  if (report.issues.length === 0) return "";
+
+  // 按 (scope, severity) 分组聚合计数
+  const groups = new Map<string, { count: number; path: string }>();
+  for (const issue of report.issues) {
+    // 已知 scope 才走 scope → 路径映射；未知 scope 走 fallback
+    const action = SCOPE_TO_ACTION[issue.scope as IssueScope] ?? {
+      group: `${issue.scope} 问题`,
+      path: "/pt check",
+    };
+    const key = action.group;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.count++;
+    } else {
+      groups.set(key, { count: 1, path: action.path });
+    }
+  }
+
+  // 输出——不阻断语义
+  const lines: string[] = [];
+  lines.push(`${prefix}${report.issues.length} 项配置问题（不阻断）`);
+
+  const sortedGroups = [...groups.entries()].sort((a, b) => b[1].count - a[1].count);
+  const displayed = sortedGroups.slice(0, maxItems);
+  for (const [group, { count, path }] of displayed) {
+    lines.push(`  · ${count}× ${group} → ${path}`);
+  }
+  if (sortedGroups.length > maxItems) {
+    lines.push(`  → /pt check 查看全部`);
+  }
+  return lines.join("\n");
 }
 
 // ==================== 主入口 ====================
@@ -115,10 +185,18 @@ export async function scanProjectHealth(
   domains: Domain[],
   packs: AssetPack[], // v15.x PR2：compileAgentContext 需要 packs 进 sourceHash
   profilePack: string, // v15.x PR2：scan 时用 default "prj"——不真正读 pack 信息
+  // v17.1（issue pt-scan-qualified-ref-pack-blind 完整修复）：
+  // scan 需要按 pack 区分 asset 归属（限限定 ref 查找必须 preserve pack identity）.
+  // 调用方可从 SchemaBundle.workingSet 直接传，避免 scan 从扁数组 + packs 重建（有信息损失）。
+  // 缺省时退回原有行为（从 packs + 属数组构造），供测试场景使用。
+  workingSet?: {
+    domains?: WorkingSet<Domain>;
+    blueprints?: WorkingSet<Blueprint>;
+    profiles?: WorkingSet<Profile>;
+  },
   adapterCtx?: SourceAdapterContext
 ): Promise<AssetHealthReport> {
   const issues: AssetHealthIssue[] = [];
-  const blueprintNames = new Set(blueprints.map((b) => b.name));
   const _domainByName = new Map(domains.map((d) => [d.name, d]));
 
   // ===== v17+（issue pt-scan-miss-use-chain）：scan 与 transpile 对齐 use 链解析 =====
@@ -149,23 +227,32 @@ export async function scanProjectHealth(
     };
   // v15.x §4.4.2：scan 临时构造双索引 workingSet——location（按位置 alias）+ identity（按 pack.name）
   // scan 场景 targetPack 是 project source → locAlias = "prj"
-  const domainLocWS = new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
-  const domainIdWS = new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
-  for (const d of domains) {
-    domainIdWS.set(`${targetPack.name}/${d.name}`, { pack: targetPack, asset: d });
-    domainLocWS.set(`prj/${d.name}`, { pack: targetPack, asset: d });
+  // v17.1（issue pt-scan-qualified-ref-pack-blind 完整修复）：
+  // 如果调用方传入了 workingSet（如 SchemaBundle.workingSet），直接复用——preserve 每个 asset 的 pack identity。
+  // 否则从扁平 domains/blueprints 数组 + targetPack 重建（老路径，测试用——所有 asset 归 project pack）。
+  const domainLocWS =
+    workingSet?.domains?.location ??
+    new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
+  const domainIdWS =
+    workingSet?.domains?.identity ??
+    new Map<string, { pack: typeof targetPack; asset: (typeof domains)[0] }>();
+  if (!workingSet?.domains) {
+    for (const d of domains) {
+      domainIdWS.set(`${targetPack.name}/${d.name}`, { pack: targetPack, asset: d });
+      domainLocWS.set(`prj/${d.name}`, { pack: targetPack, asset: d });
+    }
   }
-  const blueprintLocWS = new Map<
-    string,
-    { pack: typeof targetPack; asset: (typeof blueprints)[0] }
-  >();
-  const blueprintIdWS = new Map<
-    string,
-    { pack: typeof targetPack; asset: (typeof blueprints)[0] }
-  >();
-  for (const b of blueprints) {
-    blueprintIdWS.set(`${targetPack.name}/${b.name}`, { pack: targetPack, asset: b });
-    blueprintLocWS.set(`prj/${b.name}`, { pack: targetPack, asset: b });
+  const blueprintLocWS =
+    workingSet?.blueprints?.location ??
+    new Map<string, { pack: typeof targetPack; asset: (typeof blueprints)[0] }>();
+  const blueprintIdWS =
+    workingSet?.blueprints?.identity ??
+    new Map<string, { pack: typeof targetPack; asset: (typeof blueprints)[0] }>();
+  if (!workingSet?.blueprints) {
+    for (const b of blueprints) {
+      blueprintIdWS.set(`${targetPack.name}/${b.name}`, { pack: targetPack, asset: b });
+      blueprintLocWS.set(`prj/${b.name}`, { pack: targetPack, asset: b });
+    }
   }
 
   // v17+（issue pt-scan-miss-use-chain）：expandProfile 所需的 profile/blueprint 视图
@@ -177,12 +264,16 @@ export async function scanProjectHealth(
     const packName = p.sourcePack ?? effectivePackName;
     profileByQualifiedName.set(`${packName}/${p.name}`, p);
   }
-  const blueprintByQualifiedName = new Map<
-    string,
-    { pack: typeof targetPack; asset: (typeof blueprints)[0] }
-  >();
-  for (const b of blueprints) {
-    blueprintByQualifiedName.set(`${effectivePackName}/${b.name}`, { pack: targetPack, asset: b });
+  const blueprintByQualifiedName =
+    workingSet?.blueprints?.identity ??
+    new Map<string, { pack: typeof targetPack; asset: (typeof blueprints)[0] }>();
+  if (!workingSet?.blueprints) {
+    for (const b of blueprints) {
+      blueprintByQualifiedName.set(`${effectivePackName}/${b.name}`, {
+        pack: targetPack,
+        asset: b,
+      });
+    }
   }
 
   // ===== 单 profile 循环：展开 → 规则 1/2/3 → 规则 4/7 =====
@@ -226,19 +317,57 @@ export async function scanProjectHealth(
     // ===== IR-only 规则（1-3）on effectiveProfile =====
     // 2. dangling-blueprint-ref：使用 effectiveProfile.blueprint（use 继承场景下原
     //    profile.blueprint 可能为空，由 useExpanded 提供）
-    if (!blueprintNames.has(effectiveProfile.blueprint)) {
+    // v17+（issue pt-scan-qualified-ref-pack-blind）：限定 ref 走 pack-aware 查找
+    // （parseRef + blueprintWS 精确匹配）；不限定 ref 走尾段 fallback（按 packNames 顺序）。
+    // packAware=false 时退化为纯 name 查找（旧行为，back-compat）。
+    const blueprintRef = effectiveProfile.blueprint;
+    let blueprintFound: (typeof blueprints)[0] | undefined;
+    let blueprintDriftMsg: string | undefined;
+    if (blueprintRef.startsWith("@")) {
+      try {
+        const { kind, pack, name } = parseRef(blueprintRef, "");
+        const ws = kind === "location" ? blueprintLocWS : blueprintIdWS;
+        const entry = ws.get(`${pack}/${name}`);
+        if (entry) {
+          blueprintFound = entry.asset;
+        } else {
+          blueprintDriftMsg = `（限定 pack "${pack}" 中无该 Blueprint——可能是 pack 改名漂移）`;
+        }
+      } catch {
+        // malformed ref — fall through to generic error
+      }
+    } else {
+      // 不限定 ref：尾段 fallback（按 packNames 顺序）
+      for (const pack of [
+        effectivePackName,
+        ...packs.filter((p) => p.name !== effectivePackName).map((p) => p.name),
+      ]) {
+        const entry = blueprintIdWS.get(`${pack}/${blueprintRef}`);
+        if (entry) {
+          blueprintFound = entry.asset;
+          break;
+        }
+      }
+      if (!blueprintFound) {
+        // 退化：纯 name 查找（旧行为，给出更准确的错误）
+        blueprintFound = blueprints.find((b) => b.name === blueprintRef);
+      }
+    }
+    if (!blueprintFound) {
       issues.push({
         severity: "error",
         scope: "profile",
         name: effectiveProfile.name,
         field: "blueprint",
-        msg: `Profile「${effectiveProfile.name}」引用 Blueprint「${effectiveProfile.blueprint}」不存在`,
-        hint: `检查拼写 / 项目 .pt/assets/blueprints/ 是否漏文件 / 备选内建 blueprint`,
+        msg: `Profile「${effectiveProfile.name}」引用 Blueprint「${blueprintRef}」不存在${blueprintDriftMsg ?? ""}`,
+        hint: blueprintDriftMsg
+          ? `检查 pack 是否改名（profile 里的 @pack/name 前缀可能过期）`
+          : `检查拼写 / 项目 .pt/assets/blueprints/ 是否漏文件 / 备选内建 blueprint`,
       });
       continue; // 无 Blueprint 引用，下面的 group 检查无意义
     }
 
-    const blueprint = blueprints.find((b) => b.name === effectiveProfile.blueprint);
+    const blueprint = blueprintFound;
     if (!blueprint) continue; // 上一步已 guard（type guard 收窄需要）
     const bpGroupNames = new Set(blueprint.groups.map((g) => g.name));
 
@@ -367,6 +496,68 @@ export async function scanProjectHealth(
         err: e instanceof Error ? e.message : String(e),
       });
     }
+  }
+
+  // ===== 9. dangling-domain-ref（issue pt-pack-ref-drift-detection 方案 A）=====
+  // settings pack（如 @fullstack）独立演进，删 domain 后 prj profile 引用静默悬空。
+  // checkAllRefs（verify/ref-check.ts）能查 3 类，但 (1) 悬空 Blueprint + (3a) 聚合组名
+  // 不在 Blueprint 已被规则 2/3 覆盖——跳过避免重复 issue。
+  // 此处只新增两类：(2) profile.domains 引用悬空 + (3b) profile.groups[X].domains 引用悬空。
+  // ref-check 是单一来源；regex 解析其 error 字符串提取 profile/group/domain ref。
+  // 警告（未实例化聚合组）不纳入 scan——设计信号，scan 不越界判断。
+  // v17（issue pt-scan-qualified-ref-pack-blind）：传 domainWS + packNames 让 checkAllRefs 走 pack-aware 查找
+  const loadedPackNames = packs.map((p) => p.name);
+  const refCheck = checkAllRefs(profiles, blueprints, domains, {
+    domainWS: { location: domainLocWS, identity: domainIdWS },
+    packNames: loadedPackNames,
+  });
+  for (const err of refCheck.errors) {
+    // 格式：`Profile "X" 的 domains 引用悬空 Domain "Y"[（限定 pack "Z" 中无该 asset）]`
+    // 后缀可选——pack-aware 查找报告 pack 漂移时附带。
+    const mGlobal = err.match(
+      /^Profile "([^"]+)" 的 domains 引用悬空 Domain "([^"]+)"(?:（限定 pack "([^"]+)" 中无该 asset）)?$/
+    );
+    if (mGlobal) {
+      const profileName = mGlobal[1] ?? "";
+      const domainRef = mGlobal[2] ?? "";
+      const driftPack = mGlobal[3]; // undefined 或限定 pack 名
+      issues.push({
+        severity: "error",
+        scope: "profile",
+        name: profileName,
+        field: "domains",
+        msg: `Profile「${profileName}」全局 domains 引用悬空 Domain「${domainRef}」${
+          driftPack ? `（限定 pack "${driftPack}" 中无该 asset——可能是 pack 改名漂移）` : ""
+        }`,
+        hint: driftPack
+          ? `检查 pack 是否改名（profile 里的 @pack/name 前缀可能过期）`
+          : `检查 settings pack 是否仍提供该 domain / 拼写是否正确 / 从 profile.domains 移除该引用`,
+      });
+      continue;
+    }
+    // 格式：`Profile "X" 聚合组 "Y" 引用悬空 Domain "Z"[（限定 pack "W" 中无该 asset）]`
+    const mGroup = err.match(
+      /^Profile "([^"]+)" 聚合组 "([^"]+)" 引用悬空 Domain "([^"]+)"(?:（限定 pack "([^"]+)" 中无该 asset）)?$/
+    );
+    if (mGroup) {
+      const profileName = mGroup[1] ?? "";
+      const groupName = mGroup[2] ?? "";
+      const domainRef = mGroup[3] ?? "";
+      const driftPack = mGroup[4]; // undefined 或限定 pack 名
+      issues.push({
+        severity: "error",
+        scope: "profile",
+        name: profileName,
+        field: `groups.${groupName}.domains`,
+        msg: `Profile「${profileName}」聚合组「${groupName}」引用悬空 Domain「${domainRef}」${
+          driftPack ? `（限定 pack "${driftPack}" 中无该 asset——可能是 pack 改名漂移）` : ""
+        }`,
+        hint: driftPack
+          ? `检查 pack 是否改名（profile 里的 @pack/name 前缀可能过期）`
+          : `检查 settings pack 是否仍提供该 domain / 拼写是否正确 / 从聚合组 ### Domains 移除该引用`,
+      });
+    }
+    // 其余错误（悬空 Blueprint / 聚合组名不在 Blueprint）已被规则 2/3 覆盖，忽略
   }
 
   const errors = issues.filter((i) => i.severity === "error").length;
