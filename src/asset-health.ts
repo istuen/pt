@@ -90,6 +90,74 @@ export interface AssetHealthReport {
   infos?: number;
 }
 
+// ==================== 通知格式化 ====================
+
+/** 简报格式选项（issue pt-asset-health-diag-report-format）。
+ *  - maxItems：最大列出项数；超限时附加一条「→ /pt check 查看全部」引导。
+ *  - prefix：默认 "[pt] 诊断："；可换为 "[pt] " 或空。 */
+export interface FormatHealthSummaryOpts {
+  maxItems?: number;
+  prefix?: string;
+}
+
+/** scope → 修复路径与人类可读分组名（issue pt-asset-health-diag-report-format §短期修复方向）。 */
+const SCOPE_TO_ACTION: Record<IssueScope, { group: string; path: string }> = {
+  profile: { group: "profile 配置问题", path: "/pt check" },
+  blueprint: { group: "blueprint 配置问题", path: "/pt check" },
+  domain: { group: "domain 引用问题", path: "/pt check" },
+};
+
+/** 把 AssetHealthReport 格式化为人类可读分类简报（不输出逐条详情——那是 /pt check 的职责）。
+ *  输出形如：
+ *  ```
+ *  [pt] 诊断：4 项配置问题（不阻断）
+ *    · 2× profile 配置问题 → /pt check
+ *    · 1× domain 引用问题 → /pt check
+ *    · 1× manifest 警告 → /pt packs
+ *  ```
+ *  超 maxItems 时追加 `→ /pt check 查看全部`。
+ *
+ *  v0.3.0 随 pt-cold-start-warning-noise 一起发版。 */
+export function formatHealthSummary(
+  report: AssetHealthReport,
+  opts: FormatHealthSummaryOpts = {}
+): string {
+  const { maxItems = 6, prefix = "[pt] 诊断：" } = opts;
+
+  if (report.issues.length === 0) return "";
+
+  // 按 (scope, severity) 分组聚合计数
+  const groups = new Map<string, { count: number; path: string }>();
+  for (const issue of report.issues) {
+    // 已知 scope 才走 scope → 路径映射；未知 scope 走 fallback
+    const action = SCOPE_TO_ACTION[issue.scope as IssueScope] ?? {
+      group: `${issue.scope} 问题`,
+      path: "/pt check",
+    };
+    const key = action.group;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.count++;
+    } else {
+      groups.set(key, { count: 1, path: action.path });
+    }
+  }
+
+  // 输出——不阻断语义
+  const lines: string[] = [];
+  lines.push(`${prefix}${report.issues.length} 项配置问题（不阻断）`);
+
+  const sortedGroups = [...groups.entries()].sort((a, b) => b[1].count - a[1].count);
+  const displayed = sortedGroups.slice(0, maxItems);
+  for (const [group, { count, path }] of displayed) {
+    lines.push(`  · ${count}× ${group} → ${path}`);
+  }
+  if (sortedGroups.length > maxItems) {
+    lines.push(`  → /pt check 查看全部`);
+  }
+  return lines.join("\n");
+}
+
 // ==================== 主入口 ====================
 
 /** 扫描整个项目的资产配置（issue §Layer 2 主入口）。

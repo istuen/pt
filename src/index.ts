@@ -35,7 +35,7 @@ import {
 } from "./health-state.js";
 import { toAgentAPI } from "./agent/api-bridge.js";
 import { getAgentAdapter } from "./agent/index.js";
-import { scanProjectHealth } from "./asset-health.js";
+import { scanProjectHealth, formatHealthSummary } from "./asset-health.js";
 import {
   applyProjectPackDegrade,
   loadBuiltinPack,
@@ -552,11 +552,14 @@ export default function (pi: ExtensionAPI): void {
         if (report.errors > 0 || report.warnings > 0) {
           if (hashChanged) {
             // 仅在 hash 变化时 notify——否则仅 footer 染色（表示"持续问题"但不消费通知额度）
-            const summary =
-              report.issues.length === 1
-                ? `[pt] 项目有 1 个配置问题：${report.issues[0]?.msg ?? ""}（运行 /pt check 查看详情）`
-                : `[pt] 项目有 ${report.errors} errors + ${report.warnings} warnings（运行 /pt check 查看详情）`;
-            ctx.ui.notify(summary, "warning");
+            // v0.3.0（issue pt-asset-health-diag-report-format）：用 formatHealthSummary 输出分类 + 路径
+            // 取代原“纯计数 + 运行 /pt check”的冷冰冰文案。
+            const summary = formatHealthSummary(report);
+            ctx.ui.notify(
+              summary ||
+                `[pt] 项目有 ${report.issues.length} 项配置问题（运行 /pt check 查看详情）`,
+              "warning"
+            );
           }
           // 体检结果（不论 hash 是否变）都刷新 footer 染色（statusText / footer 会显示 issue 数）
           refreshInjectionFooter(ctx.ui, s);
