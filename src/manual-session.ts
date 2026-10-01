@@ -46,7 +46,7 @@ import type { ActiveManual, SessionState } from "./session.js";
 const PT_MANUAL_ENTRY = "pt:active-manual";
 
 /** v18.x（issue pt-turncontext-llm-call-trigger 决策 6）：lastTurnRef 持久化 entry。
- *  与 PT_MANUAL_ENTRY 同寿命周期——session_start 读恢复 / 调 pt_turn_inject + pt_make_manual 写。 */
+ *  与 PT_MANUAL_ENTRY 同寿命周期——session_start 读恢复 / 调 pt_inject + pt_doc start 写。 */
 const PT_LAST_TURN_REF_ENTRY = "pt:last-turn-ref";
 
 /** TurnContext 线索结构（引用指针，非内容缓存）。 */
@@ -224,7 +224,7 @@ function persistLastTurnRef(pi: ExtensionAPI, ref: LastTurnRef): void {
 
 /** v18.x（决策 6）：session_start 时试恢复 lastTurnRef。
  *  独立于 manual 恢复链——compaction 线索是 session lifecycle 维度，
- *  无 manual 时也能有线索（只调过 pt_turn_inject 没调 pt_make_manual）。 */
+ *  无 manual 时也能有线索（只调过 pt_inject 没调 pt_doc start）。 */
 function tryRestoreLastTurnRef(ctx: ExtensionContext, session: SessionState): void {
   const sm = ctx.sessionManager;
   if (!sm || typeof sm.getEntries !== "function") return;

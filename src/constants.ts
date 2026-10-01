@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 // .pt/ 目录布局规范（v11 重排）：
 //   .pt/assets/   入 git — 转译资产（domains / blueprints / profiles）
 //   .pt/docs/     入 git — 文档（designs 设计与执行 / issues 问题跟踪）
-//   .pt/manuals/  gitignore — pt_make_manual 工作文档
+//   .pt/manuals/  gitignore — pt_doc {action: start} 工作文档
 //   .pt/cache/    gitignore — 运行产物（contexts 编译 / fulls 完整 prompt / raws segment）
 //   .pt/logs/     gitignore — NDJSON trace
 //

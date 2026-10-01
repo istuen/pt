@@ -3,7 +3,7 @@
 // 验证：
 //   - buildManualDoc 接受 issue 参数 → frontmatter 含 `issue: <name>`
 //   - issue=undefined / "" / 空白 → frontmatter 无 `issue:` 行（back-compat）
-//   - pt_make_manual tool 把 issue 传给 buildManualDoc + activeManual
+//   - pt_doc {action: start} tool 把 issue 传给 buildManualDoc + activeManual
 //   - persistManualToSession 写入 entry 含 issue 字段（旧 entry 无 issue 也兼容）
 //   - tryRestoreManual 恢复时把 issue 写回 activeManual
 //   - /pt manual <proc> [args] --issue <name> 命令解析（拆出 flag，不污染 args）
@@ -200,7 +200,7 @@ describe("P3 buildManualDoc：issue 关联字段", () => {
   });
 });
 
-describe("P3 pt_make_manual tool：issue 参数链路", () => {
+describe("P3 pt_doc tool action=start：issue 参数链路", () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
@@ -229,12 +229,13 @@ describe("P3 pt_make_manual tool：issue 参数链路", () => {
     m.widgetCalls.length = 0;
     m.appendedEntries.length = 0;
 
-    const ptManualTool = m.tools.get("pt_make_manual");
-    if (!ptManualTool) throw new Error("pt_make_manual tool not registered");
+    const ptManualTool = m.tools.get("pt_doc");
+    if (!ptManualTool) throw new Error("pt_doc tool not registered");
 
     const result = (await ptManualTool.execute(
       "call-1",
       {
+        action: "start",
         procedure: "feature-lifecycle",
         args: "req-001",
         issue: "pt-widget-bug",
@@ -276,10 +277,10 @@ describe("P3 pt_make_manual tool：issue 参数链路", () => {
 
     m.appendedEntries.length = 0;
 
-    const ptManualTool = m.tools.get("pt_make_manual")!;
+    const ptManualTool = m.tools.get("pt_doc")!;
     const result = (await ptManualTool.execute(
       "call-1",
-      { procedure: "feature-lifecycle", args: "req-002" },
+      { action: "start", procedure: "feature-lifecycle", args: "req-002" },
       undefined,
       undefined,
       m.ctx
