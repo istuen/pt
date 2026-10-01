@@ -168,7 +168,7 @@ export function checkAllRefs(
   return { ok: allErrors.length === 0, errors: allErrors, warnings: allWarnings };
 }
 
-/** 把 RefCheckResult 格式化为人类可读文本（pt_check_refs tool 输出用）。 */
+/** 把 RefCheckResult 格式化为人类可读文本（pt_info {kind: lint} tool 输出用）。 */
 export function formatRefCheckResult(r: RefCheckResult): string {
   const lines: string[] = [];
   if (r.ok && r.warnings.length === 0) {

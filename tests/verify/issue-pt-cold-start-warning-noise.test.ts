@@ -191,7 +191,8 @@ describe("MdFilePack.create 静默（issue pt-cold-start-warning-noise §短期�
     const pack = await MdFilePack.create({ rootDir: root, source: "settings", adapterCtx });
     expect(pack.manifestWarnings).toEqual([]);
     expect(pack.manifestMissingHint).toContain("无 manifest");
-    expect(pack.manifestMissingHint).toContain("pack-management#pack-create");
+    expect(pack.manifestMissingHint).toContain("pt_inject tool domain=pack-management");
+    expect(pack.manifestMissingHint).toContain("pack-create");
   });
 
   it("settings pack manifest name 非 kebab → 不 notify，manifestWarnings 填充", async () => {

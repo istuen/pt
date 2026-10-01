@@ -2,8 +2,14 @@
 //
 // Phase 9.6：v9 新增 — AgentAdapter 的 Pi 实现。
 //   - system_prompt 注入：api.on("before_agent_start") 每轮追加 segment
-//   - context_message 触发：api.on("input") 拦截 /pt_turn_inject
-//   - 这些是 Agent Runtime 层（Pi API），本 Adapter 在该层做 session→system_prompt、turn→context_message 映射
+//   - 这些是 Agent Runtime 层（Pi API），本 Adapter 在该层做 session→system_prompt 映射
+//
+// v19（issue pt-llm-tool-consolidation）：
+//   - 移除 api.on("input") handler：人类不再用 `/pt_turn_inject` 命令触发 TurnContext 注入
+//     （语义不符 + 与 tool 重复 + 人类有更好替代，见 issue §人类命令统一方案）。
+//     LLM 仍可调 `pt_inject` tool 获取手册内容（同一 renderTurnInject 内核）。
+//   - listManuals 返回的 name 改为纯 domain 名（不再伪装成 `/pt_turn_inject <domain>` 命令）；
+//     flowsText 文案相应改为 "调 pt_inject tool 获取 <domain> 手册"。
 //
 // Pt 核心只调 AgentAdapter 接口，不直接调 Pi API。加新 Agent 只加 Adapter。
 //
@@ -30,7 +36,6 @@ import {
   type Domain,
   type Profile,
 } from "../schema.js";
-import { renderTurnInject } from "../render/turn-inject.js";
 import { renderSessionInject } from "../render/session-inject.js";
 
 /** v12.x：从 handler 的 args[1] ctx 提取 sessionId。
@@ -178,44 +183,11 @@ export class PiAdapter implements AgentAdapter {
       }
     });
 
-    // context_message 触发：/pt_turn_inject
-    // v10.x：包 try/catch，renderTurnInject 抛错不再 swallow
-    api.on("input", async (...args: unknown[]) => {
-      const t0 = Date.now();
-      try {
-        if (!this.ctx || !this.blueprint) return { action: "continue" };
-        const event = args[0];
-        if (!isInputEvent(event)) return { action: "continue" };
-        // Phase term-P4.3：renderContextMessage → renderTurnInject
-        // v13.x（issue pt-turn-inject-not-profile-scoped）：按 Profile scope 过滤 domains + 传 profile
-        //   让 /pt_turn_inject <domain> 在未引用该 domain 的 Profile 下返 null（与 /pt flows 列表一致）
-        const scoped = filterDomainsByProfile(this.domains, this.profile);
-        const result = renderTurnInject(this.ctx, this.blueprint, scoped, this.profile, event.text);
-        const durationMs = Date.now() - t0;
-        if (result === null) {
-          api.log?.debug("agent:input passthrough", {
-            inputPreview: event.text.slice(0, 80),
-            durationMs,
-          });
-          return { action: "continue" };
-        }
-        api.log?.info("agent:input transformed", {
-          inputPreview: event.text.slice(0, 80),
-          outputLen: result.length,
-          durationMs,
-        });
-        return { action: "transform", text: result };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        api.log?.error("agent:input render failed", {
-          err: msg,
-          input: args[0],
-          durationMs: Date.now() - t0,
-        });
-        api.ui?.notify(`[pt] input render failed: ${msg}`, "error");
-        return { action: "continue" }; // 失败降级: 不拦截 input, 让原文本过 LLM
-      }
-    });
+    // v19（issue pt-llm-tool-consolidation）：删除 api.on("input") handler
+    //   - 人类不再用 `/pt_turn_inject` 触发 TurnContext 注入（语义不符 + 与 tool 重复）
+    //   - LLM 调 `pt_inject` tool 仍走同一 renderTurnInject 内核（src/index.ts 调）
+    //   - renderTurnInject 仍按 `/pt_turn_inject <target>` 字符串前缀解析（tool execute 拼前缀传入）
+    //     是内部耦合保留，不在本 scope（issue §边界纪律）
   }
 
   /** 查询可用手册（/pt flows 用）。
@@ -244,14 +216,15 @@ export class PiAdapter implements AgentAdapter {
         }
         const rulesContent = d.modules[MOD_RULES];
         if (isRuleArray(rulesContent) && rulesContent.length > 0) {
-          // term-Domain 的 Rule[] 作为 /pt_turn_inject <domain> 暴露
+          // v19（issue pt-llm-tool-consolidation）：name 改为纯 domain 名（不再伪装成人类命令）；
+          //   flowsText 文案相应改为"调 pt_inject tool 获取 <domain> 手册"。
           flows.push({
-            name: `/pt_turn_inject ${d.name}`,
+            name: d.name,
             hint: `${rulesContent.length} 条规范`,
             domain: d.name,
           });
         }
-        // Checklist[] 暂不单独暴露——/pt_turn_inject <domain> 命令会统一处理（renderDomainManual）
+        // Checklist[] 暂不单独暴露——pt_inject <domain> tool 会统一处理（renderDomainManual）
       }
     }
 
@@ -274,8 +247,4 @@ function isSystemPromptEvent(x: unknown): x is { systemPrompt: string } {
     typeof x === "object" &&
     typeof (x as { systemPrompt?: unknown }).systemPrompt === "string"
   );
-}
-
-function isInputEvent(x: unknown): x is { text: string } {
-  return !!x && typeof x === "object" && typeof (x as { text?: unknown }).text === "string";
 }

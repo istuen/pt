@@ -1,7 +1,7 @@
-// src/manual-writeback.ts — pt_verify 结果自动写回 manual 实例（纯函数内核）
+// src/manual-writeback.ts — pt_doc verify 结果自动写回 manual 实例（纯函数内核）
 //
 // v15.x（issue pt-verify-result-not-written-back-to-manual）：
-// pt_verify tool 跑完 probe 后，自动把结果写回 activeManual 文件的 ## 执行状态 表。
+// pt_doc {action: verify} tool 跑完 probe 后，自动把结果写回 activeManual 文件的 ## 执行状态 表。
 // 闭环不靠 LLM 自觉——与 pt-collab.md 的 acceptance 原则一致。
 //
 // 设计要点：

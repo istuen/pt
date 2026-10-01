@@ -1,10 +1,14 @@
-// tests/verify/turn-inject-tool.test.ts — pt_turn_inject tool（v18.x issue pt-turncontext-llm-call-trigger 决策 4）
+// tests/verify/turn-inject-tool.test.ts — pt_inject tool（v18.x issue pt-turncontext-llm-call-trigger 决策 4）
+//
+// v19（issue pt-llm-tool-consolidation）：tool 名 pt_turn_inject → pt_inject（合并 8 → 3 根基）
+//   - execute 参数不变：{ domain: string }
+//   - 复用现有 renderTurnInject（不新造渲染）
 //
 // 覆盖：
 //   - domain 存在 → execute 返回手册段内容（renderTurnInject 走 /pt_turn_inject <domain> 路径）
 //   - domain 不存在 → execute 返回 "未找到 Domain 或无手册段"
 //   - 无激活 Profile（cachedBundles 空） → execute 返回 "无激活 Profile" 提示
-//   - tool 注册名是 "pt_turn_inject"，复用现有 renderTurnInject（不新造渲染）
+//   - tool 注册名是 "pt_inject"
 //
 // 测试策略：
 //   - mock ExtensionAPI（仿 manual-track-injection.test.ts）
@@ -72,7 +76,7 @@ function makePi() {
 }
 
 /** Force-load a profile into the test session's cached IR. */
-async function loadProfileIntoSession(profileName: string): Promise<{
+async function _loadProfileIntoSession(profileName: string): Promise<{
   agentContext: AgentContext;
   blueprint: Blueprint;
   domains: Domain[];
@@ -98,7 +102,7 @@ async function loadProfileIntoSession(profileName: string): Promise<{
   };
 }
 
-describe("pt_turn_inject tool（v18.x）", () => {
+describe("pt_inject tool（v19）", () => {
   beforeEach(() => {
     resetTestSession();
   });
@@ -108,10 +112,10 @@ describe("pt_turn_inject tool（v18.x）", () => {
     resetTestSession();
   });
 
-  it("工具已注册：name='pt_turn_inject'", () => {
+  it("工具已注册：name='pt_inject'", () => {
     const m = makePi();
     installExtension(m.pi as never);
-    const tool = m.tools.get("pt_turn_inject");
+    const tool = m.tools.get("pt_inject");
     expect(tool).toBeDefined();
   });
 
@@ -125,8 +129,8 @@ describe("pt_turn_inject tool（v18.x）", () => {
     const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
-    const tool = m.tools.get("pt_turn_inject");
-    if (!tool) throw new Error("pt_turn_inject not registered");
+    const tool = m.tools.get("pt_inject");
+    if (!tool) throw new Error("pt_inject not registered");
     const result = (await tool.execute(
       "call-1",
       { domain: "pt-quality" },
@@ -153,8 +157,8 @@ describe("pt_turn_inject tool（v18.x）", () => {
     const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
-    const tool = m.tools.get("pt_turn_inject");
-    if (!tool) throw new Error("pt_turn_inject not registered");
+    const tool = m.tools.get("pt_inject");
+    if (!tool) throw new Error("pt_inject not registered");
     const result = (await tool.execute(
       "call-1",
       { domain: "nonexistent-domain-xyz" },
@@ -172,8 +176,8 @@ describe("pt_turn_inject tool（v18.x）", () => {
     installExtension(m.pi as never);
     // 不触发 session_start，不切 profile → cachedBundles 保持 undefined/空
 
-    const tool = m.tools.get("pt_turn_inject");
-    if (!tool) throw new Error("pt_turn_inject not registered");
+    const tool = m.tools.get("pt_inject");
+    if (!tool) throw new Error("pt_inject not registered");
     const result = (await tool.execute(
       "call-1",
       { domain: "pt-quality" },
@@ -199,8 +203,8 @@ describe("pt_turn_inject tool（v18.x）", () => {
     // 删掉 cachedBlueprint → 模拟缺一字段
     s().cachedBlueprint = undefined;
 
-    const tool = m.tools.get("pt_turn_inject");
-    if (!tool) throw new Error("pt_turn_inject not registered");
+    const tool = m.tools.get("pt_inject");
+    if (!tool) throw new Error("pt_inject not registered");
     const result = (await tool.execute(
       "call-1",
       { domain: "pt-quality" },

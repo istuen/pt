@@ -6,34 +6,34 @@ name: usage
 
 ## Trigger
 ### usage-trigger
-- desc: 操作 Pt 时参考；含 /pt 命令族（含 /pt make-manual 实例化手册）+ --pt-profile flag（--pt-context 为旧 flag，backward-compat 保留）+ /pt-profile 切换
-- hint: /pt_turn_inject usage 查看完整命令列表
+- desc: 操作 Pt 时参考；含 /pt 命令族（含 /pt doc start 实例化手册）+ --pt-profile flag（--pt-context 为旧 flag，backward-compat 保留）+ /pt-profile 切换
+- hint: 调 pt_inject tool domain=usage 查看完整命令列表
 
 ## Scene
 
 ### pt-commands
-- desc: /pt（查看当前状态）+ /pt status（profile + segment 长度 + cache hit）+ /pt flows（列出可触发手册，即 Turn Context 内容索引）+ /pt raw（dump segment 到 .pt/cache/raws/）+ /pt full（dump 完整 Session Inject 到 .pt/cache/fulls/）
+- desc: /pt（查看当前状态）+ /pt info status（profile + segment 长度 + cache hit）+ /pt doc list flows（列出可触发手册，即 Turn Context 内容索引）+ /pt info raw（dump segment 到 .pt/cache/raws/）+ /pt info full（dump 完整 Session Inject 到 .pt/cache/fulls/）
 
 ### pt-profile-command
 - desc: /pt-profile（列出所有可用 Profile）+ /pt-profile <name>（切换到指定 Profile，下一轮生效）。旧命令 /pt-context 保留为 backward-compat fallback。
 
 ### manual-trigger
-- desc: /pt_turn_inject <domain>（注入该 Domain 的 Rules/Flows/Checklists 段到 Turn Inject）+ /pt_turn_inject <flow-name> <args>（触发 Domain 的 FlowTemplate）
+- desc: pt_inject tool <domain>（LLM 按需注入该 Domain 的 Rules/Flows/Checklists 段；内部仍按 /pt_turn_inject <domain> 前缀调 renderTurnInject，保留 render 内核的内部契约）
 
 ### pt-profile-flag
 - desc: --pt-profile <name>（Pi 启动时激活指定 Profile，CLI 优先级高于 session_start 默认逻辑）。旧 flag --pt-context 保留为 backward-compat fallback。
 
-### pt-make-manual-command
-- desc: pt_make_manual LLM tool（创建 Manual 实例文档，用于多步过程跟踪）
+### pt-doc-tool
+- desc: pt_doc LLM tool（action: list|start|verify|check）——管理项目文档（issue/manual/design 实例 + FlowTemplate 手册实例 + 验证 probe）。action=list 列索引（type=flows/issues/manuals/designs），action=start 创建手册实例（procedure + args + issue 可选），action=verify 跑 verify probe（自动写回 manual），action=check 校验 docs/ 文档 schema
 
-### pt-turn-inject-command
-- desc: pt_turn_inject LLM tool（按需注入 Domain 的 TurnContext 手册详情，LLM 推理触发）
+### pt-inject-tool
+- desc: pt_inject LLM tool（按需注入 Domain 的 TurnContext 手册详情，LLM 推理触发，input=domain 名）
 
 ### manual-create-command
-- desc: /pt make-manual <procedure-name> [args...]（创建手册实例文档到 .pt/manuals/，含 checklist + 产物区，用于跟踪执行）。与 /pt_turn_inject <domain>（ephemeral 参考）互补——前者持久化，后者即时注入。
+- desc: /pt doc start <procedure-name> [args...] [--issue X]（创建手册实例文档到 .pt/manuals/，含 checklist + 产物区，用于跟踪执行）。与 pt_inject tool <domain>（ephemeral 参考）互补——前者持久化，后者即时注入。
 
 ### pt-tools-llm
-- desc: pt_status / pt_flows / pt_make_manual / pt_turn_inject 四个 LLM tool（pi.registerTool）。与 /pt 命令族共享纯函数内核——人类打 /pt status，LLM 调 pt_status，结果一致。/pt-profile 不做 tool（切换 Profile 改 Session Context 不该让 LLM 触发，见 .pt/docs/designs/pt-command-tool-dual-registration.md §2.4）。
+- desc: pt_info / pt_doc / pt_inject 三个 LLM tool（pi.registerTool，v19 收敛自原 8 个）。pt_info 查 Pt 自身（kind=status/packs/lint/logs/sessions/raw/full）；pt_doc 管理项目文档（action=list/start/verify/check）；pt_inject 按需注入手册详情。与 /pt 命令族共享纯函数内核——人类打 /pt info status / LLM 调 pt_info {kind: status} 结果一致。/pt-profile 不做 tool（切换 Profile 改 Session Context 不该让 LLM 触发，见 .pt/docs/designs/pt-command-tool-dual-registration.md §2.4）。
 
 ### settings-pack
 - desc: v15.x settings 声明 Pack——在 .pi/settings.json 的 pt.asset-packs[] 声明第三方 / 团队 Pack（只 path 字段，name 从 manifest 读）。路径支持 ~（home dir）/ 绝对 / 相对 cwd。多个 settings pack 按声明顺序后者赢（npm 风格）。pt.project-pack-dir 可改 project pack 路径（默认 .pt/assets，支持项目外路径）
@@ -66,7 +66,7 @@ name: usage
 - argument-hint: (无)
 - intent: 把当前 session 的 segment（Pt 注入的 Session Context）dump 到文件
 - vars: []
-- step: /pt raw → 写入 .pt/cache/raws/segment-<timestamp>.md
+- step: /pt info raw → 写入 .pt/cache/raws/segment-<timestamp>.md
 - step: 用于检查 Pt 编译产物是否正确
 
 ## Rules

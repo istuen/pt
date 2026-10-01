@@ -174,7 +174,7 @@ export function formatHealthSummary(
  *   - profiles / blueprints / domains：从 SchemaBundle 取的全集
  *   - adapterCtx：可选。log writer 用于 trace（warn 不走 notify——会刷屏）
  *
- * 调用方：session_start / /pt check / pt_check tool。
+ * 调用方：session_start / /pt info lint / pt_info {kind: lint} tool。
  *
  * 不抛错——任何内层异常降级为 log warn + 不阻止结果。体检失败不该阻塞 session 启动。
  */

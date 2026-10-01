@@ -207,35 +207,29 @@ domains: ["@fullstack/team-stdlib", workflow]    # @fullstack 限定 + 无前缀
 
 ### 用户命令（slash command）
 
+v19（issue pt-llm-tool-consolidation）：info/doc 两根基 + 旧命令别名兼容（backward-compat）。inject 无人类命令（语义不符 + 与 tool 重复，见 issue §人类命令统一方案）。
+
 | 命令 | 作用 |
 |---|---|
 | `--pt-profile <name>` | Pi 启动时激活 Profile（CLI 优先级最高） |
 | `/pt-profile` | 弹出 Profile 选择器 |
 | `/pt-profile <name>` | 切换 Profile（下一轮生效） |
-| `/pt` | 查看当前编译状态（同 `/pt status`） |
-| `/pt status` | 编译状态 + segment/cache/pack 健康摘要 |
-| `/pt packs` | 各 Pack 加载详情（name / version / asset 计数 / DEGRADED 原因） |
-| `/pt flows` | 列出当前 Profile 可触发的 FlowTemplate |
-| `/pt check [--profile X] [--fix]` | 项目配置体检（missing ### Modules / 悬挂引用 / 未知 modName） |
-| `/pt make-manual <flow> [args...] [--issue <name>]` | 创建 FlowTemplate 实例文档（写入 `.pt/manuals/`） |
-| `/pt raw` | 把当前 segment 写入 `.pt/cache/raws/` |
-| `/pt full` | 完整 systemPrompt 落盘（写入 `.pt/cache/fulls/`） |
-| `/pt logs` | tail 最近 50 条日志 |
-| `/pt logs:clear` | 清空当前 session 日志 |
-| `/pt sessions` | 列出所有 session 日志文件 |
+| `/pt` | 查看当前编译状态（同 `/pt info status`） |
+| `/pt info <kind>` | status / packs / lint / logs / logs:clear / sessions / raw / full（不写 kind 默认 status） |
+| `/pt doc list [type]` | flows/issues/manuals/designs（不写 type 列全部） |
+| `/pt doc start <proc> [args] [--issue X]` | 创建手册实例文档 |
+| `/pt doc check` | 校验 docs/ 文档 schema |
+| `/pt status` `/pt packs` `/pt check` `/pt logs` `/pt logs:clear` `/pt sessions` `/pt raw` `/pt full` `/pt flows` `/pt issues` `/pt manuals` `/pt designs` `/pt check-docs` `/pt make-manual` | 旧命令别名（转发至 info/doc 根基，back-compat） |
 
 ### LLM 工具（Agent 可调用）
 
+v19（issue pt-llm-tool-consolidation）：8 个 tool 收敛到 3 根基 + 二级命令。划分依据=作用对象（info=Pt 自身 / doc=项目文档 / inject=user message）。
+
 | 工具 | 作用 |
 |---|---|
-| `pt_status` | 编译状态（profile / domain / flow 计数 / cache hit） |
-| `pt_packs` | Pack 详情（name/version/desc/asset 计数） |
-| `pt_flows` | 当前 Profile 可触发的 FlowTemplate 列表 |
-| `pt_make_manual` | 创建手册实例文档（`procedure` / `args` / `issue`） |
-| `pt_turn_inject <domain-or-flow>` | 按需注入 Domain 手册段或展开 FlowTemplate |
-| `pt_verify` | 跑 verify probe，写回 manual checklist |
-| `pt_check` | 扫描项目配置问题（missing Modules / 悬挂引用 / 未知 modName） |
-| `pt_check_refs` | Profile→Blueprint→Domain 引用完整性 |
+| `pt_info` | 查询 Pt 自身。`kind=status`/`packs`/`lint`/`logs`/`logs:clear`/`sessions`/`raw`/`full`（lint 合并了原 pt_check + pt_check_refs，走实时加载） |
+| `pt_doc` | 管理项目文档。`action=list`（type=flows/issues/manuals/designs）/`start`（procedure+args+issue）/`verify`（probe+params）/`check` |
+| `pt_inject` | 按需注入 Domain 手册段或展开 FlowTemplate（输入 `domain` 名） |
 
 ---
 

@@ -22,6 +22,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -67,6 +68,7 @@ import {
   checkText,
   designsText,
   flowsText,
+  formatsList,
   issuesText,
   manualsText,
   packsText,
@@ -326,7 +328,7 @@ export default function (pi: ExtensionAPI): void {
     s.lastCwd = ctx.cwd;
 
     // v18.x（决策 6）：先试恢复 lastTurnRef——compaction 线索是 session lifecycle 维度，
-    // 独立于 profile 链（profile 失败也能恢复）。即使从未调过 pt_turn_inject / pt_make_manual
+    // 独立于 profile 链（profile 失败也能恢复）。即使从未调过 pt_inject / pt_doc start
     // 也会快速返回（无 entry）。
     tryRestoreLastTurnRef(ctx, s);
 
@@ -403,7 +405,7 @@ export default function (pi: ExtensionAPI): void {
               "info"
             );
           } else {
-            ctx.ui.notify(`  修复：/pt_turn_inject pack-repair`, "info");
+            ctx.ui.notify(`  修复：调 pt_inject tool 获取 pack-repair 手册`, "info");
           }
         }
       }
@@ -419,7 +421,7 @@ export default function (pi: ExtensionAPI): void {
               `⚠ Pt: settings pack [@${r.pack}] 连续 ${failCount} 次校验失败（${firstErr?.msg ?? "未知"}）。已跳过该 pack。`,
               "warning"
             );
-            ctx.ui.notify(`  修复：/pt_turn_inject pack-repair`, "info");
+            ctx.ui.notify(`  修复：调 pt_inject tool 获取 pack-repair 手册`, "info");
           }
         }
       }
@@ -602,7 +604,8 @@ export default function (pi: ExtensionAPI): void {
   // v18.x（issue pt-turncontext-llm-call-trigger 决策 6）：
   //  线索 = TurnContext domain 名 + Manual 路径（引用指针，非内容缓存）。
   //  session_compact 事件触发 → 读 s.lastTurnRef → 通过 pi.sendMessage({ triggerTurn: true })
-  //  注入固定线索作为 custom message → LLM 读到后据线索重新调 pt_turn_inject / read Manual。
+  //  注入固定线索作为 custom message → LLM 读到后据线索重新调 pt_inject / read Manual。
+  //  v19（issue pt-llm-tool-consolidation）：线索文本改写——`pt_turn_inject` tool 名 → `pt_inject` tool 名。
   //  无条件重注入——线索很轻（domain 名 + 路径），多注一次不撑窗口，简化逻辑。
   //  session_compact 事件在 src/index.ts 注册而非 pi-adapter.ts——因为：
   //   1) pi.sendMessage 是 Pi 专属 API，AgentAPI 不暴露（保持 AgentAdapter 抽象纯净）
@@ -611,13 +614,13 @@ export default function (pi: ExtensionAPI): void {
     const sessionId = getSessionIdFromCtx(ctx);
     if (!sessionId) return;
     const s = getSessionById(sessionId);
-    if (!s.lastTurnRef) return; // 无线索可重注入（从未调过 pt_turn_inject / pt_make_manual）
+    if (!s.lastTurnRef) return; // 无线索可重注入（从未调过 pt_inject / pt_doc start）
     const { turnInjectDomain, manualPath } = s.lastTurnRef;
     // 空 lastTurnRef（两字段都空）也不注入
     if (!turnInjectDomain && !manualPath) return;
     const lines: string[] = [
       "[pt] 上次 TurnContext 线索（compaction 后恢复）：",
-      `- TurnContext Domain: ${turnInjectDomain || "(未调 pt_turn_inject)"}（调 pt_turn_inject ${turnInjectDomain || "<domain>"} 重新获取详情）`,
+      `- TurnContext Domain: ${turnInjectDomain || "(未调 pt_inject)"}（调 pt_inject tool domain=${turnInjectDomain || "<domain>"} 重新获取详情）`,
     ];
     if (manualPath) {
       lines.push(`- Manual 实例: ${manualPath}（用 read 工具读取继续执行）`);
@@ -752,13 +755,19 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  // ========== /pt 命令：查看 Pt 编译产物 ==========
+  // ========== /pt 命令：查看 Pt 编译产物 / 管理项目文档 ==========
+  // v19（issue pt-llm-tool-consolidation）：
+  //   - 子命令重构为 info / doc 两根基 + 旧命令别名转发（back-compat）。
+  //   - /pt info <kind>：status / packs / lint / logs / logs:clear / sessions / raw / full
+  //   - /pt doc list [type] | start <procedure> [args] [--issue X] | check
+  //   - 旧命令（status/packs/check/logs/logs:clear/sessions/raw/full/flows/issues/manuals/designs/check-docs/make-manual）转发
+  //   - inject 无人类命令（见 issue §人类命令统一方案）
+  //   - /pt 无参行为不变（statusText + cachedSegment）
   pi.registerCommand("pt", {
-    description: "查看 Pt 转译产物 / 状态（无参=显示当前 segment）",
+    description:
+      "查看 Pt 转译产物 / 管理项目文档（无参=status + segment；子命令 info/doc；旧命令别名兼容）",
     handler: async (args, ctx) => {
-      // v11.x 修复：原来 `sub = args.trim()` 会把整个 args 作为 sub，导致 `/pt make-manual <proc>` 时
-      //   `sub === "make-manual"` 永远不成立。改为：sub = 第一词，subArgs = 剩余。
-      //   兼容现有 logs:clear / status / flows 等单子命令（不带额外参数）行为不变。
+      // v11.x 修复：sub = 第一词，subArgs = 剩余。兼容 logs:clear / status / flows 等单子命令。
       const firstSpace = args.indexOf(" ");
       const head = firstSpace === -1 ? args : args.slice(0, firstSpace);
       const tail = firstSpace === -1 ? "" : args.slice(firstSpace + 1);
@@ -773,168 +782,293 @@ export default function (pi: ExtensionAPI): void {
       }
       const s = getSessionById(sessionId);
 
-      if (sub === "status" || sub === "") {
+      // ===== /pt 无参 = 默认 status + segment（保留原行为） =====
+      if (sub === "") {
         ctx.ui.notify(statusText(s), "info");
-        if (sub === "" && s.cachedSegment) {
+        if (s.cachedSegment) {
           ctx.ui.notify(s.cachedSegment, "info");
         }
         return;
       }
 
-      // v15.x §4.4.4（缺口 5）：/pt packs 详情命令——pack 诊断信息
+      // ==================== /pt info <kind> ====================
+      // status/packs/lint/logs/logs:clear/sessions/raw/full 八种
+      if (sub === "info") {
+        // subArgs 形如 "status" / "logs" / "lint --profile X" / "logs:clear" 等
+        const infoFirstSpace = subArgs.indexOf(" ");
+        const kindHead = infoFirstSpace === -1 ? subArgs : subArgs.slice(0, infoFirstSpace);
+        const kindTail = infoFirstSpace === -1 ? "" : subArgs.slice(infoFirstSpace + 1);
+        const kind = kindHead.trim().toLowerCase() || "status";
+        const k = kindTail.trim();
+
+        if (kind === "status") {
+          ctx.ui.notify(statusText(s), "info");
+          return;
+        }
+        if (kind === "packs") {
+          ctx.ui.notify(packsText(s), "info");
+          return;
+        }
+        if (kind === "lint") {
+          // 解析 --profile X / --fix
+          const parts = k.split(/\s+/).filter((p) => p.length > 0);
+          let profileName: string | undefined;
+          let fix = false;
+          for (let i = 0; i < parts.length; i++) {
+            const p = parts[i];
+            if (p === "--fix") {
+              fix = true;
+              continue;
+            }
+            if (p === "--profile" || p === "-p") {
+              const next = parts[i + 1];
+              if (next && !next.startsWith("--")) {
+                profileName = next;
+                i++;
+              }
+              continue;
+            }
+            if (p.startsWith("--profile=")) {
+              profileName = p.slice("--profile=".length);
+              continue;
+            }
+            if (!profileName) profileName = p;
+          }
+          // 复用 pt_info {kind: lint} 的逻辑：实时加载 + scanProjectHealth + checkAllRefs
+          const { checkAllRefs, formatRefCheckResult } = await import("./verify/ref-check.js");
+          const { scanProjectHealth, formatHealthSummary } = await import("./asset-health.js");
+          const r = await loadAndTranspile(ctx.cwd, s.activeProfile ?? "");
+          const b = r.bundles[0];
+          const report = await scanProjectHealth(
+            ctx.cwd,
+            b.profiles,
+            b.blueprints,
+            b.domains,
+            b.packs,
+            b.activeProfilePack,
+            b.workingSet,
+            { log: s.logger?.toWriter() }
+          );
+          const filtered = profileName
+            ? {
+                ...report,
+                issues: report.issues.filter((i) => i.name === profileName),
+                errors: report.issues.filter(
+                  (i) => i.name === profileName && i.severity === "error"
+                ).length,
+                warnings: report.issues.filter(
+                  (i) => i.name === profileName && i.severity === "warning"
+                ).length,
+              }
+            : report;
+          const refs = checkAllRefs(b.profiles, b.blueprints, b.domains, {
+            domainWS: b.workingSet.domains,
+            packNames: b.packs.map((p) => p.name),
+          });
+          const merged = `${formatHealthSummary(filtered)}\n\n${formatRefCheckResult(refs)}`;
+          ctx.ui.notify(merged, filtered.errors > 0 || refs.errors.length > 0 ? "warning" : "info");
+          // 旧 /pt check 兼容性：--fix 时显示迁移提示（v2 范围，本 v1 不实现）
+          if (fix) {
+            ctx.ui.notify(
+              "提示：fix 模式 v2 范围，本 v1 不自动修改文件（运行 /pt info lint 查看 hint）",
+              "info"
+            );
+          }
+          return;
+        }
+        if (kind === "logs") {
+          const files = await PtLogger.list(ctx.cwd);
+          if (files.length === 0) {
+            ctx.ui.notify(`无日志（${LOG_DIR}/ 不存在）`, "info");
+            return;
+          }
+          let targetFile = `pt-${s.sessionId}.log`;
+          if (!files.includes(targetFile)) {
+            if (files.includes("pt.log")) targetFile = "pt.log";
+            else targetFile = files[files.length - 1];
+          }
+          const lines = await PtLogger.tail(
+            ctx.cwd,
+            50,
+            targetFile === "pt.log" ? undefined : targetFile.slice(3, -4)
+          );
+          if (lines.length === 0) {
+            ctx.ui.notify(`日志为空（${targetFile}）`, "info");
+            return;
+          }
+          const formatted = lines
+            .map((e) => {
+              const stamp = e.ts.slice(11, 23);
+              const lvl = e.level.toUpperCase().padEnd(7);
+              const ctxStr =
+                e.ctx && Object.keys(e.ctx).length > 0 ? ` ${JSON.stringify(e.ctx)}` : "";
+              return `[${stamp}] [${lvl}] ${e.msg}${ctxStr}`;
+            })
+            .join("\n");
+          const header = `(${targetFile}，最近 ${lines.length} 条; 共 ${files.length} 个 session 文件)`;
+          ctx.ui.notify(`${header}\n${formatted}`, "info");
+          return;
+        }
+        if (kind === "logs:clear") {
+          await PtLogger.clear(ctx.cwd, s.sessionId || undefined);
+          ctx.ui.notify(
+            `已清空 .pt/logs/${s.sessionId ? `pt-${s.sessionId}.log` : "pt.log"}`,
+            "info"
+          );
+          return;
+        }
+        if (kind === "sessions") {
+          const files = await PtLogger.list(ctx.cwd);
+          if (files.length === 0) {
+            ctx.ui.notify("无 session 日志文件", "info");
+            return;
+          }
+          ctx.ui.notify(
+            `已存在的 session 日志:\n${files.map((f) => `  ${f}${f === `pt-${s.sessionId}.log` ? " (current)" : ""}`).join("\n")}`,
+            "info"
+          );
+          return;
+        }
+        if (kind === "raw") {
+          if (!s.cachedSegment) {
+            ctx.ui.notify("无 segment 可显示", "warning");
+            return;
+          }
+          const dir = join(ctx.cwd, RAW_DIR);
+          await mkdir(dir, { recursive: true });
+          const file = join(dir, `segment-${Date.now()}.md`);
+          await writeFile(file, s.cachedSegment, "utf8");
+          ctx.ui.notify(`已写入 ${file}（${s.cachedSegment.length} chars）`, "info");
+          return;
+        }
+        if (kind === "full") {
+          const full = buildFullPrompt(ctx.getSystemPrompt(), s.cachedSegment, s.lastBuiltPrompt);
+          if (!s.cachedSegment) {
+            ctx.ui.notify(
+              "警告：无 cachedSegment（未加载 Profile）。用 /pt-profile <name> 选择",
+              "warning"
+            );
+          }
+          const dir = join(ctx.cwd, FULL_DIR);
+          await mkdir(dir, { recursive: true });
+          const file = join(dir, `prompt-${Date.now()}.md`);
+          await writeFile(file, full, "utf8");
+          ctx.ui.notify(`完整 systemPrompt 已写入 ${file}（${full.length} chars）`, "info");
+          return;
+        }
+        ctx.ui.notify(
+          `用法: /pt info <status|packs|lint|logs|logs:clear|sessions|raw|full>`,
+          "warning"
+        );
+        return;
+      }
+
+      // ==================== /pt doc <action> ====================
+      if (sub === "doc") {
+        const docFirstSpace = subArgs.indexOf(" ");
+        const actionHead = docFirstSpace === -1 ? subArgs : subArgs.slice(0, docFirstSpace);
+        const actionTail = docFirstSpace === -1 ? "" : subArgs.slice(docFirstSpace + 1);
+        const action = actionHead.trim().toLowerCase();
+        const actionArgs = actionTail.trim();
+
+        if (action === "" || action === "list") {
+          // /pt doc list [type] —— type=flows/issues/manuals/designs，缺省列全部
+          // 第一个词作为 type，其余作为 --profile / --status flags
+          const listParts = actionArgs.split(/\s+/).filter((p) => p.length > 0);
+          const type = listParts.shift() ?? "";
+          const flags = parseListFlags(listParts.join(" "));
+          const profile = flags.profile ?? s.activeProfile ?? null;
+
+          if (type === "" || type === "all") {
+            const out: string[] = [];
+            out.push(flowsText(s));
+            out.push(await formatsList(ctx.cwd, profile, "issues", flags.status));
+            out.push(await formatsList(ctx.cwd, profile, "manuals", flags.status));
+            out.push(await formatsList(ctx.cwd, profile, "designs", flags.status));
+            ctx.ui.notify(out.join("\n\n"), "info");
+            return;
+          }
+          if (type === "flows") {
+            ctx.ui.notify(flowsText(s), "info");
+            return;
+          }
+          if (type === "issues" || type === "manuals" || type === "designs") {
+            ctx.ui.notify(await formatsList(ctx.cwd, profile, type, flags.status), "info");
+            return;
+          }
+          ctx.ui.notify(
+            `用法: /pt doc list [flows|issues|manuals|designs] [--profile X] [--status X]`,
+            "warning"
+          );
+          return;
+        }
+
+        if (action === "start") {
+          // /pt doc start <procedure> [args] [--issue X]
+          const procedureParts = actionArgs.split(/\s+/).filter((p) => p.length > 0);
+          let issueName: string | undefined;
+          for (let i = 0; i < procedureParts.length; i++) {
+            const p = procedureParts[i];
+            if (p === "--issue") {
+              const next = procedureParts[i + 1];
+              if (next) issueName = next;
+              procedureParts.splice(i, 2);
+              break;
+            }
+            if (p.startsWith("--issue=")) {
+              issueName = p.slice("--issue=".length);
+              procedureParts.splice(i, 1);
+              break;
+            }
+          }
+          const procedureName = procedureParts[0] ?? "";
+          const procedureArgs = procedureParts.slice(1).join(" ");
+          const r = buildManualDoc(ctx.cwd, s, procedureName, procedureArgs, issueName);
+          if (r.error) {
+            ctx.ui.notify(r.error, "warning");
+            return;
+          }
+          await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
+          await writeFile(r.filePath, r.content, "utf8");
+          s.activeManual = {
+            filePath: r.filePath,
+            procedure: procedureName,
+            args: procedureArgs,
+            issue: issueName,
+            activatedAt: Date.now(),
+          };
+          persistManualToSession(pi, s.activeManual);
+          await refreshManualWidget(ctx.ui, s);
+          refreshInjectionFooter(ctx.ui, s);
+          ctx.ui.notify(`手册实例已创建: ${r.filePath}`, "info");
+          return;
+        }
+
+        if (action === "check") {
+          // /pt doc check —— 校验 docs/ 文档 schema（等价原 /pt check-docs）
+          const profile = s.activeProfile ?? null;
+          const text = await checkDocsText(ctx.cwd, profile, { profile });
+          ctx.ui.notify(text, "info");
+          return;
+        }
+
+        ctx.ui.notify("用法: /pt doc <list|start|check>", "warning");
+        return;
+      }
+
+      // ==================== 旧命令别名（back-compat 转发） ====================
+      // 等价 /pt info status
+      if (sub === "status") {
+        ctx.ui.notify(statusText(s), "info");
+        return;
+      }
+      // 等价 /pt info packs
       if (sub === "packs") {
         ctx.ui.notify(packsText(s), "info");
         return;
       }
-
-      if (sub === "flows") {
-        ctx.ui.notify(flowsText(s), "info");
-        return;
-      }
-
-      if (sub === "logs") {
-        // v10.x：默认查当前 session 的日志（sessionId = 8-hex 短 id）。
-        // 如无 session_id（极早期未走 session_start），fallback 到 pt.log。
-        const files = await PtLogger.list(ctx.cwd);
-        if (files.length === 0) {
-          ctx.ui.notify(`无日志（${LOG_DIR}/ 不存在）`, "info");
-          return;
-        }
-        // 优先当前 session，其次最近修改的 session file，最后 fallback 主文件
-        let targetFile = `pt-${s.sessionId}.log`;
-        if (!files.includes(targetFile)) {
-          if (files.includes("pt.log")) targetFile = "pt.log";
-          else targetFile = files[files.length - 1];
-        }
-        // 简化: 直接读 targetFile
-        const lines = await PtLogger.tail(
-          ctx.cwd,
-          50,
-          targetFile === "pt.log" ? undefined : targetFile.slice(3, -4)
-        );
-        if (lines.length === 0) {
-          ctx.ui.notify(`日志为空（${targetFile}）`, "info");
-          return;
-        }
-        const formatted = lines
-          .map((e) => {
-            const stamp = e.ts.slice(11, 23); // HH:MM:SS.mmm
-            const lvl = e.level.toUpperCase().padEnd(7);
-            const ctxStr =
-              e.ctx && Object.keys(e.ctx).length > 0 ? ` ${JSON.stringify(e.ctx)}` : "";
-            return `[${stamp}] [${lvl}] ${e.msg}${ctxStr}`;
-          })
-          .join("\n");
-        const header = `(${targetFile}，最近 ${lines.length} 条; 共 ${files.length} 个 session 文件)`;
-        ctx.ui.notify(`${header}\n${formatted}`, "info");
-        return;
-      }
-
-      if (sub === "logs:clear") {
-        await PtLogger.clear(ctx.cwd, s.sessionId || undefined);
-        ctx.ui.notify(
-          `已清空 .pt/logs/${s.sessionId ? `pt-${s.sessionId}.log` : "pt.log"}`,
-          "info"
-        );
-        return;
-      }
-
-      if (sub === "sessions") {
-        // v10.x：列出所有 session 的日志文件（多并发 pi 调试用）。
-        const files = await PtLogger.list(ctx.cwd);
-        if (files.length === 0) {
-          ctx.ui.notify("无 session 日志文件", "info");
-          return;
-        }
-        ctx.ui.notify(
-          `已存在的 session 日志:\n${files.map((f) => `  ${f}${f === `pt-${s.sessionId}.log` ? " (current)" : ""}`).join("\n")}`,
-          "info"
-        );
-        return;
-      }
-
-      if (sub === "raw") {
-        if (!s.cachedSegment) {
-          ctx.ui.notify("无 segment 可显示", "warning");
-          return;
-        }
-        const dir = join(ctx.cwd, RAW_DIR);
-        await mkdir(dir, { recursive: true });
-        const file = join(dir, `segment-${Date.now()}.md`);
-        await writeFile(file, s.cachedSegment, "utf8");
-        ctx.ui.notify(`已写入 ${file}（${s.cachedSegment.length} chars）`, "info");
-        return;
-      }
-
-      if (sub === "full") {
-        // v10.x（fix pt-full-duplicate-segment）：用 lastBuiltPrompt 作 canonical source
-        // 第一轮之后 = LLM 实际看到的；第一轮之前 fallback 到模拟注入（保留旧版语义）
-        const full = buildFullPrompt(ctx.getSystemPrompt(), s.cachedSegment, s.lastBuiltPrompt);
-        if (!s.cachedSegment) {
-          ctx.ui.notify(
-            "警告：无 cachedSegment（未加载 Profile）。用 /pt-profile <name> 选择",
-            "warning"
-          );
-        }
-        const dir = join(ctx.cwd, FULL_DIR);
-        await mkdir(dir, { recursive: true });
-        const file = join(dir, `prompt-${Date.now()}.md`);
-        await writeFile(file, full, "utf8");
-        ctx.ui.notify(`完整 systemPrompt 已写入 ${file}（${full.length} chars）`, "info");
-        return;
-      }
-
-      if (sub === "make-manual") {
-        // v11.x 修复：subArgs 才是 procedure 参数（原 code 会拿到 "manual"）
-        const procedureParts = subArgs.trim().split(/\s+/);
-        // P3：解析 `--issue <name>` flag 从 procedureParts 拆出，传给 buildManualDoc。
-        // 不传 --issue 时 issueName = undefined → frontmatter 无 issue 行（back-compat）。
-        let issueName: string | undefined;
-        for (let i = 0; i < procedureParts.length; i++) {
-          const p = procedureParts[i];
-          if (p === "--issue") {
-            const next = procedureParts[i + 1];
-            if (next) {
-              issueName = next;
-            }
-            procedureParts.splice(i, 2);
-            break;
-          }
-          if (p?.startsWith("--issue=")) {
-            issueName = p.slice("--issue=".length);
-            procedureParts.splice(i, 1);
-            break;
-          }
-        }
-        const procedureName = procedureParts[0] ?? "";
-        const procedureArgs = procedureParts.slice(1).join(" ");
-        const r = buildManualDoc(ctx.cwd, s, procedureName, procedureArgs, issueName);
-        if (r.error) {
-          ctx.ui.notify(r.error, "warning");
-          return;
-        }
-        await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
-        await writeFile(r.filePath, r.content, "utf8");
-        // v11.x：手动跟踪实例 + widget + footer + 持久化
-        s.activeManual = {
-          filePath: r.filePath,
-          procedure: procedureName,
-          args: procedureArgs,
-          issue: issueName, // P3：透传 issue 字段
-          activatedAt: Date.now(),
-        };
-        persistManualToSession(pi, s.activeManual);
-        await refreshManualWidget(ctx.ui, s);
-        refreshInjectionFooter(ctx.ui, s);
-        ctx.ui.notify(`手册实例已创建: ${r.filePath}`, "info");
-        return;
-      }
-
+      // 等价 /pt info lint（保留原 /pt check 行为）
       if (sub === "check") {
-        // v14.x（issue pt-asset-migration-visibility Layer 3）：
-        //   /pt check [--profile X] [--fix]
-        //   从 session.assetHealthIssues 格式化（session_start 已扫；不重复扫描）
-        //   支持三种写法：/pt check my-profile | /pt check --profile my-profile | /pt check --profile=my-profile
         const checkParts = subArgs
           .trim()
           .split(/\s+/)
@@ -960,19 +1094,125 @@ export default function (pi: ExtensionAPI): void {
             profileName = p.slice("--profile=".length);
             continue;
           }
-          if (!profileName) {
-            profileName = p; // 简写：/pt check my-profile
-          }
+          if (!profileName) profileName = p;
         }
         const r = checkText(s, { profileName, fix });
         ctx.ui.notify(r.output, r.errors > 0 ? "warning" : "info");
         return;
       }
-
-      // Phase 3（.pt/docs/issues/pt-doc-index-and-schema.md L1）：
-      //   /pt issues | /pt manuals | /pt designs — frontmatter 即索引，实时聚合
-      //   共享 parseListFlags 解析 --profile / --status（designs 忽略 --status 因 enum 不同）
-      //   profile 优先级：opts.profile > s.activeProfile > null
+      // 等价 /pt info logs / logs:clear / sessions / raw / full
+      if (
+        sub === "logs" ||
+        sub === "logs:clear" ||
+        sub === "sessions" ||
+        sub === "raw" ||
+        sub === "full"
+      ) {
+        // 转发到 /pt info 同名 kind（复用上面 info handler）—— 简单重呼一次
+        // 通过递归调用 cmd handler 不便（已注册），改用直接派发：
+        // 这里复用 /pt info 同名 kind 实现——直接调用 info 分支内联（再次走 loadAndTranspile 等）
+        // 为避免重复代码，refactor：用 helper 抽离；本期先转发。
+        // 简化：直接调对应 handler 内联（info 分支 + raw/full/logs/sessions/logs:clear 各有 small block）
+        // 这里选用与 /pt info logs 同等的代码路径——走子命令 inlined：
+        const fakeInfoArgs =
+          sub === "raw" ||
+          sub === "full" ||
+          sub === "sessions" ||
+          sub === "logs" ||
+          sub === "logs:clear"
+            ? `${sub} ${subArgs}`
+            : subArgs;
+        // 递归调子命令——直接复用上面的 info 分支代码块即可（重复但保留可读性）
+        // 此处直接复用 /pt info 逻辑：避免复制粘贴，用 wrapper
+        // 简化：把 info 分支抽到命令级 helper —— 本期先 inlined 二次：
+        if (sub === "logs") {
+          const files = await PtLogger.list(ctx.cwd);
+          if (files.length === 0) {
+            ctx.ui.notify(`无日志（${LOG_DIR}/ 不存在）`, "info");
+            return;
+          }
+          let targetFile = `pt-${s.sessionId}.log`;
+          if (!files.includes(targetFile)) {
+            if (files.includes("pt.log")) targetFile = "pt.log";
+            else targetFile = files[files.length - 1];
+          }
+          const lines = await PtLogger.tail(
+            ctx.cwd,
+            50,
+            targetFile === "pt.log" ? undefined : targetFile.slice(3, -4)
+          );
+          if (lines.length === 0) {
+            ctx.ui.notify(`日志为空（${targetFile}）`, "info");
+            return;
+          }
+          const formatted = lines
+            .map((e) => {
+              const stamp = e.ts.slice(11, 23);
+              const lvl = e.level.toUpperCase().padEnd(7);
+              const ctxStr =
+                e.ctx && Object.keys(e.ctx).length > 0 ? ` ${JSON.stringify(e.ctx)}` : "";
+              return `[${stamp}] [${lvl}] ${e.msg}${ctxStr}`;
+            })
+            .join("\n");
+          const header = `(${targetFile}，最近 ${lines.length} 条; 共 ${files.length} 个 session 文件)`;
+          ctx.ui.notify(`${header}\n${formatted}`, "info");
+          return;
+        }
+        if (sub === "logs:clear") {
+          await PtLogger.clear(ctx.cwd, s.sessionId || undefined);
+          ctx.ui.notify(
+            `已清空 .pt/logs/${s.sessionId ? `pt-${s.sessionId}.log` : "pt.log"}`,
+            "info"
+          );
+          return;
+        }
+        if (sub === "sessions") {
+          const files = await PtLogger.list(ctx.cwd);
+          if (files.length === 0) {
+            ctx.ui.notify("无 session 日志文件", "info");
+            return;
+          }
+          ctx.ui.notify(
+            `已存在的 session 日志:\n${files.map((f) => `  ${f}${f === `pt-${s.sessionId}.log` ? " (current)" : ""}`).join("\n")}`,
+            "info"
+          );
+          return;
+        }
+        if (sub === "raw") {
+          if (!s.cachedSegment) {
+            ctx.ui.notify("无 segment 可显示", "warning");
+            return;
+          }
+          const dir = join(ctx.cwd, RAW_DIR);
+          await mkdir(dir, { recursive: true });
+          const file = join(dir, `segment-${Date.now()}.md`);
+          await writeFile(file, s.cachedSegment, "utf8");
+          ctx.ui.notify(`已写入 ${file}（${s.cachedSegment.length} chars）`, "info");
+          return;
+        }
+        if (sub === "full") {
+          const full = buildFullPrompt(ctx.getSystemPrompt(), s.cachedSegment, s.lastBuiltPrompt);
+          if (!s.cachedSegment) {
+            ctx.ui.notify(
+              "警告：无 cachedSegment（未加载 Profile）。用 /pt-profile <name> 选择",
+              "warning"
+            );
+          }
+          const dir = join(ctx.cwd, FULL_DIR);
+          await mkdir(dir, { recursive: true });
+          const file = join(dir, `prompt-${Date.now()}.md`);
+          await writeFile(file, full, "utf8");
+          ctx.ui.notify(`完整 systemPrompt 已写入 ${file}（${full.length} chars）`, "info");
+          return;
+        }
+        return;
+      }
+      // 等价 /pt doc list flows
+      if (sub === "flows") {
+        ctx.ui.notify(flowsText(s), "info");
+        return;
+      }
+      // 等价 /pt doc list issues/manuals/designs
       if (sub === "issues" || sub === "manuals" || sub === "designs") {
         const flags = parseListFlags(subArgs);
         const profile = flags.profile ?? s.activeProfile ?? null;
@@ -985,12 +1225,51 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.notify(text, "info");
         return;
       }
-
-      // Phase 3 §Step 5：/pt check-docs [--kind issue|manual|design] —— 批量 schema 校验
+      // 等价 /pt doc start <proc>
+      if (sub === "make-manual") {
+        // 直接转发到 /pt doc start 逻辑——subArgs
+        const procedureParts = subArgs.trim().split(/\s+/);
+        let issueName: string | undefined;
+        for (let i = 0; i < procedureParts.length; i++) {
+          const p = procedureParts[i];
+          if (p === "--issue") {
+            const next = procedureParts[i + 1];
+            if (next) issueName = next;
+            procedureParts.splice(i, 2);
+            break;
+          }
+          if (p?.startsWith("--issue=")) {
+            issueName = p.slice("--issue=".length);
+            procedureParts.splice(i, 1);
+            break;
+          }
+        }
+        const procedureName = procedureParts[0] ?? "";
+        const procedureArgs = procedureParts.slice(1).join(" ");
+        const r = buildManualDoc(ctx.cwd, s, procedureName, procedureArgs, issueName);
+        if (r.error) {
+          ctx.ui.notify(r.error, "warning");
+          return;
+        }
+        await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
+        await writeFile(r.filePath, r.content, "utf8");
+        s.activeManual = {
+          filePath: r.filePath,
+          procedure: procedureName,
+          args: procedureArgs,
+          issue: issueName,
+          activatedAt: Date.now(),
+        };
+        persistManualToSession(pi, s.activeManual);
+        await refreshManualWidget(ctx.ui, s);
+        refreshInjectionFooter(ctx.ui, s);
+        ctx.ui.notify(`手册实例已创建: ${r.filePath}`, "info");
+        return;
+      }
+      // 等价 /pt doc check（校验 docs/ 文档 schema）
       if (sub === "check-docs") {
         const flags = parseListFlags(subArgs);
         const profile = flags.profile ?? s.activeProfile ?? null;
-        // kind 限定到三个合法值，其它作为 undefined → 走全集
         const allowedKind = flags.kind;
         const kind =
           allowedKind === "issue" || allowedKind === "manual" || allowedKind === "design"
@@ -1002,7 +1281,7 @@ export default function (pi: ExtensionAPI): void {
       }
 
       ctx.ui.notify(
-        "用法: /pt [status|flows|raw|full|manual|check|check-docs|issues|manuals|designs|packs|logs|logs:clear|sessions]",
+        "用法: /pt [info <kind>|doc <action>] （旧命令 status/packs/check/logs/logs:clear/sessions/raw/full/flows/issues/manuals/designs/check-docs/make-manual 仍兼容）",
         "warning"
       );
     },
@@ -1010,86 +1289,295 @@ export default function (pi: ExtensionAPI): void {
 
   // ========== tool 壳：LLM 可调（与 command 共享纯函数内核，.pt/docs/designs/pt-command-tool-dual-registration.md） ==========
   // 只读查询 + 手册实例化做 tool；pt-profile（改 system prompt）不做 tool（见设计文档 §2.4）
+  //
+  // v19（issue pt-llm-tool-consolidation）：8 tool 收敛到 3 根基 + 二级命令
+  //   划分依据：作用对象正交（info=Pt 自身 / doc=项目文档 / inject=user message）。
+  //   enum 字段用 StringEnum（from @earendil-works/pi-ai）跨 provider 兼容。
+  //   pt_doc 全 optional schema（Pi 对 discriminated union 支持不确定，安全落地）。
 
+  // 根基 1：Pt 自身运行时/调试查询（只读）
+  //   kind=status 等价原 pt_status；packs 等价 pt_packs；lint 合并 pt_check + pt_check_refs 走实时加载；
+  //   logs/logs:clear/sessions/raw/full 路径查询，等价原 /pt 命令同名子命令。
   pi.registerTool({
-    name: "pt_status",
-    label: "Pt Status",
+    name: "pt_info",
+    label: "Pt Info",
     description:
-      "Show Pt compilation status: active profile, domain/flow counts, segment length, cache hit. Read-only.",
-    promptSnippet: "Show Pt status (profile, counts, cache)",
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const sessionId = getSessionIdFromCtx(ctx);
-      const s = sessionId ? getSessionById(sessionId) : null;
-      return {
-        content: [{ type: "text", text: s ? statusText(s) : "no session" }],
-        details: {},
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "pt_packs",
-    label: "Pt Packs",
-    description:
-      "Show Pt pack details: name/version/desc/asset counts for each loaded pack. Read-only.",
-    promptSnippet: "Show Pt pack details (name/version/desc/counts)",
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const sessionId = getSessionIdFromCtx(ctx);
-      const s = sessionId ? getSessionById(sessionId) : null;
-      return {
-        content: [{ type: "text", text: s ? packsText(s) : "no session" }],
-        details: {},
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "pt_flows",
-    label: "Pt Flows",
-    description:
-      "List available FlowTemplate manuals in the active Profile. Call before starting a procedure to see what's available. Read-only.",
-    promptSnippet: "List available Pt manuals (FlowTemplates)",
+      "Query Pt itself (runtime state / compiled artifacts / debug file paths). Read-only. " +
+      "Use kind=status for active profile + counts + cache hit; kind=packs for loaded pack details; " +
+      "kind=lint for project asset misconfigurations (missing Modules / dangling refs / orphan H2 / empty segments / unknown modnames), " +
+      "merges the previous pt_check + pt_check_refs into a single real-time scan; " +
+      "kind=logs/logs:clear/sessions/raw/full for runtime log/session file paths (equivalent to /pt logs etc.). " +
+      "Switch via the `kind` parameter.",
+    promptSnippet: "Query Pt runtime state / assets / debug paths by kind",
     promptGuidelines: [
-      "Use pt_flows when you need to know which Pt manuals are available before starting a multi-step procedure.",
-    ],
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const sessionId = getSessionIdFromCtx(ctx);
-      const s = sessionId ? getSessionById(sessionId) : null;
-      return {
-        content: [{ type: "text", text: s ? flowsText(s) : "no session" }],
-        details: {},
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "pt_make_manual",
-    label: "Pt Make Manual",
-    description:
-      "Create a manual instance document (.pt/manuals/<procedure>-<ts>.md) with checklist + artifact log. Use when starting a multi-step procedure like feature-lifecycle. Returns the file path.",
-    promptSnippet: "Instantiate a Pt manual document with checklist for tracking",
-    promptGuidelines: [
-      "Use pt_make_manual when starting a multi-step procedure (e.g., feature-lifecycle, issue-lifecycle, regression-verify) to get a persistent checklist + artifact log.",
+      "Use pt_info when you need to know Pt's current state, load details, or runtime paths.",
+      "Pair pt_info {kind: lint} with /pt doc list manual — lint for asset config health, list manuals for runtime tracking.",
     ],
     parameters: Type.Object({
-      procedure: Type.String({
-        description:
-          "FlowTemplate name, e.g. feature-lifecycle, issue-lifecycle, regression-verify",
-      }),
-      args: Type.Optional(
+      kind: StringEnum(
+        ["status", "packs", "lint", "logs", "logs:clear", "sessions", "raw", "full"],
+        {
+          description:
+            "What to query: status/packs/lint for live state; logs/logs:clear/sessions for log paths; raw/full for compiled prompt artifacts.",
+        }
+      ),
+      // lint 分支用：限定扫的 profile 名
+      profile: Type.Optional(
         Type.String({
-          description: "Arguments for the procedure, e.g. 'req-001' or 'term my-concept'",
+          description: "Lint only: limit scan to a single Profile name (e.g. 'ysl-developer').",
         })
       ),
-      // P3：manual frontmatter issue 关联字段。可选——未传则 frontmatter 无 issue 行。
-      // 单向引用：manual 自描述"为哪个 issue 服务"，不反向改 issue 文档（联动被否决）。
+      // lint 分支用：reserved for v2 fix mode（恒 false，仅显示 hint 不改文件）
+      fix: Type.Optional(
+        Type.Boolean({
+          description:
+            "Lint only: reserved for v2. Currently always false; output shows hints but does not modify files.",
+        })
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const sessionId = getSessionIdFromCtx(ctx);
+      const s = sessionId ? getSessionById(sessionId) : null;
+      const kind = params.kind ?? "status";
+
+      if (kind === "status") {
+        return {
+          content: [{ type: "text", text: s ? statusText(s) : "no session" }],
+          details: { kind },
+        };
+      }
+
+      if (kind === "packs") {
+        return {
+          content: [{ type: "text", text: s ? packsText(s) : "no session" }],
+          details: { kind },
+        };
+      }
+
+      if (kind === "lint") {
+        // v19（issue pt-llm-tool-consolidation）：pt_info {kind: lint} 合并 pt_check + pt_check_refs
+        //   - 走 loadAndTranspile 实时加载（修 pt_check 读 session.assetHealthIssues 缓存的弱点）
+        //   - scanProjectHealth 的 8 类检查项全保留 + checkAllRefs 独有的"未实例化聚合组"warning 保留
+        const { checkAllRefs, formatRefCheckResult } = await import("./verify/ref-check.js");
+        const { scanProjectHealth, formatHealthSummary } = await import("./asset-health.js");
+        const r = await loadAndTranspile(ctx.cwd, s?.activeProfile ?? "");
+        const b = r.bundles[0];
+        // scan 部分
+        const report = await scanProjectHealth(
+          ctx.cwd,
+          b.profiles,
+          b.blueprints,
+          b.domains,
+          b.packs,
+          b.activeProfilePack,
+          b.workingSet,
+          { log: s?.logger?.toWriter() }
+        );
+        // profileName 过滤（与原 /pt check --profile 行为对齐）
+        const filteredReport = params.profile
+          ? {
+              ...report,
+              issues: report.issues.filter((i) => i.name === params.profile),
+              errors: report.issues.filter(
+                (i) => i.name === params.profile && i.severity === "error"
+              ).length,
+              warnings: report.issues.filter(
+                (i) => i.name === params.profile && i.severity === "warning"
+              ).length,
+            }
+          : report;
+        const scanOut = formatHealthSummary(filteredReport);
+        // refs 部分（pt_check_refs 原行为）
+        const refs = checkAllRefs(b.profiles, b.blueprints, b.domains, {
+          domainWS: b.workingSet.domains,
+          packNames: b.packs.map((p) => p.name),
+        });
+        const refsOut = formatRefCheckResult(refs);
+        const merged = `${scanOut}\n\n${refsOut}`;
+        return {
+          content: [{ type: "text", text: merged }],
+          details: {
+            kind,
+            scanErrors: filteredReport.errors,
+            scanWarnings: filteredReport.warnings,
+            scanIssues: filteredReport.issues.length,
+            refErrors: refs.errors.length,
+            refWarnings: refs.warnings.length,
+          },
+        };
+      }
+
+      // 以下 kind 走 /pt 命令同名子命令相同路径（共享 handlers）
+      if (kind === "logs") {
+        const files = await PtLogger.list(ctx.cwd);
+        if (files.length === 0) {
+          return {
+            content: [{ type: "text", text: `无日志（${LOG_DIR}/ 不存在）` }],
+            details: { kind },
+          };
+        }
+        const targetFile = s?.sessionId ? `pt-${s.sessionId}.log` : files[files.length - 1];
+        const lines = await PtLogger.tail(
+          ctx.cwd,
+          50,
+          targetFile === "pt.log" ? undefined : targetFile.slice(3, -4)
+        );
+        const formatted = lines
+          .map((e) => {
+            const stamp = e.ts.slice(11, 23);
+            const lvl = e.level.toUpperCase().padEnd(7);
+            const ctxStr =
+              e.ctx && Object.keys(e.ctx).length > 0 ? ` ${JSON.stringify(e.ctx)}` : "";
+            return `[${stamp}] [${lvl}] ${e.msg}${ctxStr}`;
+          })
+          .join("\n");
+        const header = `(${targetFile}，最近 ${lines.length} 条; 共 ${files.length} 个 session 文件)`;
+        return { content: [{ type: "text", text: `${header}\n${formatted}` }], details: { kind } };
+      }
+
+      if (kind === "logs:clear") {
+        await PtLogger.clear(ctx.cwd, s?.sessionId ?? undefined);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `已清空 .pt/logs/${s?.sessionId ? `pt-${s.sessionId}.log` : "pt.log"}`,
+            },
+          ],
+          details: { kind },
+        };
+      }
+
+      if (kind === "sessions") {
+        const files = await PtLogger.list(ctx.cwd);
+        if (files.length === 0) {
+          return { content: [{ type: "text", text: "无 session 日志文件" }], details: { kind } };
+        }
+        const list = files
+          .map((f) => `  ${f}${f === `pt-${s?.sessionId}.log` ? " (current)" : ""}`)
+          .join("\n");
+        return {
+          content: [{ type: "text", text: `已存在的 session 日志:\n${list}` }],
+          details: { kind },
+        };
+      }
+
+      if (kind === "raw") {
+        if (!s?.cachedSegment) {
+          return {
+            content: [{ type: "text", text: "无 segment 可显示" }],
+            details: { kind, error: "no segment" },
+          };
+        }
+        const dir = join(ctx.cwd, RAW_DIR);
+        await mkdir(dir, { recursive: true });
+        const file = join(dir, `segment-${Date.now()}.md`);
+        await writeFile(file, s.cachedSegment, "utf8");
+        return {
+          content: [{ type: "text", text: `已写入 ${file}（${s.cachedSegment.length} chars）` }],
+          details: { kind, path: file },
+        };
+      }
+
+      if (kind === "full") {
+        if (!s?.cachedSegment) {
+          return {
+            content: [{ type: "text", text: "警告：无 cachedSegment（未加载 Profile）" }],
+            details: { kind, error: "no segment" },
+          };
+        }
+        const full = buildFullPrompt(ctx.getSystemPrompt(), s.cachedSegment, s.lastBuiltPrompt);
+        const dir = join(ctx.cwd, FULL_DIR);
+        await mkdir(dir, { recursive: true });
+        const file = join(dir, `prompt-${Date.now()}.md`);
+        await writeFile(file, full, "utf8");
+        return {
+          content: [
+            { type: "text", text: `完整 systemPrompt 已写入 ${file}（${full.length} chars）` },
+          ],
+          details: { kind, path: file },
+        };
+      }
+
+      return {
+        content: [{ type: "text", text: `unknown kind: ${kind}` }],
+        details: { kind, error: "unknown kind" },
+      };
+    },
+  });
+
+  // 根基 2：项目文档管理（CRUD + 索引 + 校验，有副作用）
+  //   action=list 等价原 pt_flows/issues/manuals/designs；start 等价原 pt_make_manual；
+  //   verify 等价原 pt_verify；check 校验 docs/ 文档 schema。
+  //   全 optional schema：Pi 对 discriminated union（oneOf/anyOf）支持不确定，安全落地（issue §关键合并点 6）。
+  pi.registerTool({
+    name: "pt_doc",
+    label: "Pt Doc",
+    description:
+      "Manage project documents (issue/manual/design/flow + FlowTemplate manual instances). " +
+      "Use action=list with type=flows|issues|manuals|designs to index the corresponding document set; " +
+      "action=start with procedure (+ optional args + optional issue) to instantiate a FlowTemplate manual; " +
+      "action=verify with probe (+ optional params) to run a verification probe; " +
+      "action=check to validate docs/ schema.",
+    promptSnippet: "List / start / verify / check Pt project documents by action",
+    promptGuidelines: [
+      "Use pt_doc when managing project document lifecycles (issue/manual/design instances, verification probes).",
+      "For action=start, procedure is required. For action=verify, probe is required. For action=list, type is optional (defaults to all).",
+    ],
+    parameters: Type.Object({
+      action: StringEnum(["list", "start", "verify", "check"], {
+        description:
+          "action=list indexes documents; action=start instantiates a manual; action=verify runs a probe; action=check validates docs/ schema.",
+      }),
+      // list 分支：type 可选（缺省列全部）；status 可选（按 frontmatter.status 过滤）
+      type: Type.Optional(
+        Type.String({
+          description:
+            "list branch: filter by document kind — issues | manuals | designs | flows (omit = all).",
+        })
+      ),
+      status: Type.Optional(
+        Type.String({
+          description:
+            "list branch (issues/manuals/designs only): filter by frontmatter status (e.g. open / in-progress / resolved / completed).",
+        })
+      ),
+      profile: Type.Optional(
+        Type.String({
+          description:
+            "list branch: limit index to this profile's documents (omit = active profile / all).",
+        })
+      ),
+      // start 分支：procedure 必填；args / issue 可选
+      procedure: Type.Optional(
+        Type.String({
+          description:
+            "start branch: FlowTemplate name (e.g. feature-lifecycle, issue-lifecycle, regression-verify). Required when action=start.",
+        })
+      ),
+      args: Type.Optional(
+        Type.String({
+          description:
+            "start branch: arguments for the procedure, e.g. 'req-001' or 'term my-concept'.",
+        })
+      ),
       issue: Type.Optional(
         Type.String({
           description:
-            "Optional issue name this manual instance serves. Written to frontmatter `issue:` field for LLM to read association.",
+            "start branch: optional issue name this manual instance serves. Written to frontmatter `issue:` field.",
+        })
+      ),
+      // verify 分支：probe 必填；params 可选
+      probe: Type.Optional(
+        Type.String({
+          description:
+            "verify branch: probe name from observe field (e.g. fs-content-match, ts-compiles, test-pass, git-status-clean). Required when action=verify.",
+        })
+      ),
+      params: Type.Optional(
+        Type.Record(Type.String(), Type.String(), {
+          description:
+            "verify branch: probe parameters, e.g. { path: 'src/foo.ts', pattern: 'export' }.",
         })
       ),
     }),
@@ -1102,71 +1590,189 @@ export default function (pi: ExtensionAPI): void {
         };
       }
       const s = getSessionById(sessionId);
-      const r = buildManualDoc(ctx.cwd, s, params.procedure, params.args ?? "", params.issue);
-      if (r.error) {
-        return { content: [{ type: "text", text: r.error }], details: { error: r.error } };
-      }
-      return withFileMutationQueue(r.filePath, async () => {
-        await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
-        await writeFile(r.filePath, r.content, "utf8");
-        // v11.x：手动跟踪实例 + widget + footer + 持久化
-        s.activeManual = {
-          filePath: r.filePath,
-          procedure: params.procedure,
-          args: params.args ?? "",
-          issue: params.issue, // P3：透传 issue 字段（可选，undefined 时不写 frontmatter）
-          activatedAt: Date.now(),
-        };
-        // v18.x（决策 6）：记录 compaction 重注入线索——Manual 文件路径
-        // 保留已有 turnInjectDomain（若之前已调 pt_turn_inject，不覆盖）
-        s.lastTurnRef = {
-          turnInjectDomain: s.lastTurnRef?.turnInjectDomain ?? "",
-          manualPath: r.filePath,
-        };
-        persistLastTurnRef(pi, s.lastTurnRef);
-        persistManualToSession(pi, s.activeManual);
-        await refreshManualWidget(ctx.ui, s);
-        refreshInjectionFooter(ctx.ui, s);
+      const action = params.action ?? "list";
+
+      // ==================== action=list ====================
+      if (action === "list") {
+        const profile = params.profile ?? s.activeProfile ?? null;
+        const type = params.type;
+        // type 缺省或 "all" / "any" → 聚合所有类型
+        if (!type || type === "all") {
+          const out: string[] = [];
+          // flowsText 需 session（adepter 已注入），与其他类型路径不同——
+          // 拿 session 后直接走专属路径
+          out.push(flowsText(s));
+          out.push(await formatsList(ctx.cwd, profile, "issues", params.status));
+          out.push(await formatsList(ctx.cwd, profile, "manuals", params.status));
+          out.push(await formatsList(ctx.cwd, profile, "designs", params.status));
+          return {
+            content: [{ type: "text", text: out.join("\n\n") }],
+            details: { action, type: "all" },
+          };
+        }
+        if (type === "flows") {
+          // flowsText 需 session（adepter 已注入）——拿 s 后调
+          return { content: [{ type: "text", text: flowsText(s) }], details: { action, type } };
+        }
+        if (type === "issues" || type === "manuals" || type === "designs") {
+          const text = await formatsList(ctx.cwd, profile, type, params.status);
+          return { content: [{ type: "text", text }], details: { action, type } };
+        }
         return {
-          content: [{ type: "text", text: `手册实例已创建: ${r.filePath}` }],
-          details: { path: r.filePath },
+          content: [
+            {
+              type: "text",
+              text: `unknown type "${type}" (allowed: flows|issues|manuals|designs)`,
+            },
+          ],
+          details: { action, type, error: "unknown type" },
         };
-      });
+      }
+
+      // ==================== action=start ====================
+      if (action === "start") {
+        if (!params.procedure) {
+          return {
+            content: [{ type: "text", text: "action=start requires procedure" }],
+            details: { action, error: "missing procedure" },
+          };
+        }
+        const r = buildManualDoc(ctx.cwd, s, params.procedure, params.args ?? "", params.issue);
+        if (r.error) {
+          return {
+            content: [{ type: "text", text: r.error }],
+            details: { action, error: r.error },
+          };
+        }
+        return withFileMutationQueue(r.filePath, async () => {
+          await mkdir(join(ctx.cwd, MANUAL_DIR), { recursive: true });
+          await writeFile(r.filePath, r.content, "utf8");
+          // v11.x：手动跟踪实例 + widget + footer + 持久化
+          s.activeManual = {
+            filePath: r.filePath,
+            procedure: params.procedure as string,
+            args: params.args ?? "",
+            issue: params.issue, // P3：透传 issue 字段（可选，undefined 时不写 frontmatter）
+            activatedAt: Date.now(),
+          };
+          // v18.x（决策 6）：记录 compaction 重注入线索——Manual 文件路径
+          // 保留已有 turnInjectDomain（若之前已调 pt_inject，不覆盖）
+          s.lastTurnRef = {
+            turnInjectDomain: s.lastTurnRef?.turnInjectDomain ?? "",
+            manualPath: r.filePath,
+          };
+          persistLastTurnRef(pi, s.lastTurnRef);
+          persistManualToSession(pi, s.activeManual);
+          await refreshManualWidget(ctx.ui, s);
+          refreshInjectionFooter(ctx.ui, s);
+          return {
+            content: [{ type: "text", text: `手册实例已创建: ${r.filePath}` }],
+            details: { action, procedure: params.procedure, path: r.filePath },
+          };
+        });
+      }
+
+      // ==================== action=verify ====================
+      if (action === "verify") {
+        if (!params.probe) {
+          return {
+            content: [{ type: "text", text: "action=verify requires probe" }],
+            details: { action, error: "missing probe" },
+          };
+        }
+        const { runVerify } = await import("./verify/index.js");
+        const probeParams = (params.params ?? {}) as Record<string, string>;
+        const result = await runVerify(ctx.cwd, params.probe, probeParams);
+        const text =
+          result.outcome === "COMPLETED"
+            ? `✓ ${result.message}`
+            : result.outcome === "DEVIATED"
+              ? `✗ ${result.message}${result.actual ? `\n${result.actual}` : ""}`
+              : `? ${result.message}`;
+        // v15.x（issue pt-verify-result-not-written-back-to-manual）：自动写回 manual 文件
+        let writebackNote = "";
+        if (s?.activeManual) {
+          const filePath = s.activeManual.filePath;
+          try {
+            await withFileMutationQueue(filePath, async () => {
+              const before = await readFile(filePath, "utf8");
+              const wb = writeProbeResult(
+                before,
+                params.probe as string,
+                result.outcome,
+                result.message
+              );
+              if (wb.changed) {
+                await writeFile(filePath, wb.content, "utf8");
+                const checked =
+                  wb.checkedSteps.length > 0 ? `，勾选 ${wb.checkedSteps.length} 个 checklist` : "";
+                writebackNote = `\n↳ 已写回 manual step ${wb.stepIndexes.join(", ")}${checked}`;
+              } else if (wb.matchCount === 0) {
+                writebackNote = `\n? probe "${params.probe}" 未匹配 activeManual 任何 step 的 observe（${filePath}）`;
+              }
+            });
+          } catch (e) {
+            writebackNote = `\n! 写回 manual 失败: ${errMsg(e)}`;
+          }
+          await refreshManualWidget(ctx.ui, s);
+          refreshInjectionFooter(ctx.ui, s);
+        }
+        return {
+          content: [{ type: "text", text: text + writebackNote }],
+          details: {
+            action,
+            probe: params.probe,
+            ...result,
+            writeback: writebackNote || undefined,
+          },
+        };
+      }
+
+      // ==================== action=check ====================
+      if (action === "check") {
+        const profile = params.profile ?? s.activeProfile ?? null;
+        const text = await checkDocsText(ctx.cwd, profile, { profile });
+        return { content: [{ type: "text", text }], details: { action } };
+      }
+
+      return {
+        content: [{ type: "text", text: `unknown action: ${action}` }],
+        details: { action, error: "unknown action" },
+      };
     },
   });
 
-  // v18.x (issue pt-turncontext-llm-call-trigger decision 4): pt_turn_inject tool.
-  // Lets LLM trigger TurnContext injection on demand; execute calls renderTurnInject.
-  // In-memory IR (decision 7): reads session.cachedBundles/cachedBlueprint/cachedProfile/cachedAgentContext,
-  // does NOT read .pt/cache/agent-contexts/ files. Returns compiled manual detail in tool_result.
+  // 根基 3：user message 注入（transform，无副作用）
+  //   等价原 pt_turn_inject tool；execute 调 renderTurnInject 走统一内核。
+  //   renderTurnInject 内部仍按 `/pt_turn_inject <target>` 字符串前缀解析（tool execute 拼前缀传入）——
+  //   内部耦合保留，issue §边界纪律（不在本 scope 解耦）。
   pi.registerTool({
-    name: "pt_turn_inject",
-    label: "Pt Turn Inject",
+    name: "pt_inject",
+    label: "Pt Inject",
     description:
       "Inject TurnContext (compiled manual detail) for a Domain on demand. " +
       "Returns the Rules/Flows/Checklists content of the Domain. " +
       "Use when reasoning needs a Domain's manual detail referenced in SessionContext's trigger-index. " +
-      "Input: domain name (from /pt flows or trigger-index).",
+      "Input: domain name (from /pt info /kind=flows output).",
     promptSnippet: "Inject a Domain's TurnContext (manual detail) on demand",
     promptGuidelines: [
-      "Use pt_turn_inject to fetch a Domain's manual detail (Rules/Flows/Checklists) on demand. " +
-        "Consult SessionContext's trigger-index to decide which Domain to query.",
+      "Use pt_inject to fetch a Domain's manual detail (Rules/Flows/Checklists) on demand.",
+      "Consult SessionContext's trigger-index or /pt info flows to decide which Domain to query.",
     ],
     parameters: Type.Object({
       domain: Type.String({
         description:
-          "Domain name to inject, e.g. 'dev-process' or 'pt-quality'. Use /pt flows to list available domains.",
+          "Domain name to inject, e.g. 'dev-process' or 'pt-quality'. Use /pt info flows to list available domains.",
       }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const sessionId = getSessionIdFromCtx(ctx);
-      if (!sessionId) {
+      if (!getSessionIdFromCtx(ctx)) {
         return {
           content: [{ type: "text", text: "no session" }],
           details: { error: "no session" },
         };
       }
-      const s = getSessionById(sessionId);
+      const s = getSessionById(getSessionIdFromCtx(ctx) as string);
       if (
         !s.cachedBundles ||
         s.cachedBundles.length === 0 ||
@@ -1179,7 +1785,8 @@ export default function (pi: ExtensionAPI): void {
         };
       }
       const scoped = filterDomainsByProfile(s.cachedBundles[0].domains, s.cachedProfile);
-      // Reuse renderTurnInject dispatch (/pt_turn_inject form, step 3 unified command).
+      // 内部耦合：renderTurnInject 按 `/pt_turn_inject <target>` 前缀解析
+      // 保留该耦合（issue §边界纪律）——后续 issue 解耦
       const content = renderTurnInject(
         s.cachedAgentContext,
         s.cachedBlueprint,
@@ -1192,163 +1799,19 @@ export default function (pi: ExtensionAPI): void {
           content: [
             {
               type: "text",
-              text: `未找到 Domain 或无手册段: ${params.domain}（用 /pt flows 查可用手册）`,
+              text: `未找到 Domain 或无手册段: ${params.domain}（用 /pt info flows 查可用手册）`,
             },
           ],
           details: { error: "not found", domain: params.domain },
         };
       }
       // v18.x（决策 6）：记录 compaction 重注入线索——TurnContext domain 名
-      // 保留已有 manualPath（若之前已创建 Manual，不覆盖）
       s.lastTurnRef = {
         turnInjectDomain: params.domain,
         manualPath: s.lastTurnRef?.manualPath ?? null,
       };
       persistLastTurnRef(pi, s.lastTurnRef);
       return { content: [{ type: "text", text: content }], details: { domain: params.domain } };
-    },
-  });
-
-  pi.registerTool({
-    name: "pt_verify",
-    label: "Pt Verify",
-    description:
-      "Run a verification probe to check if a Manual step was executed correctly. Returns COMPLETED/DEVIATED/INCONCLUSIVE. Use after completing a step that has an observe field.",
-    promptSnippet: "Verify a Manual step execution result",
-    promptGuidelines: [
-      "Use pt_verify after completing a Manual step that has an observe field, to verify the execution result.",
-    ],
-    parameters: Type.Object({
-      probe: Type.String({
-        description:
-          "Probe name from observe field (e.g. fs-content-match, ts-compiles, test-pass, git-status-clean)",
-      }),
-      params: Type.Optional(
-        Type.Record(Type.String(), Type.String(), {
-          description: "Probe parameters, e.g. { path: 'src/foo.ts', pattern: 'export' }",
-        })
-      ),
-    }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const { runVerify } = await import("./verify/index.js");
-      const probeParams = (params.params ?? {}) as Record<string, string>;
-      const result = await runVerify(ctx.cwd, params.probe, probeParams);
-      const text =
-        result.outcome === "COMPLETED"
-          ? `✓ ${result.message}`
-          : result.outcome === "DEVIATED"
-            ? `✗ ${result.message}${result.actual ? `\n${result.actual}` : ""}`
-            : `? ${result.message}`;
-      // v11.x：verify 后重读文件刷新 widget（用户可能手动 tick 了 checklist）
-      // 不改 session.activeManual，只 refresh 派生数据（widget + cachedManualProgress）
-      // v15.x（issue pt-verify-result-not-written-back-to-manual）：自动写回 manual 文件
-      //   - 按 probe 名匹配 step 的 observe 列表，定位 ## 执行状态 对应行
-      //   - 写 outcome + message + 维护 frontmatter 注释的 completed probes 列表
-      //   - step 全部 observe 都 completed → checklist - [ ] → - [x]
-      //   - withFileMutationQueue 保证并发安全
-      //   - 写回失败不阻断 verify 结果返回（异常 catch 走 text 末尾提示）
-      const sessionId = getSessionIdFromCtx(ctx);
-      const s = sessionId ? getSessionById(sessionId) : null;
-      let writebackNote = "";
-      if (s?.activeManual) {
-        const filePath = s.activeManual.filePath;
-        try {
-          await withFileMutationQueue(filePath, async () => {
-            const before = await readFile(filePath, "utf8");
-            const wb = writeProbeResult(before, params.probe, result.outcome, result.message);
-            if (wb.changed) {
-              await writeFile(filePath, wb.content, "utf8");
-              const checked =
-                wb.checkedSteps.length > 0 ? `，勾选 ${wb.checkedSteps.length} 个 checklist` : "";
-              writebackNote = `\n↳ 已写回 manual step ${wb.stepIndexes.join(", ")}${checked}`;
-            } else if (wb.matchCount === 0) {
-              writebackNote = `\n? probe "${params.probe}" 未匹配 activeManual 任何 step 的 observe（${filePath}）`;
-            }
-          });
-        } catch (e) {
-          writebackNote = `\n! 写回 manual 失败: ${errMsg(e)}`;
-        }
-        await refreshManualWidget(ctx.ui, s);
-        refreshInjectionFooter(ctx.ui, s);
-      }
-      return {
-        content: [{ type: "text", text: text + writebackNote }],
-        details: { ...result, writeback: writebackNote || undefined },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "pt_check_refs",
-    label: "Pt Check Refs",
-    description:
-      "Check Profile→Blueprint→Domain reference integrity. Detects dangling references (Profile references non-existent Blueprint or Domain). Read-only.",
-    promptSnippet: "Check Pt reference integrity",
-    promptGuidelines: [
-      "Use pt_check_refs to detect dangling references in Profile/Blueprint/Domain before committing asset changes.",
-    ],
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const { checkAllRefs, formatRefCheckResult } = await import("./verify/ref-check.js");
-      const sessionId = getSessionIdFromCtx(ctx);
-      const s = sessionId ? getSessionById(sessionId) : null;
-      const r = await loadAndTranspile(ctx.cwd, s?.activeProfile ?? "");
-      const b = r.bundles[0];
-      // v17（issue pt-scan-qualified-ref-pack-blind）：传 workingSet 让 checkAllRefs 走 pack-aware 查找
-      const result = checkAllRefs(b.profiles, b.blueprints, b.domains, {
-        domainWS: b.workingSet.domains,
-        packNames: b.packs.map((p) => p.name),
-      });
-      return {
-        content: [{ type: "text", text: formatRefCheckResult(result) }],
-        details: result,
-      };
-    },
-  });
-
-  // v14.x（issue pt-asset-migration-visibility Layer 3）：pt_check tool
-  //   LLM 可主动体检项目配置——尤其在接手陌生项目 / 改资产前调用
-  pi.registerTool({
-    name: "pt_check",
-    label: "Pt Check",
-    description:
-      "Scan project assets for known misconfigurations (missing ### Modules, dangling blueprint refs, orphan H2, empty segments, unknown modnames). Read-only.",
-    promptSnippet: "Scan Pt project for configuration issues",
-    promptGuidelines: [
-      "Use pt_check when you suspect a project has stale Pt assets (e.g., after upgrading Pt, before committing Profile changes).",
-      "Pair with pt_status to see health count, then pt_check for the detailed list.",
-    ],
-    parameters: Type.Object({
-      profile: Type.Optional(
-        Type.String({
-          description: "Limit scan to a single Profile name (e.g. 'ysl-developer').",
-        })
-      ),
-      fix: Type.Optional(
-        Type.Boolean({
-          description:
-            "Reserved for v2. Currently always false; check output shows `fix:` hints but does not modify files.",
-        })
-      ),
-    }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const sessionId = getSessionIdFromCtx(ctx);
-      const s = sessionId ? getSessionById(sessionId) : null;
-      if (!s) {
-        return {
-          content: [{ type: "text", text: "no session" }],
-          details: { error: "no session" },
-        };
-      }
-      const r = checkText(s, { profileName: params.profile, fix: params.fix ?? false });
-      return {
-        content: [{ type: "text", text: r.output }],
-        details: {
-          issueCount: r.issueCount,
-          errors: r.errors,
-          warnings: r.warnings,
-        },
-      };
     },
   });
 }
