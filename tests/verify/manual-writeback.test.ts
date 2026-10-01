@@ -1,4 +1,4 @@
-// tests/verify/manual-writeback.test.ts — pt_verify 自动写回 manual 实例（v15.x）
+// tests/verify/manual-writeback.test.ts — pt_doc {action: verify} 自动写回 manual 实例（v15.x）
 //
 // 覆盖 src/manual-writeback.ts 的纯函数：
 //   - findStepForProbe：probe ↔ step 映射

@@ -7,7 +7,7 @@ name: authoring
 ## Trigger
 ### authoring-trigger
 - desc: 创作/修改 Pt 资产 md 时参考；含 Pt Domain/Blueprint/Pt Profile 格式（v9.1+） + 创建流程 + 角色隔离配置
-- hint: /pt_turn_inject authoring 查看完整创作手册
+- hint: 调 pt_inject tool domain=authoring 查看完整创作手册
 
 ## Scene
 

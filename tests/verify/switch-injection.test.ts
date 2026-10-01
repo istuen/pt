@@ -5,6 +5,7 @@ import { join } from "node:path";
 import installExtension from "../../src/index.js";
 import { PiAdapter } from "../../src/agent/pi-adapter.js";
 import { detectDefaultProfile, detectSingleProfile, listProfiles } from "../../src/config.js";
+import { renderTurnInject } from "../../src/render/turn-inject.js";
 import { resetTestSession, s, TEST_SESSION_ID } from "./session-fixtures.js";
 import type { AgentAPI, Blueprint, Context, Domain, FlowTemplate } from "../../src/schema.js";
 
@@ -100,13 +101,14 @@ describe("manual profile switch and Session Inject", () => {
     adapter.setAgentContext(first.context, first.blueprint, first.domains);
     adapter.registerInject(api, first.context, first.blueprint, first.domains);
     const beforeHandler = handlers.get("before_agent_start")?.[0];
-    const inputHandler = handlers.get("input")?.[0];
 
     adapter.setAgentContext(second.context, second.blueprint, second.domains);
     adapter.registerInject(api, second.context, second.blueprint, second.domains);
 
     expect(handlers.get("before_agent_start")).toHaveLength(1);
-    expect(handlers.get("input")).toHaveLength(1);
+    // v19（issue pt-llm-tool-consolidation）：input event handler 已删除（人类不再用 /pt_turn_inject），
+    // 改为 LLM 调 pt_inject tool 获取手册内容。验证 handlers 不含 input。
+    expect(handlers.get("input")).toBeUndefined();
 
     const beforeResult = (await beforeHandler({
       type: "before_agent_start",
@@ -115,13 +117,18 @@ describe("manual profile switch and Session Inject", () => {
     expect(beforeResult.systemPrompt).toContain("SEG-B");
     expect(beforeResult.systemPrompt).not.toContain("SEG-A");
 
-    const inputResult = (await inputHandler({
-      type: "input",
-      text: "/pt_turn_inject switch-test-flow",
-    })) as { action: string; text: string };
-    expect(inputResult.action).toBe("transform");
-    expect(inputResult.text).toContain("FLOW-B");
-    expect(inputResult.text).not.toContain("FLOW-A");
+    // v19：turn 路径改走 pt_inject tool——直接调 renderTurnInject 验仍按 /pt_turn_inject <flow> <args> 前缀
+    // 解析（内部契约不变，renderTurnInject 仍拼前缀传入）
+    const turnResult = renderTurnInject(
+      second.context,
+      second.blueprint,
+      second.domains,
+      null,
+      "/pt_turn_inject switch-test-flow"
+    );
+    expect(turnResult).not.toBeNull();
+    expect(turnResult).toContain("FLOW-B");
+    expect(turnResult).not.toContain("FLOW-A");
   });
 
   it("clears the old session context on reset", async () => {

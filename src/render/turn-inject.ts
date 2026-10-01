@@ -1,11 +1,17 @@
 // src/render/turn-inject.ts — FlowTemplate + 参数 → Turn Inject
 //
 // Phase 9.5：v9 后端通用化。
-//   - renderTurnInject(ctx, blueprint, domains, args) 修复死代码——实现 /pt_turn_inject xxx 触发
+//   - renderTurnInject(ctx, blueprint, domains, args) 修复死代码——实现 pt_inject tool / `/pt_turn_inject xxx` 内部触发
 //   - findFlowInBlueprint(blueprint, domains, tplName) — 替代 v8 findFlowInBundle
 //
-// /pt_turn_inject <domain-name> 触发：从 Blueprint 的 turn 聚合组引用的 Domain 里查 Manual 段
-// /pt_turn_inject <flow-name> <args> 触发：展开 Domain 的 FlowTemplate
+// v19（issue pt-llm-tool-consolidation）：
+//   - 原 `/pt_turn_inject` 人类命令 已删除（语义不符 + 与 tool 重复）
+//   - 内部 prefix 字符串保留：`renderTurnInject` 仍按 `/pt_turn_inject <target>` 解析
+//     （pt_inject tool execute 拼前缀传入 —— 内部耦合，issue §边界纪律保留，后续 issue 解耦）
+//
+// 触发语义：
+//   - /pt_turn_inject <domain-name> → 注入该 Domain 的 Manual 段内容（term→Rule checklist / workflow→FlowTemplate 列表）
+//   - /pt_turn_inject <flow-name> <args> → 展开 Domain 的 FlowTemplate
 //
 // Phase term-P4.3：renderContextMessage → renderTurnInject；inject 语义值 context_message → turn（Agent-agnostic 语义值）。
 //   bindFlowTemplate / findFlowInBlueprint 函数名不改——它们是 FlowTemplate 操作，非注入位置概念。

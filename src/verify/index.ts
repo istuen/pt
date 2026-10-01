@@ -31,7 +31,7 @@ const registry: Record<string, VerifyFunction> = {
   "doc-structure-match": docStructureMatch,
 };
 
-/** 列出所有已注册的 probe 名（pt_verify tool 的错误提示用）。 */
+/** 列出所有已注册的 probe 名（pt_doc {action: verify} tool 的错误提示用）。 */
 export function listProbes(): string[] {
   return Object.keys(registry);
 }

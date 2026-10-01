@@ -300,7 +300,7 @@ export interface AgentAdapter {
   ): void;
   /** 清理 session 上下文；handler 仍可由当前 Pi runtime 复用。 */
   resetInjection?(): void;
-  /** 查询可用手册（/pt flows 命令 + /pt_turn_inject 触发 共同消费）。
+  /** 查询可用手册（/pt doc list flows 命令 + pt_inject tool 触发 共同消费）。
    *  Adapter 内部用 setAgentContext 时存下的 profile 调 filterDomainsByProfile 自行过滤。
    *  可选方法——Adapter 不实现时 /pt flows 返空。 */
   listManuals?(

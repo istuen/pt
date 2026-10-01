@@ -11,7 +11,7 @@
 //   - 不再 import module-level `session` 单例（已删除）
 //
 // v14.x（issue pt-asset-migration-visibility Layer 3）：
-//   - 加 checkText() 内核 + CheckOptions：/pt check + pt_check tool 共享
+//   - 加 checkText() 内核 + CheckOptions：/pt info lint + pt_info {kind: lint} tool 共享
 //   - 同步格式化 6 列 biome/tsc 风格 + hint/fix 展示
 
 import { homedir } from "node:os";
@@ -204,7 +204,12 @@ function countByPrefix<K, V>(map: Map<K, V>, prefix: K): number {
 /** /pt flows 内核：返回可用手册列表文本。无激活 Profile 返回提示串。
  *
  * v13.x（issue pt-turn-inject-not-profile-scoped）：不再预过滤——传全集 domains 给 listManuals，
- * adapter 内部用 setAgentContext 时存下的 profile 自行 filterDomainsByProfile 过滤。 */
+ * adapter 内部用 setAgentContext 时存下的 profile 自行 filterDomainsByProfile 过滤。
+ *
+ * v19（issue pt-llm-tool-consolidation）：name 字段改为纯 domain 名（不再伪装成 `/pt_turn_inject <domain>`
+ *   人类命令——人类改用自然语言引导 LLM 调 `pt_inject` tool）；文案相应改为
+ *   "调 pt_inject tool 获取 <domain> 手册" + listManuals 实现同步更新（pi-adapter.ts）。
+ */
 export function flowsText(session: SessionState): string {
   if (!session.cachedBundles || session.cachedBundles.length === 0 || !session.activeAdapter) {
     return "无激活 Profile，先用 /pt-profile <name> 激活";
@@ -222,7 +227,7 @@ export function flowsText(session: SessionState): string {
     return "当前 Profile 无可触发手册（turn 聚合组无含 Flows 段的 Domain）";
   }
   const lines = flows.map((f) => `  ${f.name} ${f.hint ?? ""}  ← ${f.domain}`);
-  return `可用手册（输入 /手册名 参数 或 /pt_turn_inject <domain-name> 触发 Turn Inject）:\n${lines.join("\n")}`;
+  return `可用手册（调 pt_inject tool 获取 <domain> 手册详情）:\n${lines.join("\n")}`;
 }
 
 /** /pt full 内核：构建写入 .pt/cache/fulls/ 的完整 systemPrompt 字符串（v10.x 修复 pt-full-duplicate-segment）。
@@ -840,4 +845,22 @@ export async function checkDocsText(
   lines.push("");
   lines.push(`  ${okCount}/${totalFiles} files OK`);
   return lines.join("\n");
+}
+
+/** v19（issue pt-llm-tool-consolidation）：pt_doc {action: list, type: X} 的统一调度器（项目文档视图）。
+ *  作用对象=项目文档视图下分流到各纯函数（flowsText / issuesText / manualsText / designsText）。
+ *  flowsText 需 session.cachedBlues+activeAdapter —— 调用方拿 session 后走 flowsText(s) 专属路径，
+ *  此函数仅处理 issues/manuals/designs 三类（cwd+profile 维度）。
+ *  type 不识别 → 返回提示串。 */
+export async function formatsList(
+  cwd: string,
+  profile: string | null,
+  type: "issues" | "manuals" | "designs",
+  statusFilter: string | undefined
+): Promise<string> {
+  const opts = statusFilter ? { status: statusFilter } : undefined;
+  if (type === "issues") return issuesText(cwd, profile, opts);
+  if (type === "manuals") return manualsText(cwd, profile, opts);
+  if (type === "designs") return designsText(cwd, profile, opts);
+  return `unknown type ${type}`;
 }

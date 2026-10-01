@@ -16,7 +16,7 @@ domains: [mentor, user-info, agent-info]
 设计要点：
   - session-context 只引 mentor + user-info + agent-info（不引 authoring/usage/project-analysis）
     → Scene 只聚合 mentor 的 7 步（user-info/agent-info 无 Scene 段不干扰）
-    → 保持 session 精简，深度参考通过 /pt_turn_inject 按需触发
+    → 保持 session 精简，深度参考通过 调 pt_inject tool domain=按需触发
   - trigger-index 的 mentor-trigger 带深度参考指引（authoring/usage/project-analysis）
   - reference-manual 的 Rules/Flows/Checklists 只聚合 mentor 的（教学专用，不与 authoring 重复）
 

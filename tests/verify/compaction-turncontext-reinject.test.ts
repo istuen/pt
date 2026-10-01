@@ -2,9 +2,9 @@
 //
 // 覆盖：
 //   1. lastTurnRef 字段默认 null（createSessionState）
-//   2. pt_turn_inject 成功后 lastTurnRef.turnInjectDomain 更新
-//   3. pt_make_manual 成功后 lastTurnRef.manualPath 更新
-//   4. 两字段独立累积（先 pt_turn_inject 后 pt_make_manual，两字段都有值）
+//   2. pt_inject 成功后 lastTurnRef.turnInjectDomain 更新
+//   3. pt_doc {action: start} 成功后 lastTurnRef.manualPath 更新
+//   4. 两字段独立累积（先 pt_inject 后 pt_doc start，两字段都有值）
 //   5. session_compact handler：lastTurnRef 非空 → 调 sendMessage（triggerTurn: true）
 //   6. session_compact handler：lastTurnRef 为 null → 不调 sendMessage
 //   7. resetSessionState 不清 lastTurnRef（切换 Profile 保留线索）
@@ -92,7 +92,7 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
     expect(s.lastTurnRef).toBeNull();
   });
 
-  it("2. pt_turn_inject 成功后 lastTurnRef.turnInjectDomain 更新（manualPath 保留 null）", async () => {
+  it("2. pt_inject 成功后 lastTurnRef.turnInjectDomain 更新（manualPath 保留 null）", async () => {
     const m = makePi();
     installExtension(m.pi as never);
     const sessionStart = m.events.get("session_start")?.[0]!;
@@ -102,8 +102,8 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
     const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
-    const tool = m.tools.get("pt_turn_inject");
-    if (!tool) throw new Error("pt_turn_inject not registered");
+    const tool = m.tools.get("pt_inject");
+    if (!tool) throw new Error("pt_inject not registered");
     await tool.execute("c1", { domain: "pt-quality" }, undefined, undefined, m.ctx);
 
     const session = getSessionById(TEST_SESSION_ID);
@@ -112,7 +112,7 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
     expect(session.lastTurnRef?.manualPath).toBeNull();
   });
 
-  it("3. pt_turn_inject 后调 pt_make_manual → manualPath 填，turnInjectDomain 保留", async () => {
+  it("3. pt_inject 后调 pt_doc start → manualPath 填，turnInjectDomain 保留", async () => {
     const m = makePi();
     installExtension(m.pi as never);
     const sessionStart = m.events.get("session_start")?.[0]!;
@@ -121,13 +121,13 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
     const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
-    const turnInjectTool = m.tools.get("pt_turn_inject")!;
+    const turnInjectTool = m.tools.get("pt_inject")!;
     await turnInjectTool.execute("c1", { domain: "pt-quality" }, undefined, undefined, m.ctx);
 
-    const makeManualTool = m.tools.get("pt_make_manual")!;
+    const makeManualTool = m.tools.get("pt_doc")!;
     await makeManualTool.execute(
       "c2",
-      { procedure: "feature-lifecycle", args: "req-001" },
+      { action: "start", procedure: "feature-lifecycle", args: "req-001" },
       undefined,
       undefined,
       m.ctx
@@ -139,7 +139,7 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
     expect(session.lastTurnRef?.manualPath).toMatch(/feature-lifecycle-\d+\.md$/);
   });
 
-  it("4. 调 pt_make_manual 时 turnInjectDomain 默认空字符串（顺序无关）", async () => {
+  it("4. 调 pt_doc start 时 turnInjectDomain 默认空字符串（顺序无关）", async () => {
     const m = makePi();
     installExtension(m.pi as never);
     const sessionStart = m.events.get("session_start")?.[0]!;
@@ -148,11 +148,11 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
     const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
-    // 直接调 pt_make_manual（不调 pt_turn_inject）
-    const makeManualTool = m.tools.get("pt_make_manual")!;
+    // 直接调 pt_doc start（不调 pt_inject）
+    const makeManualTool = m.tools.get("pt_doc")!;
     await makeManualTool.execute(
       "c1",
-      { procedure: "feature-lifecycle", args: "req-002" },
+      { action: "start", procedure: "feature-lifecycle", args: "req-002" },
       undefined,
       undefined,
       m.ctx
@@ -160,7 +160,7 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
 
     const session = getSessionById(TEST_SESSION_ID);
     expect(session.lastTurnRef).not.toBeNull();
-    expect(session.lastTurnRef?.turnInjectDomain).toBe(""); // 未调过 pt_turn_inject → 空串
+    expect(session.lastTurnRef?.turnInjectDomain).toBe(""); // 未调过 pt_inject → 空串
     expect(session.lastTurnRef?.manualPath).toMatch(/feature-lifecycle-\d+\.md$/);
   });
 
@@ -173,7 +173,7 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
     const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
-    const turnInjectTool = m.tools.get("pt_turn_inject")!;
+    const turnInjectTool = m.tools.get("pt_inject")!;
     await turnInjectTool.execute("c1", { domain: "pt-quality" }, undefined, undefined, m.ctx);
 
     // 清 sendMessage 计数
@@ -204,7 +204,7 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
     const sessionStart = m.events.get("session_start")?.[0]!;
     await sessionStart({ type: "session_start" }, m.ctx);
 
-    // 没调过 pt_turn_inject / pt_make_manual → lastTurnRef 为 null
+    // 没调过 pt_inject / pt_doc start → lastTurnRef 为 null
 
     const compactHandler = m.events.get("session_compact")?.[0]!;
     await compactHandler(
@@ -230,7 +230,7 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
     const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
-    const turnInjectTool = m.tools.get("pt_turn_inject")!;
+    const turnInjectTool = m.tools.get("pt_inject")!;
     await turnInjectTool.execute("c1", { domain: "pt-quality" }, undefined, undefined, m.ctx);
 
     const session = getSessionById(TEST_SESSION_ID);
@@ -255,7 +255,7 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
 
     m.appendedEntries.length = 0;
 
-    const turnInjectTool = m.tools.get("pt_turn_inject")!;
+    const turnInjectTool = m.tools.get("pt_inject")!;
     await turnInjectTool.execute("c1", { domain: "pt-quality" }, undefined, undefined, m.ctx);
 
     // 验证 appendEntry 被调，至少一条 PT_LAST_TURN_REF_ENTRY
@@ -295,7 +295,7 @@ describe("compaction 后 TurnContext 重注入线索（v18.x 决策 6）", () =>
     const switchCmd = m.commands.get("pt-profile")!;
     await switchCmd.handler("pt-dev", m.ctx);
 
-    const turnInjectTool = m.tools.get("pt_turn_inject")!;
+    const turnInjectTool = m.tools.get("pt_inject")!;
     await turnInjectTool.execute("c1", { domain: "pt-quality" }, undefined, undefined, m.ctx);
 
     const compactHandler = m.events.get("session_compact")?.[0]!;

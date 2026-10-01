@@ -31,11 +31,12 @@ describe("Profile 触发手册（listManuals）", () => {
     const flows = adapter.listManuals?.(r.agentContext, r.blueprint, b.domains) ?? [];
     expect(flows.length).toBeGreaterThanOrEqual(0); // 总是合法
 
-    // good-design 项的 name 格式契约（v18.x #7 防 regression）—— listManuals 的 term-Domain name 格式是 /pt_turn_inject <domain>
+    // good-design 项的 name 格式契约（v19 修订）—— listManuals 的 term-Domain name 格式改为纯 domain 名
+    // （v19 issue pt-llm-tool-consolidation：人类命令 /pt_turn_inject 已被 pt_inject tool 替代）。
     // 找不到不 fail（profile 可能换 domain），跳过格式校验；找到则校验 name 格式
     const goodDesign = flows.find((f) => f.domain === "good-design");
     if (goodDesign) {
-      expect(goodDesign.name).toMatch(/^\/pt_turn_inject good-design$/);
+      expect(goodDesign.name).toMatch(/^good-design$/);
     }
   });
 
@@ -52,10 +53,10 @@ describe("Profile 触发手册（listManuals）", () => {
     expect(flows.length).toBeGreaterThanOrEqual(3);
   });
 
-  // v18.x（#7）：listManuals 的 term-Domain name 格式是 /pt_turn_inject <domain>（非 /manual:<domain>）
-  // #1 改名遗留：原 code name 字段是 /manual:xxx，与 renderTurnInject dispatch 命令名 /pt_turn_inject 不一致——
-  // 用户/LLM 看 /pt flows 输出 /manual:xxx 打这个命令会 passthrough 不触发注入。此断言防 regression（#7 闭合）。
-  it("v18.x（#7）：listManuals 的 term-Domain name 格式是 /pt_turn_inject <domain>", async () => {
+  // v19（issue pt-llm-tool-consolidation）：listManuals 的 term-Domain name 格式改为纯 domain 名
+  //   （v18.x #7 防 /manual:<domain> 残留仍生效——无该字段名）。
+  //   v19：人类命令 /pt_turn_inject 已删除，name 不再伪装成命令；用户/LLM 调 pt_inject tool 获取 <domain> 手册。
+  it("v19（#7 follow-up）：listManuals 的 term-Domain name 格式是纯 domain 名", async () => {
     const r = await loadAndTranspile(process.cwd(), "pt-dev");
     const b = r.bundles[0];
     expect(b).toBeDefined();
@@ -67,11 +68,14 @@ describe("Profile 触发手册（listManuals）", () => {
     // 找 term-Domain 项（hint 含"条规范"——pt-quality 的 Rules 段）
     const termDomain = flows.find((f) => typeof f.hint === "string" && f.hint.includes("条规范"));
     expect(termDomain).toBeDefined();
-    expect(termDomain?.name).toMatch(/^\/pt_turn_inject \S+$/);
-    expect(termDomain?.name).not.toMatch(/^\/manual:/); // 防回退
+    expect(termDomain?.name).toMatch(/^\S+$/);
+    expect(termDomain?.name).not.toMatch(/^\/manual:/); // v18.x 防回退
+    expect(termDomain?.name).not.toMatch(/^\/pt_turn_inject/); // v19 防回退（人类命令已删）
 
-    // 全 listManuals 输出无 /manual: 残留
+    // 全 listManuals 输出无 /manual: / /pt_turn_inject 残留
     const anyManual = flows.find((f) => f.name.startsWith("/manual:"));
     expect(anyManual).toBeUndefined();
+    const anyTurnInject = flows.find((f) => f.name.startsWith("/pt_turn_inject"));
+    expect(anyTurnInject).toBeUndefined();
   });
 });

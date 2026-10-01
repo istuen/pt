@@ -113,12 +113,12 @@ export class MdFilePack implements AssetPack {
     //   装载到 ValidationResult.manifestWarnings 后由 /pt packs 主动展示。
     //   删 notify 之前行为：每次 session_start 弹 "pack X manifest 警告..." 噪音；
     //   user 反馈"我没改任何东西却反复被警告轰炸"。
-    //   替代通道：user 主动跑 /pt packs 或 pt_packs tool 看到 manifestWarnings；
-    //   pack 作者关心 → /pt_turn_inject pack-management#pack-repair 自动 fix。
+    //   替代通道：user 主动跑 /pt info packs 看到 manifestWarnings；
+    //   pack 作者关心 → 调 pt_inject tool domain=pack-management 展开 pack-repair 手册自动 fix。
     let manifestMissingHint: string | undefined;
     if (manifest.warnings.length === 0 && !manifest.ok && args.source === "settings") {
       // 仅 settings pack 缺失 manifest 时存 hint——reserved pack 缺 manifest 是 back-compat 设计。
-      manifestMissingHint = `pack "${dirName}" 无 manifest（basename 兜底）— 建议添加 pt-asset-pack.yaml 让 pack 成为自描述实体。/pt_turn_inject pack-management#pack-create`;
+      manifestMissingHint = `pack "${dirName}" 无 manifest（basename 兜底）— 建议添加 pt-asset-pack.yaml 让 pack 成为自描述实体。调 pt_inject tool domain=pack-management 展开 pack-create 手册`;
     }
 
     // name 解析优先级（§2.4.2）：

@@ -586,12 +586,11 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(doc.filePath).toContain("feature-lifecycle-");
     });
 
-    it("index.ts 注册了 4 个 tool", async () => {
+    it("index.ts 注册了 3 个 tool（v19 收敛）", async () => {
       const src = await readFile("src/index.ts", "utf8");
-      expect(src).toContain('name: "pt_status"');
-      expect(src).toContain('name: "pt_flows"');
-      expect(src).toContain('name: "pt_make_manual"');
-      expect(src).toContain('name: "pt_turn_inject"');
+      expect(src).toContain('name: "pt_info"');
+      expect(src).toContain('name: "pt_doc"');
+      expect(src).toContain('name: "pt_inject"');
       expect(src).toContain("withFileMutationQueue");
     });
   });

@@ -1025,7 +1025,7 @@ describe("MdFilePack.create notify 分流（reserved silent / settings 提示）
       expect(notifs.length).toBe(0);
       expect(pack.manifestWarnings).toEqual([]);
       expect(pack.manifestMissingHint).toContain("无 manifest");
-      expect(pack.manifestMissingHint).toContain("/pt_turn_inject pack-management#pack-create");
+      expect(pack.manifestMissingHint).toContain("调 pt_inject tool domain=pack-management");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
