@@ -28,3 +28,7 @@ dist/
 
 # zread 工具本地 wiki 缓存（第三方工具数据）
 .zread/
+
+# 本地 runtime 兼容性验证工具（依赖本地 oMLX，非项目部署用，不入 git）
+Dockerfile.verify
+scripts/verify-runtime.sh
