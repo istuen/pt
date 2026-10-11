@@ -2,7 +2,8 @@
   "packages": [".."],
   "pt": {
     "asset-packs": [
-      { "path": ".pt/packs/fullstack" }
+      { "path": ".pt/packs/fullstack" },
+      { "path": ".pt/packs/vendor-agent" }
     ]
   }
 }
