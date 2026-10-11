@@ -162,3 +162,34 @@ describe("parseDomain — pt-virtual-profile：mode + tagline frontmatter", () =
     expect(d.tagline).toBeUndefined();
   });
 });
+
+describe("parseDomain — Trigger hint 字段保留（pt-trigger-hint-field-loss 修复）", () => {
+  it("Trigger 段走专属 parser（非 fallback）", async () => {
+    const d = await parseDomain(FIXTURE_DIR, "domain-trigger-hint.md");
+    expect(isTriggerItemArray(d.modules.Trigger)).toBe(true);
+  });
+
+  it("hint 字段保留为 TriggerItem.hint", async () => {
+    const d = await parseDomain(FIXTURE_DIR, "domain-trigger-hint.md");
+    const trigger = d.modules.Trigger as Array<{
+      name: string;
+      desc?: string;
+      hint?: string;
+    }>;
+    const withHint = trigger.find((t) => t.name === "trigger-with-hint");
+    expect(withHint?.desc).toBe("测试 hint 字段保留");
+    expect(withHint?.hint).toBe("调 pt_inject tool domain=test 查看完整规范");
+  });
+
+  it("无 hint 时不输出 hint 字段", async () => {
+    const d = await parseDomain(FIXTURE_DIR, "domain-trigger-hint.md");
+    const trigger = d.modules.Trigger as Array<{
+      name: string;
+      desc?: string;
+      hint?: string;
+    }>;
+    const withoutHint = trigger.find((t) => t.name === "trigger-without-hint");
+    expect(withoutHint?.desc).toBe("测试无 hint 时不输出 hint 字段");
+    expect(withoutHint?.hint).toBeUndefined();
+  });
+});

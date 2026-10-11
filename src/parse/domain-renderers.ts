@@ -31,6 +31,18 @@ const domainSectionRenderers: Record<string, DomainSectionParser> = {
       if (note) term.note = note;
       return term;
     }),
+  // H2="Trigger"（pt-trigger-hint-field-loss 修复）—— TriggerItem[]
+  //   parse 层输出 { name, desc?, hint? }，与 render 层 renderTriggerModule + type guard 对齐。
+  //   原走 fallbackTerms 只输出 { name, desc }，hint 丢弃——本 parser 修复。
+  Trigger: (items) =>
+    items.map((it) => {
+      const desc = s(it.fields.desc) || s(it.fields.description) || "";
+      const hint = s(it.fields.hint);
+      const trigger: { name: string; desc?: string; hint?: string } = { name: it.name };
+      if (desc) trigger.desc = desc;
+      if (hint) trigger.hint = hint;
+      return trigger;
+    }),
   // H2="Rules"（Phase term-P9.2：从 Manual.term 拆出）—— Rule[]
   Rules: (items) =>
     items.map((it) => {
