@@ -18,7 +18,7 @@ import { basename as pathBasename } from "node:path";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { SUFFIX_BLUEPRINT_YAML, SUFFIX_MD } from "../constants.js";
-import { errMsg, reportError } from "../diagnostics.js";
+import { errMsg, reportError, reportWarn } from "../diagnostics.js";
 import type {
   AssetPack,
   Blueprint,
@@ -54,6 +54,10 @@ export class MdFilePack implements AssetPack {
   readonly source: PackSource;
   /** adapterCtx 可选——parse 失败时调 reportError 走 notify + log 通道。 */
   private readonly adapterCtx: SourceAdapterContext | undefined;
+  /** pt-virtual-profile（issue §八 发现 2）：loadDomains 扫盘结果缓存。
+   *  避免 mdAdapter.load 路径双扫（loadDomains + loadProfiles 内部又 loadDomains）
+   *  + listProfilesWithTagline 选择器路径额外扫盘。首次扫盘后缓存，后续返缓存。 */
+  private _domainsCache?: Domain[];
   /** issue pt-cold-start-warning-noise（§短期方案 2）：manifest 警告列表（name/version/desc 校验失败）。
    *  parseManifest.warnings 原样透传——session_start 不弹通知，由 /pt packs 主动展示。 */
   readonly manifestWarnings: string[];
@@ -141,8 +145,13 @@ export class MdFilePack implements AssetPack {
   }
 
   async loadDomains(): Promise<Domain[]> {
+    // pt-virtual-profile（issue §八 发现 2）：首次扫盘后缓存，后续返缓存。
+    //   避免 loadProfiles 生成虚拟 Profile 时调 this.loadDomains() 导致重复扫盘
+    //   + listProfilesWithTagline 选择器路径额外扫盘（高频）。
+    if (this._domainsCache) return this._domainsCache;
     const dir = join(this.rootDir, "domains");
-    return loadDomainsRecursive(dir, this.adapterCtx);
+    this._domainsCache = await loadDomainsRecursive(dir, this.adapterCtx);
+    return this._domainsCache;
   }
 
   async loadBlueprints(): Promise<Blueprint[]> {
@@ -162,7 +171,48 @@ export class MdFilePack implements AssetPack {
     for (const p of profiles) {
       p.sourcePack = this.name;
     }
-    return profiles;
+
+    // pt-virtual-profile（issue §3.5 改动 3）：扫 domains/ 找 mode === "virtual"，
+    //   为每个生成虚拟 Profile IR（走完整 compile/render 链路，/pt-profile 选择器无差别展示）。
+    //   modules 填 Domain 所有 H2 段名——compile 层零改动（generic fallback 自动聚合任意标题段）。
+    const domains = await this.loadDomains();
+    const virtualProfiles = domains
+      .filter((d) => d.mode === "virtual")
+      .map(
+        (d): Profile => ({
+          name: d.name,
+          blueprint: "pt-virtual", // Pt 库自带 Blueprint（builtin pack）
+          domains: [d.name], // 引用自身
+          groups: [
+            {
+              name: "session-context", // 与 pt-virtual Blueprint 同名聚合组
+              domains: [d.name],
+              modules: Object.keys(d.modules).map((section) => ({ section })),
+            },
+          ],
+          tagline: d.tagline,
+          sourcePack: this.name,
+        })
+      );
+
+    // pt-virtual-profile（issue §四 决策 5）：显式 Profile 与 virtual 同名时显式赢。
+    //   显式 .profile.md 信息密度高于 virtual 派生，应优先；与现有 pack 间同名覆盖语义一致。
+    //   virtual 被忽略 + warn 一次（不报错阻断）。
+    const explicitNames = new Set(profiles.map((p) => p.name));
+    const keptVirtual: Profile[] = [];
+    for (const vp of virtualProfiles) {
+      if (explicitNames.has(vp.name)) {
+        reportWarn(
+          this.adapterCtx,
+          `virtual Profile「${vp.name}」与显式 Profile 同名，显式赢（virtual 被忽略）`,
+          { name: vp.name, pack: this.name }
+        );
+        continue;
+      }
+      keptVirtual.push(vp);
+    }
+
+    return [...profiles, ...keptVirtual];
   }
 }
 

@@ -169,6 +169,28 @@ export interface ResolveDomainsResult {
   optionalNoMatch: string[];
 }
 
+/** pt-virtual-profile（issue §3.4 + §八 发现 1）：mode 双向互斥校验。
+ *  - normal Profile（blueprint ≠ pt-virtual）引用 virtual Domain → error
+ *  - pt-virtual Profile 引用 normal Domain（mode ≠ virtual）→ error
+ *  在 resolveDomains 内调，requiredResolved + optionalResolved 两路都校验（可选 Domain 引用也走同一契约）。
+ *  back-compat：normal Profile + normal Domain（含 mode 未设）→ 两条件都不触发，不抛。
+ *  issue §八 发现 4 修正：互斥防的是“用户显式填 modules 才错乱”的误用，不依赖用户自觉。 */
+function assertModeMutex(profile: Profile, resolved: Array<{ asset: Domain }>): void {
+  for (const r of resolved) {
+    const d = r.asset;
+    if (d.mode === "virtual" && profile.blueprint !== "pt-virtual") {
+      throw new Error(
+        `Domain "${d.name}" is mode=virtual, cannot be referenced by normal Profile (blueprint=${profile.blueprint}). virtual Domain 只能走 pt-virtual Blueprint 整篇注入。`
+      );
+    }
+    if (d.mode !== "virtual" && profile.blueprint === "pt-virtual") {
+      throw new Error(
+        `Domain "${d.name}" is mode=${d.mode ?? "normal"}, cannot be referenced by pt-virtual Profile（pt-virtual 只能引用 mode=virtual Domain）`
+      );
+    }
+  }
+}
+
 /** v9 Domains 分发：全局 domains + 聚合组追加（去重，保序），按 ProfileGroup.modules 过滤。
  *  规则：Domain 有该聚合组 modules 列出的任一 H2 段 → 贡献；没有 → 跳过。
  *  v9.1（modules-to-profile 迁移）：modules 来源从 Blueprint.modules 改为 ProfileGroup.modules
@@ -206,6 +228,8 @@ export function resolveDomains(
     loadedPackNames,
     { skipOnMissing: true }
   );
+  // pt-virtual-profile（issue §八 发现 3）：必填 Domain 引用走 mode 互斥契约校验。
+  assertModeMutex(profile, requiredResolved);
 
   // ===== 可选：profile.optionalDomains（v16 新增）=====
   const optionalRefs = profile.optionalDomains ?? [];
@@ -217,6 +241,8 @@ export function resolveDomains(
     loadedPackNames,
     { skipOnMissing: true, collectMissing: true }
   );
+  // pt-virtual-profile（issue §八 发现 3）：可选 Domain 引用同样走 mode 互斥契约校验。
+  assertModeMutex(profile, optionalResolved);
 
   // ===== 过滤：必填 + 可选都按 ProfileGroup.modules 白名单过同一过滤函数 =====
   //   必填：过滤掉（Domain.modules 不在 profileGroup.modules 白名单 → 不进聚合组）

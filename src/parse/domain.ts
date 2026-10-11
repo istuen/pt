@@ -43,12 +43,25 @@ export async function parseDomain(absDir: string, relPath: string): Promise<Doma
     modules[h2Name] = parseDomainSection(h2Name, section.items, section.raw);
   }
 
+  // pt-virtual-profile：mode 声明式标识（normal 缺省 / virtual 整篇注入）。
+  //   非合法值或缺失 → "normal"（缺省，向后兼容现有 Domain——零迁移）。
+  //   开放枚举，本任务只实现 normal/virtual 两值；新值（如 reference）另开 issue。
+  const mode: "normal" | "virtual" = asset.frontmatter.mode === "virtual" ? "virtual" : "normal";
+
+  // pt-virtual-profile：tagline 选填，virtual 模式下作 Profile tagline 展示。
+  //   非字符串静默忽略（参照 parseProfile 读 tagline 的先例 src/parse/profile.ts）。
+  const taglineRaw = asset.frontmatter.tagline;
+  const tagline =
+    typeof taglineRaw === "string" && taglineRaw.trim().length > 0 ? taglineRaw.trim() : undefined;
+
   return {
     name:
       typeof asset.frontmatter.name === "string"
         ? asset.frontmatter.name
         : normalizeDomainName(relPath),
     modules,
+    mode,
+    tagline,
   };
 }
 

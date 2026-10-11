@@ -1,0 +1,22 @@
+# pt-virtual.blueprint.yaml — virtual-profile 机制的结构层 Blueprint（Pt 库自带）
+#
+# 设计源：.pt/docs/issues/pt-virtual-profile.md §3.5 改动 4
+#
+# 定位：与 pt-default Blueprint 并列的独立 Blueprint，专为 mode=virtual Domain 整篇注入。
+#   - 单聚合组 session-context（inject=session），把 virtual Domain 的所有 H2 段整篇注入 SessionContext
+#   - mode=byDomain：按 Domain 维度聚合（既有 StructureLayout 模式，不注册新 renderer）
+#   - 不加新 modName / renderer——virtual Domain 的 H2 段名是任意标题，走 generic fallback 自动聚合
+#
+# 互斥纪律（issue §3.4 + §八 发现 1）：双向——
+#   - normal Profile（blueprint ≠ pt-virtual）引用 virtual Domain → compile error
+#   - pt-virtual Profile 引用 normal Domain（mode ≠ virtual）→ compile error
+#   校验在 src/compile/agent-context.ts resolveDomains 内，确保 mode 与 Blueprint 严格对应。
+#
+# virtual Domain 的 modules 由 parse 层生成的虚拟 Profile 自动填充（Object.keys(d.modules)），
+# 无需用户写 .profile.md 文件——这是 virtual-profile 消除样板劳动的核心。
+
+name: pt-virtual
+groups:
+  - name: session-context
+    inject: session
+    mode: byDomain

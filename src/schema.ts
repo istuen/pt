@@ -124,6 +124,14 @@ export interface Domain {
   name: string;
   /** H2 段名 → 段内容。Pt 核心按 H2 名读段，不硬编码段名。 */
   modules: Record<string, unknown>;
+  /** Domain 走 Profile 的模式——决定可被哪种 Profile 机制引用。
+   *  - normal（缺省）：H2 段名是 Pt schema 选择器，可被任何 Blueprint 聚合
+   *  - virtual：H2 段名是任意标题，只能走 pt-virtual Blueprint 整篇注入
+   *  互斥：virtual Domain 不能被 normal Profile 引用（mode 契约不一致）。
+   *  开放枚举——加新模式 = 加新枚举值 + 对应 Blueprint + compile 校验。 */
+  mode?: "normal" | "virtual";
+  /** virtual 模式下作为 Profile tagline 展示（选填）。 */
+  tagline?: string;
 }
 
 // ==================== 结构层：Blueprint ====================

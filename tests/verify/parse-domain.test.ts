@@ -6,8 +6,10 @@
 // - ## Scene 统一 Term[]（P9.1）；## Manual 段为 FlowTemplate[]（P9.2 workflow 拆 Manual→Flows）
 // - term Scene 项 fields/note 保留（v9.2）
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { join } from "node:path";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { parseDomain } from "../../src/parse/domain.js";
 import {
   isFlowTemplateArray,
@@ -102,5 +104,61 @@ describe("parseDomain — term Scene 项 fields/note 保留（v9.2 修复）", (
     expect(plain?.desc).toBe("没 fields/note 的术语（向后兼容基线）");
     expect(plain?.fields).toBeUndefined();
     expect(plain?.note).toBeUndefined();
+  });
+});
+
+// pt-virtual-profile（issue §3.5 改动 2）：parseDomain 读 frontmatter mode + tagline。
+//   mode="virtual" → d.mode==="virtual"；无 mode / 非法值 → d.mode==="normal"（缺省）；
+//   tagline 字符串 → d.tagline；空串 / 非法 → undefined（静默忽略，与 profile.ts tagline 一致）。
+describe("parseDomain — pt-virtual-profile：mode + tagline frontmatter", () => {
+  const tempDirs: string[] = [];
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+  });
+
+  async function parseVirtual(content: string) {
+    const dir = await mkdtemp(join(tmpdir(), "pt-parse-domain-virtual-"));
+    await writeFile(join(dir, "d.md"), content);
+    tempDirs.push(dir);
+    return parseDomain(dir, "d.md");
+  }
+
+  it('mode: virtual → d.mode === "virtual"（硬指标 2）', async () => {
+    const d = await parseVirtual(
+      `---\nname: v\nmode: virtual\ntagline: V tag\n---\n## Section1\n- a: desc\n`
+    );
+    expect(d.mode).toBe("virtual");
+  });
+
+  it('无 mode 字段 → d.mode === "normal"（缺省）', async () => {
+    const d = await parseVirtual(`---\nname: n\n---\n## Scene\n- t: d\n`);
+    expect(d.mode).toBe("normal");
+  });
+
+  it('mode: normal 显式 → d.mode === "normal"', async () => {
+    const d = await parseVirtual(`---\nname: n2\nmode: normal\n---\n## Scene\n- t\n`);
+    expect(d.mode).toBe("normal");
+  });
+
+  it('mode 非合法值 → d.mode === "normal"（缺省，不报错）', async () => {
+    const d = await parseVirtual(`---\nname: bad\nmode: garbage\n---\n## Scene\n- t\n`);
+    expect(d.mode).toBe("normal");
+  });
+
+  it('含 tagline → d.tagline === "..."（硬指标 2）', async () => {
+    const d = await parseVirtual(
+      `---\nname: v\nmode: virtual\ntagline: My tagline\n---\n## S\n- a\n`
+    );
+    expect(d.tagline).toBe("My tagline");
+  });
+
+  it("tagline 空字符串 → undefined（视为未填，与 profile.ts 一致）", async () => {
+    const d = await parseVirtual(`---\nname: v\nmode: virtual\ntagline: ""\n---\n## S\n- a\n`);
+    expect(d.tagline).toBeUndefined();
+  });
+
+  it("无 tagline 字段 → undefined", async () => {
+    const d = await parseVirtual(`---\nname: v\nmode: virtual\n---\n## S\n- a\n`);
+    expect(d.tagline).toBeUndefined();
   });
 });

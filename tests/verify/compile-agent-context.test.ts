@@ -760,3 +760,63 @@ describe("compileAgentContext 非 use 越权 warn（PR5 §5.5.1 S7）", () => {
     expect(detailsStr).toMatch(/非 use 场景.*warn/);
   });
 });
+
+// pt-virtual-profile（issue §3.5 改动 4）：resolveDomains 双向互斥。
+//   virtual Domain + 非 pt-virtual Profile → throw；非 virtual Domain + pt-virtual Profile → throw。
+//   pt-virtual + virtual → 通过 + 产出含内容；normal + normal → 通过（back-compat）。
+describe("compileAgentContext — pt-virtual-profile：mode 互斥（硬指标 7）", () => {
+  it("virtual Domain + normal Profile → throw（错误信息含 domain 名 + blueprint 名）", () => {
+    const p = makeProfile(); // blueprint=test-blueprint
+    const bp = makeBlueprint();
+    const ds = [makeDomain({ mode: "virtual" })]; // d1, mode=virtual
+    expect(() => compileCtx(p, bp, ds)).toThrow();
+    expect(() => compileCtx(p, bp, ds)).toThrow(/d1/);
+    expect(() => compileCtx(p, bp, ds)).toThrow(/test-blueprint/);
+  });
+
+  it("normal Domain + pt-virtual Profile → throw（错误信息含 domain 名 + pt-virtual）", () => {
+    const p = makeProfile({
+      blueprint: "pt-virtual",
+      groups: [{ name: "session-context", domains: [], modules: [{ section: "Scene" }] }],
+    });
+    const bp = makeBlueprint({
+      name: "pt-virtual",
+      groups: [{ name: "session-context", inject: "session" }],
+    });
+    const ds = [makeDomain({ mode: "normal" })];
+    expect(() => compileCtx(p, bp, ds)).toThrow();
+    expect(() => compileCtx(p, bp, ds)).toThrow(/d1/);
+    expect(() => compileCtx(p, bp, ds)).toThrow(/pt-virtual/);
+  });
+
+  it("pt-virtual Profile + virtual Domain → 通过 + 产出含 Domain 内容", () => {
+    const p = makeProfile({
+      blueprint: "pt-virtual",
+      groups: [{ name: "session-context", domains: [], modules: [{ section: "Scene" }] }],
+    });
+    const bp = makeBlueprint({
+      name: "pt-virtual",
+      groups: [{ name: "session-context", inject: "session" }],
+    });
+    const ds = [makeDomain({ mode: "virtual" })];
+    expect(() => compileCtx(p, bp, ds)).not.toThrow();
+    const ctx = compileCtx(p, bp, ds);
+    expect(ctx.modules["session-context"]).toContain("t1");
+  });
+
+  it("normal Profile + normal Domain → 通过（back-compat，不抛）", () => {
+    const p = makeProfile();
+    const bp = makeBlueprint();
+    const ds = [makeDomain({ mode: "normal" })];
+    expect(() => compileCtx(p, bp, ds)).not.toThrow();
+    const ctx = compileCtx(p, bp, ds);
+    expect(ctx.modules["session-context"]).toContain("t1");
+  });
+
+  it("mode 未设（undefined）→ 视为 normal，与 normal Profile 兼容（back-compat）", () => {
+    const p = makeProfile();
+    const bp = makeBlueprint();
+    const ds = [makeDomain()]; // 无 mode
+    expect(() => compileCtx(p, bp, ds)).not.toThrow();
+  });
+});
