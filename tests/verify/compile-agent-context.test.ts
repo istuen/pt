@@ -582,16 +582,19 @@ describe("mergeSectionContent（PR3b §4.5.2）", () => {
   });
 
   it("未知 schema → 保守取首份（不 union）", () => {
+    // pt-virtual-raw-injection（issue 决策 3=A）：string 不再是"未知 schema"——
+    //   有专门 concat 分支（\n\n 连接，见 issue-pt-virtual-raw-injection.test.ts 硬指标 5）。
+    //   这里用 number 验证真正的"未知非 string/数组 schema 取首份"语义。
     const d1 = makeDomain({
       name: "foo",
-      modules: { Custom: "this is a string, not array" },
+      modules: { Custom: 42 },
     });
     const d2 = makeDomain({
       name: "foo",
-      modules: { Custom: "this is another string" },
+      modules: { Custom: 99 },
     });
-    // 类型不匹配 type guards（全是 string）→ fallback 取首份
-    expect(mergeSectionContent([d1, d2], "Custom")).toBe("this is a string, not array");
+    // 类型不匹配 type guards（number 非 string/数组）→ fallback 取首份
+    expect(mergeSectionContent([d1, d2], "Custom")).toBe(42);
   });
 });
 

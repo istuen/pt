@@ -26,7 +26,7 @@
 
 import { join } from "node:path";
 import type { Domain, Term } from "../schema.js";
-import { readAsset, s, type Item } from "./shared.js";
+import { readAsset, s, type Item, type Section } from "./shared.js";
 import { getDomainSectionParser } from "./domain-renderers.js";
 
 /** 读 domains/<relPath>.md → Domain { name, modules: Record<H2名, 内容> }
@@ -37,16 +37,15 @@ import { getDomainSectionParser } from "./domain-renderers.js";
 export async function parseDomain(absDir: string, relPath: string): Promise<Domain> {
   const asset = await readAsset(join(absDir, relPath));
 
-  // H2 段名 → 段内容的解析：调注册表 parser，未注册走 fallback (Term[])
-  const modules: Record<string, unknown> = {};
-  for (const [h2Name, section] of Object.entries(asset.sections)) {
-    modules[h2Name] = parseDomainSection(h2Name, section.items, section.raw);
-  }
-
   // pt-virtual-profile：mode 声明式标识（normal 缺省 / virtual 整篇注入）。
   //   非合法值或缺失 → "normal"（缺省，向后兼容现有 Domain——零迁移）。
   //   开放枚举，本任务只实现 normal/virtual 两值；新值（如 reference）另开 issue。
   const mode: "normal" | "virtual" = asset.frontmatter.mode === "virtual" ? "virtual" : "normal";
+
+  // H2 段名 → 段内容的解析：mode 分发到 parseDomainModules
+  //   - normal：H2 段名 → 段级注册表 parser（策略模式，开放集合）
+  //   - virtual：整段原文存 string（跳过段级解析，整篇注入用）
+  const modules = parseDomainModules(mode, asset.sections);
 
   // pt-virtual-profile：tagline 选填，virtual 模式下作 Profile tagline 展示。
   //   非字符串静默忽略（参照 parseProfile 读 tagline 的先例 src/parse/profile.ts）。
@@ -69,6 +68,28 @@ export async function parseDomain(absDir: string, relPath: string): Promise<Doma
  *  Node.js readdir({ recursive: true }) 跨平台统一返回 '/' 分隔路径——Windows 也用 '/'。 */
 function normalizeDomainName(relPath: string): string {
   return relPath.split(/[\\/]/).join("/").replace(/\.md$/, "");
+}
+
+/** pt-virtual-raw-injection：按 mode 分发整篇解析。
+ *  - normal：H2 段名 → 段级注册表 parser（策略模式，开放集合）
+ *  - virtual：整段原文存 string（跳过段级解析，整篇注入用——散文 / H3 / 列表全保留在原文里）
+ *
+ *  mode 是封闭枚举（加新值要改 schema + compile + Blueprint），不走注册表。
+ *  段级 H2 段名是开放集合（用户可加新段名），走注册表。两种模式各得其所——
+ *  按 mode（封闭枚举）选提取函数，按 H2 段名（开放集合）选注册表，不为统一而统一。
+ *  架构决策记录见 issue pt-virtual-raw-injection §五.1。 */
+function parseDomainModules(
+  mode: "normal" | "virtual",
+  sections: Record<string, Section>
+): Record<string, unknown> {
+  const modules: Record<string, unknown> = {};
+  for (const [h2Name, section] of Object.entries(sections)) {
+    modules[h2Name] =
+      mode === "virtual"
+        ? section.raw // 整篇原文（含散文、H3、列表，整篇注入用）
+        : parseDomainSection(h2Name, section.items, section.raw); // 段级注册表
+  }
+  return modules;
 }
 
 /** 调注册表 parser（h2Name）解析单个 H2 段。Phase term-P9.3：删 type 参数，二维注册表降一维。

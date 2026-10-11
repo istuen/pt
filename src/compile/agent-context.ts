@@ -287,6 +287,12 @@ export function mergeSectionContent(domains: Domain[], section: string): unknown
   if (parts.length === 0) return undefined;
   if (parts.length === 1) return parts[0]; // 单份直接返——back-compat
 
+  // pt-virtual-raw-injection：string 合并（virtual Domain 多份同 name 场景，防御性）。
+  // virtual 固定单 Domain，单份场景 parts[0] 已 work；显式处理优于隐式兼底（不依赖下方"未知 schema 取首份"）。
+  if (typeof parts[0] === "string") {
+    return parts.filter((p): p is string => typeof p === "string").join("\n\n");
+  }
+
   // 按 schema 分发 union（用现有 type guards，不引新 guard）
   // 内部断言 unknown[][]——type guard 已 narrow 元素形态（Rule / Term / 等）
   const partsAsArrays = parts as unknown[][];
@@ -348,6 +354,14 @@ export function dispatchGroup(
     if (mergedContent === undefined) continue;
     const d0 = refDomains.find((d) => d.modules[mod.section] !== undefined);
     if (!d0) continue; // 防御——mergeSectionContent 已挡，这里兑底
+
+    // pt-virtual-raw-injection：virtual Domain 的 modules 是 string（section.raw），
+    // 跳过注册表 renderer（防止 H2 段名撞注册表，如 virtual Domain 有 ## Scene 段名
+    // 不会误走 renderSceneModule）。H2 段名降级为 H3 作为分段标记，避免污染 SessionContext 的 H2 结构。
+    if (typeof mergedContent === "string") {
+      parts.push(`### ${mod.section}\n${mergedContent}`);
+      continue;
+    }
 
     const rendered = mod.item
       ? renderItemModule(d0, mergedContent, mod)
@@ -511,7 +525,10 @@ function renderChecklistsModule(d: Domain, content: unknown): string {
 
 /** Generic fallback：原样输出 H3 标题 + 列表项，不解析内容格式。
  *  加新聚合标题（如 ### Modules 加 ## Glossary）不用注册 renderer，自动用 fallback 聚合。 */
-function renderGenericModule(_d: Domain, content: unknown): string {
+export function renderGenericModule(_d: Domain, content: unknown): string {
+  // pt-virtual-raw-injection：string 内容原样返回（virtual Domain 整篇原文）。
+  // 主路径在 dispatchGroup 已拦截 string，这里是防御层（兼底，防其他调用路径）。
+  if (typeof content === "string") return content;
   if (!isNamedItemArray(content)) return "";
   const lines: string[] = [];
   for (const item of content) {
