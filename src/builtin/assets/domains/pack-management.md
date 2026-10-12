@@ -60,6 +60,13 @@ pt pack。缺 manifest / 写错时，跟着 `pack-repair` flow 走即可自描�
 
   设计动机：v10.x 时期 builtin pack.name="pt"（位置别名退化）是 back-compat 默认行为；本轮修复把这个行为**显式声明**为设计意图，而不是引入 `pt-builtin` 之类冗余名字。保留名规则对 builtin 特例放行（`parseManifest(rootDir, "builtin")`），project/settings pack 仍禁用保留名。
 
+### pack-vs-other-asset-layers
+- desc: Pt Pack 只持编译资产（domains/blueprints/profiles + manifest）——它不是 superset 分发单元。三类资产分层各归其主：
+  - **Pt Domain/Blueprint/Profile**（Pt 独有规范）→ 宿主 Pt Pack → 分发走 `pt pack install` / git clone + settings 声明
+  - **Skill / SKILL.md**（Agent Skills 规范，跨 agent）→ 宿主 agent 运行时（`~/.agents/skills/` 等）→ 分发走库自身 install CLI / pi package
+  - **Extension / 插件代码**（pi 独有）→ 宿主 pi package → 分发走 `pi install`
+- note: 第三方要"一个 npm 包同时带 skill + Pt Pack"——那是 npm package 打包方式（`package.json` 声明 `pi.skills` + 包内放 pt-pack/ 目录），pt 不长出 skill 分发能力。superset 入口是 npm package 的事，Pt Pack 只贡献编译资产那一块。判断原则见 good-architecture 的 `pt-compiles-not-distributes`。
+
 ## Flows
 
 ### pack-create

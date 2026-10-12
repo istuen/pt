@@ -231,6 +231,9 @@ name: authoring
 ### role-isolation-via-section-name
 - check: 角色隔离通过专用段名实现（v9.1+）——user-info 用 ## User、agent-info 用 ## Agent，Profile 引用 `[User]` 整段或 `[Agent.<role>]` 精确选。**不要在 modName 里加形态 3（domain:段.项）**——会破坏命名空间设计且 profile 配置冗余。
 
+### agent-runtime-via-adapter
+- check: 任何 agent 运行时事实（skill 目录 / 可用命令 / session 标识 / 注入 API 名）走 AgentAdapter 扩展点（`src/schema.ts` 的 AgentAdapter 接口，可选方法 + adapter 不实现就退化），pt 核心不硬编码 agent 名 / 目录 / API。加新 agent = 加 Adapter 实现，不改 pt 核心。与 `renderer-registration` 同属扩展点纪律——一个管渲染分发，一个管 agent 运行时知识来源。
+
 ## Checklists
 
 ### domain-quality-checklist
