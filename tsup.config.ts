@@ -38,6 +38,8 @@ export default defineConfig({
     // 跨平台 builtin 资产复制（Windows 不支持 cp -r）
     await mkdir("dist/builtin/assets", { recursive: true });
     await cp("src/builtin/assets", "dist/builtin/assets", { recursive: true });
-    console.log("✓ d.ts generated + builtin assets copied");
+    // issue pt-dist-builtin-schemas-missing：补 schemas 复制（src/builtin/schemas → dist/builtin/schemas）
+    await cp("src/builtin/schemas", "dist/builtin/schemas", { recursive: true });
+    console.log("✓ d.ts generated + builtin assets + schemas copied");
   },
 });
