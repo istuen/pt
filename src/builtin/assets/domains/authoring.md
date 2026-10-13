@@ -105,6 +105,13 @@ name: authoring
 ### workflow-domain-pattern
 - desc: 流程/手册类 Domain 写法：## Scene 下 ### 引用名 + - path: 路径 + - desc: 说明；## Flows 下 ### 流程名 + - intent: 目的 + - step: 步骤。适合操作流程/开发手册。（注：v9 已删 type 字段。）
 
+### trigger-anti-field
+- desc: Trigger H3 项可写可选 `anti:` 字段——负向触发条件（"什么情况不触发"），与正向 `desc` / `hint` 互补，减少误触发注入
+- fields: [anti]
+- note: v9.1+ 文档约定（parse 不强制）——anti: 是作者提示 LLM 的语义，当前 Pt 不在 IR 消费。未来全链路落地（schema+parse+render）见 issue pt-vendor-prompt-cross-section 决策 ① Phase B。
+- example: '### pt-collab-trigger / - desc: 派任务/验收时参考 / - hint: /manual:pt-collab / - anti: 纯代码改动无任务派发/验收时（不触发 pt-collab 手册注入）'
+- rationale: 工业先例：三家厂商都有负向触发（Codex "Do not use when"；Sonnet "Do NOT apply if"；Claude Code "SKIP only when" / "Do NOT trigger when"）。减少误触发直接服务"减少认知负荷"原则。
+
 ### participant-domain-pattern
 - desc: 身份类 Domain 写法（v9.1+ 重命名）——user-info Domain 用 `## User` 段下 H3 角色项（who-am-i / preferences / goals / ...）；agent-info Domain 用 `## Agent` 段下 H3 角色项（role / collaboration / boundaries / ...）。**段名 = 命名空间**：`User` 限定 user-info、`Agent` 限定 agent-info。Profile 通过 `### Modules: [User]` 聚合 user-info 整段；通过 `### Modules: [Agent.role]` 精确选单角色——角色隔离的"开关"。多角色 agent-info（如 `Agent.agent-role-senior-developer`）需 fullstack pack 或自建扩展。
 
@@ -233,6 +240,46 @@ name: authoring
 
 ### agent-runtime-via-adapter
 - check: 任何 agent 运行时事实（skill 目录 / 可用命令 / session 标识 / 注入 API 名）走 AgentAdapter 扩展点（`src/schema.ts` 的 AgentAdapter 接口，可选方法 + adapter 不实现就退化），pt 核心不硬编码 agent 名 / 目录 / API。加新 agent = 加 Adapter 实现，不改 pt 核心。与 `renderer-registration` 同属扩展点纪律——一个管渲染分发，一个管 agent 运行时知识来源。
+
+### stated-vs-inferred
+- check: 区分"用户明确说的"vs"LLM 推断的"——用户确认的才标 `[stated]`，LLM 自己提议的即使被默认接受也不标
+- items: [用户确认→[stated], LLM 推断→不标, 不把推断当事实]
+- rationale: 工业先例：Sonnet 5.5 memory 校准层——`[stated]` 标记区分用户说的 vs LLM 推断的。
+
+### no-single-mention-generalization
+- check: 单次提及不升级为泛化——"提过一次 X" 记为 `[stated] mentioned X once`，不记为 `[stated] X enthusiast`，不把单次提及泛化为通用结论
+- items: [单次→mentioned once, 不升级为泛化, 不把一次当模式]
+- rationale: 工业先例：Sonnet 5.5 "one mention earns [stated] mentioned X once, not [stated] X enthusiast"。
+
+### confirmation-granularity
+- check: 确认粒度校准——简短"sounds good" / "yeah" 确认的是你说的大致形状，不是里面每个细节
+- items: [简短确认=形状非细节, 不把模糊确认当全面背书]
+- rationale: 工业先例：Sonnet 5.5 "A brief 'sounds good' confirms the shape, not every detail inside it"。
+
+### durable-phrasing-over-precise-figures
+- check: 持久措辞优于精确数字——"meeting-heavy mornings" 比 "10:00-10:15 team check-in" 更持久（数字会过期，措辞不会）
+- items: [持久措辞>精确数字, 避免会过期的精确值, 用描述性短语]
+- rationale: 工业先例：Sonnet 5.5 "Prefer durable phrasing over precise figures that go stale"。
+
+### horizon-test
+- check: Horizon test——写每条 Scene/User/Agent 项时问"一个月后在另一个话题的对话里，这行还成立且值得读吗？"答不上来则不写
+- items: [一个月后仍成立, 跨话题仍值得读, 不写会过期项]
+- rationale: 工业先例：Sonnet 5.5 "would the line still be true and worth reading a month from now"。
+
+### no-duplicate-filing
+- check: 去重——已记录的不再重复记录——"Already filed means already remembered"，不换个 path 重新 file
+- items: [已记录不重file, 不换路径重复, 查重再写]
+- rationale: 工业先例：Sonnet 5.5 "Already filed means already remembered, don't re-file it under another path"。
+
+### apply-equals-record-granularity
+- check: 应用粒度 = 记录粒度——记录的是什么粒度，应用时就按那个粒度用，不升级不降级
+- items: [记录粒度=应用粒度, 不升级应用, 不降级应用]
+- rationale: 工业先例：Sonnet 5.5 "apply a memory at the level it actually records"。
+
+### no-sycophancy-in-context
+- check: 反谄媚——不应用 discourages honest feedback / critical thinking / constructive criticism 的内容——上下文资产不得用于压制诚实反馈
+- items: [不压制诚实反馈, 不鼓励谄媚, 保留批判性思维]
+- rationale: 工业先例：Sonnet 5.5 "Claude NEVER applies memories that discourage honest feedback, critical thinking, or constructive criticism"。
 
 ## Checklists
 
