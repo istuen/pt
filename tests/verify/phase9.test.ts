@@ -148,28 +148,23 @@ describe("Phase 9.9 v9 完整回归", () => {
 
   // ========== 6. pt-quality Manual ==========
   describe("6. pt-quality 进 reference-manual 不污染 session-context / trigger-index", () => {
-    it("pt-quality Manual 段出现在 pt-dev reference-manual", async () => {
+    it("pt-quality Rules 内容出现在 pt-dev reference-manual", async () => {
+      // PR3b（commit 5c3677f）后 dispatchGroup 走 mergeSectionContent：多 Domain 同 H2 段
+      // union by name 后只调一次 renderer，### 标题用 d0（首个有该段的 Domain）——
+      // pt-quality 的 Rules 内容 merge 进 d0 段（pt-collab），不再有独立 `### pt-quality` 标题。
+      // 断言本意是“pt-quality Manual 内容进 reference-manual 段”，故改检规则内容而非标题。
       const raw = await readFile(
         join(cwd, ".pt/cache/agent-contexts/fullstack__pt-dev.agent-context.md"),
         "utf8"
       );
       const canKaoIdx = raw.indexOf("## reference-manual");
-      let qualityManualIdx = -1;
-      let searchFrom = canKaoIdx;
-      while (searchFrom !== -1) {
-        const next = raw.indexOf("### pt-quality", searchFrom);
-        if (next === -1) break;
-        if (next > canKaoIdx) {
-          qualityManualIdx = next;
-          break;
-        }
-        searchFrom = next + 1;
-      }
-      // 必须在 ## reference-manual 之后（pt-quality Manual 段进 reference-manual 段）
-      expect(qualityManualIdx).toBeGreaterThan(canKaoIdx);
-      // 且是文件中最后一个 ### pt-quality（Manual 唯一）
-      const lastIdx = raw.lastIndexOf("### pt-quality");
-      expect(qualityManualIdx).toBe(lastIdx);
+      // reference-manual 段边界：从 ## reference-manual 到下一个 ## 段（或文件尾）
+      const nextH2Offset = raw.slice(canKaoIdx + 1).search(/^## /m);
+      const refManualEnd = nextH2Offset === -1 ? raw.length : canKaoIdx + 1 + nextH2Offset;
+      const refManualSlice = raw.slice(canKaoIdx, refManualEnd);
+      // pt-quality 的标志性规则进 reference-manual 段（证明 optional-domains 解析 + Rules 贡献生效）
+      expect(refManualSlice).toContain("- modules-type-safety:");
+      expect(refManualSlice).toContain("- no-duplicate-type:");
     });
 
     it("pt-quality Manual 规范 checklist 不污染session-context段", async () => {
