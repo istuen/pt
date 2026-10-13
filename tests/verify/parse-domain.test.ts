@@ -193,3 +193,47 @@ describe("parseDomain — Trigger hint 字段保留（pt-trigger-hint-field-loss
     expect(withoutHint?.hint).toBeUndefined();
   });
 });
+
+describe("parseDomain — Trigger anti 字段保留（pt-trigger-anti-field-phase-b 落地）", () => {
+  // 背景：Phase A（commit 61f7186）只在 authoring.md 加 trigger-anti-field 文档约定，
+  // parse 不强制——anti: 落入 fallback properties 丢弃。Phase B 把 anti 走完整
+  // parse + type guard + render 链路，让 Pt 真正消费负向触发条件。
+  it("anti 字段保留为 TriggerItem.anti", async () => {
+    const d = await parseDomain(FIXTURE_DIR, "domain-trigger-anti.md");
+    const trigger = d.modules.Trigger as Array<{
+      name: string;
+      desc?: string;
+      hint?: string;
+      anti?: string;
+    }>;
+    const withAnti = trigger.find((t) => t.name === "trigger-with-anti");
+    expect(withAnti?.desc).toBe("测试 anti 字段保留");
+    expect(withAnti?.anti).toBe("纯代码改动无任务派发/验收时（不触发手册注入）");
+  });
+
+  it("无 anti 时不输出 anti 字段", async () => {
+    const d = await parseDomain(FIXTURE_DIR, "domain-trigger-anti.md");
+    const trigger = d.modules.Trigger as Array<{
+      name: string;
+      desc?: string;
+      hint?: string;
+      anti?: string;
+    }>;
+    const withoutAnti = trigger.find((t) => t.name === "trigger-without-anti");
+    expect(withoutAnti?.desc).toBe("测试无 anti 时不输出 anti 字段");
+    expect(withoutAnti?.anti).toBeUndefined();
+  });
+
+  it("hint 与 anti 同时保留（两字段独立，互不覆盖）", async () => {
+    const d = await parseDomain(FIXTURE_DIR, "domain-trigger-anti.md");
+    const trigger = d.modules.Trigger as Array<{
+      name: string;
+      desc?: string;
+      hint?: string;
+      anti?: string;
+    }>;
+    const both = trigger.find((t) => t.name === "trigger-with-hint-and-anti");
+    expect(both?.hint).toBe("调 pt_inject tool domain=test 查看完整规范");
+    expect(both?.anti).toBe("纯查询无执行任务时（不触发手册注入）");
+  });
+});

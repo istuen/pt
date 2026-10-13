@@ -871,3 +871,65 @@ describe("renderTriggerModule — hint 字段渲染（pt-trigger-hint-field-loss
     expect(out).not.toMatch(/\n {2}/); // 无 hint 行（两空格缩进行）
   });
 });
+
+describe("renderTriggerModule — anti 字段渲染（pt-trigger-anti-field-phase-b 落地）", () => {
+  // renderTriggerModule 未 export（私有，注册在 moduleRenderers[MOD_TRIGGER]），
+  // 通过 dispatchGroup 间接测——dispatchGroup 走 moduleRenderers["Trigger"] = renderTriggerModule。
+  // 参照现有 renderTriggerModule — hint 字段渲染 block 的调用方式。
+  let dispatchGroup: typeof import("../../src/compile/agent-context.js").dispatchGroup;
+  beforeAll(async () => {
+    const mod = await import("../../src/compile/agent-context.js");
+    dispatchGroup = mod.dispatchGroup;
+  });
+
+  function buildGroups(section: string) {
+    return {
+      bpGroup: { name: "g", inject: "session" as const, mode: "hybrid" as const },
+      profileGroup: {
+        name: "g",
+        domains: [] as string[],
+        modules: [makeMod(section)],
+      },
+    };
+  }
+
+  it("含 anti 的 Trigger 项 → 输出 anti 行（两空格缩进 + anti: 前缀）", () => {
+    const d = makeDomain({
+      name: "foo",
+      modules: {
+        Trigger: [{ name: "t1", desc: "desc1", anti: "anti1" }],
+      },
+    });
+    const { bpGroup, profileGroup } = buildGroups("Trigger");
+    const out = dispatchGroup(profileGroup, bpGroup, [d]);
+    expect(out).toContain("- t1: desc1");
+    expect(out).toContain("  anti: anti1"); // 两空格缩进 + anti: 前缀
+  });
+
+  it("无 anti 的 Trigger 项 → 不输出 anti 行", () => {
+    const d = makeDomain({
+      name: "foo",
+      modules: {
+        Trigger: [{ name: "t2", desc: "desc2" }],
+      },
+    });
+    const { bpGroup, profileGroup } = buildGroups("Trigger");
+    const out = dispatchGroup(profileGroup, bpGroup, [d]);
+    expect(out).toContain("- t2: desc2");
+    expect(out).not.toContain("anti:");
+  });
+
+  it("hint + anti 同时有 → 两行都输出（hint 裸文本 / anti 带前缀）", () => {
+    const d = makeDomain({
+      name: "foo",
+      modules: {
+        Trigger: [{ name: "t3", desc: "desc3", hint: "hint3", anti: "anti3" }],
+      },
+    });
+    const { bpGroup, profileGroup } = buildGroups("Trigger");
+    const out = dispatchGroup(profileGroup, bpGroup, [d]);
+    expect(out).toContain("- t3: desc3");
+    expect(out).toContain("  hint3"); // hint 裸文本（两空格缩进）
+    expect(out).toContain("  anti: anti3"); // anti 带前缀（两空格缩进）
+  });
+});

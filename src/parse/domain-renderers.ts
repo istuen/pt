@@ -31,16 +31,22 @@ const domainSectionRenderers: Record<string, DomainSectionParser> = {
       if (note) term.note = note;
       return term;
     }),
-  // H2="Trigger"（pt-trigger-hint-field-loss 修复）—— TriggerItem[]
-  //   parse 层输出 { name, desc?, hint? }，与 render 层 renderTriggerModule + type guard 对齐。
-  //   原走 fallbackTerms 只输出 { name, desc }，hint 丢弃——本 parser 修复。
+  // H2="Trigger"（pt-trigger-hint-field-loss 修复 + pt-trigger-anti-field-phase-b）—— TriggerItem[]
+  //   parse 层输出 { name, desc?, hint?, anti? }，与 render 层 renderTriggerModule + type guard 对齐。
+  //   - hint：正向补充说明（调哪个 manual / tool）
+  //   - anti：负向触发条件（什么情况不触发），减少误触发注入
+  //   原走 fallbackTerms 只输出 { name, desc }，hint/anti 丢弃——本 parser 修复。
   Trigger: (items) =>
     items.map((it) => {
       const desc = s(it.fields.desc) || s(it.fields.description) || "";
       const hint = s(it.fields.hint);
-      const trigger: { name: string; desc?: string; hint?: string } = { name: it.name };
+      const anti = s(it.fields.anti);
+      const trigger: { name: string; desc?: string; hint?: string; anti?: string } = {
+        name: it.name,
+      };
       if (desc) trigger.desc = desc;
       if (hint) trigger.hint = hint;
+      if (anti) trigger.anti = anti;
       return trigger;
     }),
   // H2="Rules"（Phase term-P9.2：从 Manual.term 拆出）—— Rule[]

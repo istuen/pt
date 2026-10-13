@@ -70,22 +70,29 @@ export function isFlowTemplateArray(x: unknown): x is FlowTemplate[] {
 
 // ==================== Trigger 项[] 守卫 ====================
 
-/** Trigger 段形态：H3 项数组（每项 { name, desc?, hint? }）。
- *  v9 新增——Trigger 段是索引段，H3 + desc/hint 列表。 */
-function isTriggerItemLike(x: unknown): x is { name: string; desc?: string; hint?: string } {
+/** Trigger 段形态：H3 项数组（每项 { name, desc?, hint?, anti? }）。
+ *  v9 新增——Trigger 段是索引段，H3 + desc/hint/anti 列表。
+ *  pt-trigger-anti-field-phase-b：加 anti? 字段（负向触发条件），与 parse 输出 + renderTriggerModule 对齐。 */
+function isTriggerItemLike(x: unknown): x is {
+  name: string;
+  desc?: string;
+  hint?: string;
+  anti?: string;
+} {
   if (!x || typeof x !== "object") return false;
-  const t = x as { name?: unknown; desc?: unknown; hint?: unknown };
+  const t = x as { name?: unknown; desc?: unknown; hint?: unknown; anti?: unknown };
   return (
     typeof t.name === "string" &&
     (t.desc === undefined || typeof t.desc === "string") &&
-    (t.hint === undefined || typeof t.hint === "string")
+    (t.hint === undefined || typeof t.hint === "string") &&
+    (t.anti === undefined || typeof t.anti === "string")
   );
 }
 
 /** unknown 是否为 Trigger 项[]。 */
 export function isTriggerItemArray(
   x: unknown
-): x is Array<{ name: string; desc?: string; hint?: string }> {
+): x is Array<{ name: string; desc?: string; hint?: string; anti?: string }> {
   return Array.isArray(x) && x.every(isTriggerItemLike);
 }
 

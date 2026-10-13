@@ -462,7 +462,10 @@ function renderItemModule(d: Domain, content: unknown, mod: ModName): string {
 // ==================== Trigger module renderer（索引聚合，v9 新增） ====================
 
 /** Trigger 段聚合：把所有 Domain 的 Trigger 项合并成索引。
- *  v9 关键：Trigger 是索引，告诉 LLM "有什么手册可查 + 何时查"。不加模块标题——索引段是平的。 */
+ *  v9 关键：Trigger 是索引，告诉 LLM "有什么手册可查 + 何时查"。不加模块标题——索引段是平的。
+ *  pt-trigger-anti-field-phase-b：渲染 anti 字段为 `  anti: <负向条件>` 行（两空格缩进 + anti: 前缀），
+ *  让 LLM 在 Turn Inject 触发判断时可见负向条件，减少误触发注入。与 hint 裸文本格式区分——
+ *  anti 是负向条件需显式标记（hint 是补充说明，裸文本即可）。 */
 function renderTriggerModule(_d: Domain, content: unknown): string {
   if (!isTriggerItemArray(content)) return "";
   if (content.length === 0) return "";
@@ -471,6 +474,7 @@ function renderTriggerModule(_d: Domain, content: unknown): string {
     if (t.desc) lines.push(`- ${t.name}: ${t.desc}`);
     else lines.push(`- ${t.name}`);
     if (t.hint) lines.push(`  ${t.hint}`);
+    if (t.anti) lines.push(`  anti: ${t.anti}`);
   }
   return lines.join("\n");
 }
