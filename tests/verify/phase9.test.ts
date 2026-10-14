@@ -395,7 +395,7 @@ describe("Phase 9.9 v9 完整回归", () => {
   // Phase term-P2：/pt-context → /pt-profile（命令参数是 Profile 名）。
   describe("16. /pt-profile Q1 修复", () => {
     it("getArgumentCompletions 用 lastCwd || process.cwd()", async () => {
-      const src = await readFile("src/index.ts", "utf8");
+      const src = await readFile("src/commands/pt-profile.ts", "utf8");
       expect(src).toContain(".lastCwd) || process.cwd()");
     });
   });

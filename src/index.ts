@@ -26,8 +26,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { FULL_DIR, MANUAL_DIR, PROFILES_DIR, RAW_DIR } from "./constants.js";
-import { formatProfileLabels, listProfiles, listProfilesWithTagline } from "./config.js";
+import { FULL_DIR, MANUAL_DIR, RAW_DIR } from "./constants.js";
 import { errMsg } from "./diagnostics.js";
 import { LOG_DIR, PtLogger } from "./log.js";
 import { getSessionById } from "./session.js";
@@ -56,10 +55,11 @@ import {
 } from "./manual-session.js";
 import { writeProbeResult } from "./manual-writeback.js";
 import { slog } from "./slog.js";
-import { getSessionIdFromCtx, switchProfile } from "./shared/session-helpers.js";
+import { getSessionIdFromCtx } from "./shared/session-helpers.js";
 import { registerSessionEvents } from "./events/session.js";
 import { registerTurnEvents } from "./events/turn.js";
 import { registerToolEvents } from "./events/tool.js";
+import { registerPtProfileCommand } from "./commands/pt-profile.js";
 
 export default function (pi: ExtensionAPI): void {
   // 启动时 flag（CLI 优先）
@@ -73,48 +73,7 @@ export default function (pi: ExtensionAPI): void {
   registerSessionEvents(pi);
   registerTurnEvents(pi);
   registerToolEvents(pi);
-
-  // ========== /pt-profile 命令：即时切换 ==========
-  // Phase term-P2：/pt-context → /pt-profile（命令参数是 Profile 名，名该匹配操作目标）。
-  pi.registerCommand("pt-profile", {
-    description:
-      "切换当前 Profile（编译成 AgentContext 注入 Session Inject），即时重转译（无参则弹出选择器）",
-    getArgumentCompletions: async (prefix) => {
-      const sessionId = getSessionIdFromCtx({
-        sessionManager: undefined,
-      });
-      const cwd = (sessionId && getSessionById(sessionId).lastCwd) || process.cwd(); // Q1 修复：fallback 到 process.cwd()
-      const names = await listProfiles(cwd);
-      const items = names.map((n) => ({ value: n, label: n }));
-      const hit = items.filter((i) => i.value.startsWith(prefix));
-      return hit.length > 0 ? hit : null;
-    },
-    handler: async (args, ctx) => {
-      const name = args.trim();
-      if (!name) {
-        const names = await listProfiles(ctx.cwd);
-        if (names.length === 0) {
-          ctx.ui.notify(`未找到任何 Profile（${PROFILES_DIR}/*.profile.md）`, "warning");
-          return;
-        }
-        if (!ctx.hasUI) {
-          ctx.ui.notify("/pt-profile（无参）在非交互模式不可用，请指定名称", "warning");
-          return;
-        }
-        // v14.x（tagline）：选择器展示 `name — tagline`，返回 label → 反查 name 走 switchProfile
-        const profiles = await listProfilesWithTagline(ctx.cwd);
-        const labels = formatProfileLabels(profiles);
-        const pickedLabel = await ctx.ui.select("选择 Profile", labels);
-        if (!pickedLabel) return;
-        // 反查：精确匹配 profile 的 label 拿 name；fallback 到 split " — " 取首段（防格式漂移）
-        const matched = profiles.find((p) => formatProfileLabels([p])[0] === pickedLabel);
-        const picked = matched?.name ?? pickedLabel.split(" — ")[0] ?? pickedLabel;
-        await switchProfile(pi, ctx, picked);
-        return;
-      }
-      await switchProfile(pi, ctx, name);
-    },
-  });
+  registerPtProfileCommand(pi);
 
   // ========== /pt 命令：查看 Pt 编译产物 / 管理项目文档 ==========
   // v19（issue pt-llm-tool-consolidation）：
