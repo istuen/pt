@@ -49,7 +49,6 @@ import { loadAndTranspile } from "./transpile.js";
 import { renderTurnInject } from "./render/turn-inject.js";
 import { filterDomainsByProfile } from "./schema.js";
 import {
-  pathEquals,
   persistManualToSession,
   refreshInjectionFooter,
   refreshManualWidget,
@@ -57,10 +56,10 @@ import {
 } from "./manual-session.js";
 import { writeProbeResult } from "./manual-writeback.js";
 import { slog } from "./slog.js";
-import type { PiToolCallEvent, PiToolResultEvent } from "./shared/pi-types.js";
 import { getSessionIdFromCtx, switchProfile } from "./shared/session-helpers.js";
 import { registerSessionEvents } from "./events/session.js";
 import { registerTurnEvents } from "./events/turn.js";
+import { registerToolEvents } from "./events/tool.js";
 
 export default function (pi: ExtensionAPI): void {
   // 启动时 flag（CLI 优先）
@@ -73,32 +72,7 @@ export default function (pi: ExtensionAPI): void {
   });
   registerSessionEvents(pi);
   registerTurnEvents(pi);
-
-  pi.on("tool_call", async (event, ctx) => {
-    const e = event as PiToolCallEvent;
-    slog(getSessionIdFromCtx(ctx), "debug", "tool:call", { name: e.name ?? e.toolName });
-  });
-  pi.on("tool_result", async (event, ctx) => {
-    const e = event as PiToolResultEvent;
-    const toolName = e.name ?? e.toolName;
-    slog(getSessionIdFromCtx(ctx), "debug", "tool:result", {
-      name: toolName,
-      isError: e.isError,
-    });
-    // P1：edit/write 命中 activeManual 文件 → 刷新 widget（精准过滤，不全量刷 edit/write）。
-    // 设计文档：pt-workspace-boundary-calibration §1 / §2.3 方案 1a + 浅比较去重。
-    // edit 工具 schema 含 `path` 字段（pi dist/core/tools/edit.d.ts EditSchema.path: TString），
-    // write 工具同样含 path。
-    const sessionId = getSessionIdFromCtx(ctx);
-    const s = sessionId ? getSessionById(sessionId) : null;
-    if (s?.activeManual && (toolName === "edit" || toolName === "write")) {
-      const changedPath = e.input?.path;
-      if (changedPath && pathEquals(changedPath, s.activeManual.filePath)) {
-        await refreshManualWidget(ctx.ui, s);
-        refreshInjectionFooter(ctx.ui, s);
-      }
-    }
-  });
+  registerToolEvents(pi);
 
   // ========== /pt-profile 命令：即时切换 ==========
   // Phase term-P2：/pt-context → /pt-profile（命令参数是 Profile 名，名该匹配操作目标）。
