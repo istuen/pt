@@ -510,8 +510,8 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(constants.MANUAL_DIR).toBe(".pt/manuals");
     });
 
-    it("index.ts 注册了 /pt make-manual 子命令", async () => {
-      const src = await readFile("src/index.ts", "utf8");
+    it("pt.ts 注册了 /pt make-manual 子命令", async () => {
+      const src = await readFile("src/commands/pt.ts", "utf8");
       expect(src).toContain('sub === "make-manual"');
       expect(src).toContain("MANUAL_DIR");
     });
