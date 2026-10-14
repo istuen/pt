@@ -77,7 +77,7 @@ import {
 } from "./commands.js";
 import { loadAndTranspile } from "./transpile.js";
 import { renderTurnInject } from "./render/turn-inject.js";
-import { filterDomainsByProfile, type AgentAPI } from "./schema.js";
+import { filterDomainsByProfile } from "./schema.js";
 import {
   pathEquals,
   persistManualToSession,
@@ -89,35 +89,12 @@ import {
 } from "./manual-session.js";
 import { writeProbeResult } from "./manual-writeback.js";
 import { slog } from "./slog.js";
-
-type AgentUIContext = NonNullable<AgentAPI["ui"]>;
-
-// ==================== Pi 事件本地接口（P2.3 抽出） ====================
-//
-// Pi ExtensionAPI 的 on() 回调 event 参数是 unknown（pi 包顶层 export.d.ts 描述为 unknown[]）。
-// 实际形状来自 pi runtime（@earendil-works/pi-coding-agent 的内部 emit 逻辑）。
-// 为消 index.ts ×3 双重 cast，定义本地结构接口——只用到的字段。
-
-/** pi.on("turn_end", handler) event 形状。 */
-interface PiTurnEndEvent {
-  reason?: string;
-  messageCount?: number;
-}
-
-/** pi.on("tool_call", handler) event 形状。 */
-interface PiToolCallEvent {
-  name?: string;
-  toolName?: string;
-}
-
-/** pi.on("tool_result", handler) event 形状。
- *  P1：扩展 input 字段（edit/write 工具含 `path`，详见 pi extensions.md tool_result 段）。 */
-interface PiToolResultEvent {
-  name?: string;
-  toolName?: string;
-  isError?: boolean;
-  input?: { path?: string; [k: string]: unknown };
-}
+import type {
+  AgentUIContext,
+  PiTurnEndEvent,
+  PiToolCallEvent,
+  PiToolResultEvent,
+} from "./shared/pi-types.js";
 
 /** 从 ExtensionContext 拿 sessionId（tool / command handler ctx 形态）。 */
 function getSessionIdFromCtx(ctx: { sessionManager?: { getSessionId?: () => string } }): string {
