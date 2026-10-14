@@ -581,12 +581,18 @@ describe("Phase 9.9 v9 完整回归", () => {
       expect(doc.filePath).toContain("feature-lifecycle-");
     });
 
-    it("index.ts 注册了 3 个 tool（v19 收敛）", async () => {
-      const src = await readFile("src/index.ts", "utf8");
-      expect(src).toContain('name: "pt_info"');
-      expect(src).toContain('name: "pt_doc"');
-      expect(src).toContain('name: "pt_inject"');
-      expect(src).toContain("withFileMutationQueue");
+    it("tools/ 注册了 3 个 tool（v19 收敛）", async () => {
+      const info = await readFile("src/tools/pt-info.ts", "utf8");
+      const doc = await readFile("src/tools/pt-doc.ts", "utf8");
+      const inject = await readFile("src/tools/pt-inject.ts", "utf8");
+      const barrel = await readFile("src/tools/index.ts", "utf8");
+      expect(info).toContain('name: "pt_info"');
+      expect(doc).toContain('name: "pt_doc"');
+      expect(inject).toContain('name: "pt_inject"');
+      expect(doc).toContain("withFileMutationQueue");
+      expect(barrel).toContain("registerPtInfoTool");
+      expect(barrel).toContain("registerPtDocTool");
+      expect(barrel).toContain("registerPtInjectTool");
     });
   });
 
