@@ -6,6 +6,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { slog } from "../slog.js";
 import { getSessionById } from "../session.js";
 import { pathEquals, refreshInjectionFooter, refreshManualWidget } from "../manual-session.js";
+import { DEFAULT_TOOL_INPUT_LOG_MODE, shouldLogToolInput } from "../config.js";
 import { getSessionIdFromCtx } from "../shared/session-helpers.js";
 import type { PiToolCallEvent, PiToolResultEvent } from "../shared/pi-types.js";
 
@@ -13,7 +14,22 @@ import type { PiToolCallEvent, PiToolResultEvent } from "../shared/pi-types.js";
 export function registerToolEvents(pi: ExtensionAPI): void {
   pi.on("tool_call", async (event, ctx) => {
     const e = event as PiToolCallEvent;
-    slog(getSessionIdFromCtx(ctx), "debug", "tool:call", { name: e.name ?? e.toolName });
+    const sessionId = getSessionIdFromCtx(ctx);
+    const name = e.name ?? e.toolName;
+    // v19（issue pt-adoption-observability Layer 1 F1.2）：按档位决定是否记 input。
+    //   默认 "pt-only"——只记 Pt 自家工具（pt_inject / pt_doc / pt_info）的 input；
+    //   其中 pt_inject 的 domain 参数是"查了哪本手册"的唯一信号（issue §根因 2）。
+    //   开发/测试期可切 "all"（env PT_LOG_TOOL_INPUT=all 或 settings pt.log-tool-input="all"）；
+    //   注意 write/edit 的 input 含完整文件内容，all 档日志体积显著变大。
+    const mode = sessionId
+      ? getSessionById(sessionId).toolInputLogMode
+      : DEFAULT_TOOL_INPUT_LOG_MODE;
+    slog(
+      sessionId,
+      "debug",
+      "tool:call",
+      shouldLogToolInput(mode, name) ? { name, input: e.input } : { name }
+    );
   });
   pi.on("tool_result", async (event, ctx) => {
     const e = event as PiToolResultEvent;

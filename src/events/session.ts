@@ -3,7 +3,6 @@
 // 从 index.ts 抽出（Step 2），逻辑零变更——只搬位置 + 改 import。
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import {
   computeHealthHash,
@@ -13,7 +12,12 @@ import {
 import { scanProjectHealth, formatHealthSummary } from "../asset-health.js";
 import { loadBuiltinPack, loadProjectPack, loadSettingsPacks } from "../asset-pack/loader.js";
 import { validatePack } from "../asset-pack/validate.js";
-import { detectDefaultProfile, detectSingleProfile, readProjectSetting } from "../config.js";
+import {
+  detectDefaultProfile,
+  detectSingleProfile,
+  readProjectSetting,
+  readToolInputLogMode,
+} from "../config.js";
 import { errMsg } from "../diagnostics.js";
 import { readProfileFromSession, persistProfileToSession } from "../profile-persist.js";
 import { PtLogger } from "../log.js";
@@ -57,9 +61,21 @@ export function registerSessionEvents(pi: ExtensionAPI): void {
     // SessionState 残留 stale lastFooterText。session_start 是 pt 唯一可靠的 session
     // 边界感知入口——重置缓存确保首次 refreshInjectionFooter 必写 setStatus。
     s.lastFooterText = null;
-    s.sessionId = randomUUID().slice(0, 8); // 短期 ID for logger
+    // v19（issue pt-adoption-observability Layer 1 F1.1）：session id 统一用 Pi 的完整 id——
+    //   旧实现自造 8-hex 短 id 并把它记进 session:start 日志，导致：
+    //   ① session:start 与 tool:call / turn:* 日志的 ctx.sessionId 形态不同 → 无法 join
+    //      （per-session 聚合做不成，issue §十 曾因此误判"写操作率 17%"）；
+    //   ② /pt logs、/pt logs clear 用 s.sessionId 拼文件名 → 指向不存在的 pt-<短id>.log。
+    //   完整 id 是 Pi 持有的事实来源，不再自造短 id。
+    s.sessionId = sessionId;
     s.logger = new PtLogger(ctx.cwd, "", sessionId);
-    s.logger.info("session:start", { sessionId: s.sessionId, cwd: ctx.cwd });
+    // v19（Layer 1 F1.2）：tool:call 日志记 input 的范围（env > settings > 默认 pt-only）。
+    s.toolInputLogMode = await readToolInputLogMode(ctx.cwd);
+    s.logger.info("session:start", {
+      sessionId,
+      cwd: ctx.cwd,
+      toolInputLogMode: s.toolInputLogMode,
+    });
 
     s.lastCwd = ctx.cwd;
 

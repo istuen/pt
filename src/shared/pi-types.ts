@@ -14,10 +14,14 @@ export interface PiTurnEndEvent {
   messageCount?: number;
 }
 
-/** pi.on("tool_call", handler) event 形状。 */
+/** pi.on("tool_call", handler) event 形状。
+ *  v19（issue pt-adoption-observability Layer 1 F1.2）：加 input 字段——
+ *  Pi 的 ToolCallEvent 各变体都带 input（见 pi dist/core/extensions/types.d.ts ToolCallEvent union），
+ *  pt_inject 的 domain 参数就在 input 里——不记它就无法回答"查了哪本手册"。 */
 export interface PiToolCallEvent {
   name?: string;
   toolName?: string;
+  input?: Record<string, unknown>;
 }
 
 /** pi.on("tool_result", handler) event 形状。

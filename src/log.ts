@@ -49,8 +49,8 @@ export interface PtLoggerWriter {
  *    - 主文件：`pt-<sessionId>.log`
  *    - 反查：ctx.sessionId 字段注入每条 entry
  *
- *  使用方式（index.ts session_start）：
- *    session.sessionId = randomUUID().slice(0, 8);
+ *  使用方式（src/events/session.ts session_start）：
+ *    session.sessionId = sessionId;   // v19（Layer 1 F1.1）：Pi 完整 id，不再自造 8-hex 短 id
  *    session.logger = new PtLogger(cwd, "", session.sessionId);
  */
 export class PtLogger implements PtLoggerWriter {

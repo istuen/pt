@@ -10,7 +10,9 @@
 // - clearSessionById 暴露给 session_shutdown / 测试
 //
 // v10.x：session-state 升级为 session-scoped daemon 级——
-//   - sessionId：crypto 生成的 8-hex 短 id（多并发 `pi` 进程的日志隔离键）
+//   - sessionId：Pi 的完整 session id（多并发 `pi` 进程的日志隔离键）
+//     v19（issue pt-adoption-observability Layer 1 F1.1）：由自造 8-hex 短 id 改为 Pi 完整 id——
+//       短 id 让 session:start 与 tool:call 日志无法 join，且 /pt logs 拼错日志文件名。
 //   - logger   ：per-session 单例 PtLogger（替代 per-transpile 实例化）
 //
 // v10.x（issue pt-context-persist-lost 修复，现 /pt-profile）：loadedFrom 记录当前 activeProfile 的来源，
@@ -36,6 +38,7 @@ import type {
 } from "./schema.js";
 import type { PtLogger } from "./log.js";
 import type { ManualProgress } from "./manual-track.js";
+import { DEFAULT_TOOL_INPUT_LOG_MODE, type ToolInputLogMode } from "./config.js";
 
 /** activeProfile 的来源（session_start fallback 命中点）。 */
 export type ProfileLoadSource =
@@ -82,8 +85,14 @@ export interface SessionState {
   lastBuiltPrompt: string | null;
   lastCacheHit: boolean;
   activeAdapter: AgentAdapter | null;
-  /** v10.x：session 唯一短 id，8 hex（4.3B 组合空间，足够区分并发 pi 进程）。 */
+  /** v19（issue pt-adoption-observability Layer 1 F1.1）：session 唯一 id = Pi 的完整 session id
+   *  （`getSessionIdFromCtx(ctx)` 返回值），不再自造 8-hex 短 id。
+   *  理由：① 完整 id 是 Pi 持有的事实来源，短 id 让 `session:start` 日志与 `tool:call` / `turn:*`
+   *  日志无法 join（per-session 聚合做不成）；② `/pt logs` 用它拼文件名会指向不存在的文件。 */
   sessionId: string;
+  /** v19（issue pt-adoption-observability Layer 1 F1.2）：tool:call 日志记 input 的范围。
+   *  session_start 时读一次（env > settings `pt.log-tool-input` > 默认）。 */
+  toolInputLogMode: ToolInputLogMode;
   /** v10.x：per-session 单例 logger（替代 per-transpile 实例化）。 */
   logger: PtLogger | null;
   /** v10.x：当前 activeProfile 的来源（可观测性）。null 表示未加载。 */
@@ -139,6 +148,7 @@ export function createSessionState(): SessionState {
     lastCacheHit: false,
     activeAdapter: null,
     sessionId: "",
+    toolInputLogMode: DEFAULT_TOOL_INPUT_LOG_MODE,
     logger: null,
     loadedFrom: null,
     injectionState: "idle",
