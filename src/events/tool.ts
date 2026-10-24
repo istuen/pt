@@ -30,6 +30,7 @@ export function registerToolEvents(pi: ExtensionAPI): void {
         const cmd = typeof e.input?.command === "string" ? e.input.command : "";
         const targets = extractBashWritePaths(cmd);
         if (targets.length > 0) {
+          s.summary.bypassCount += 1;
           s.logger?.info("check:bypassed", {
             probe: s.blockingFailures[0]?.probe,
             paths: targets.slice(0, 3),
@@ -63,6 +64,7 @@ export function registerToolEvents(pi: ExtensionAPI): void {
             `Pt 硬约束检查未通过，已阻断本次${name === "edit" ? "编辑" : "写入"}：` +
             `${f?.probe} — ${f?.message}。先修复该问题（可读文件/跑命令）再重试；` +
             `如需临时放行，把 settings 的 pt.check-block 设为 off。`;
+          s.summary.blockedCount += 1;
           s.logger?.info("check:blocked", { tool: name, probe: f?.probe });
           return { block: true, reason };
         }
@@ -76,6 +78,27 @@ export function registerToolEvents(pi: ExtensionAPI): void {
     const mode = sessionId
       ? getSessionById(sessionId).toolInputLogMode
       : DEFAULT_TOOL_INPUT_LOG_MODE;
+    // v19（Layer 2）：工具调用计数 + 查阅/文件维度入汇总
+    if (sessionId) {
+      const sum = getSessionById(sessionId).summary;
+      sum.toolCalls += 1;
+      if (name === "read") {
+        const p = typeof e.input?.path === "string" ? e.input.path : "";
+        if (p && !sum.filesRead.includes(p)) sum.filesRead.push(p);
+      } else if (name === "edit" || name === "write") {
+        const p = typeof e.input?.path === "string" ? e.input.path : "";
+        if (p && !sum.filesModified.includes(p)) sum.filesModified.push(p);
+      } else if (name === "pt_inject") {
+        const d = typeof e.input?.domain === "string" ? e.input.domain : "";
+        if (d) sum.ptInjectCalls.push({ domain: d, turn: getSessionById(sessionId).summary.turns });
+      } else if (name === "bash") {
+        // shell 写入也算"改动"（agent 常用 `bash >> file`）——否则汇总会漏掉真实产出
+        const cmd = typeof e.input?.command === "string" ? e.input.command : "";
+        for (const p of extractBashWritePaths(cmd)) {
+          if (!sum.filesModified.includes(p)) sum.filesModified.push(p);
+        }
+      }
+    }
     // v19（issue pt-asset-verifiable-norm §三 B3）：收集本轮产出——
     //   改/建的文件（edit/write 的 path） + 查过的手册（pt_inject 的 domain）。
     //   这些不依赖日志档位（即使 input 不入日志也照收）——它服务"输出→下轮输入"回注。

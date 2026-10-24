@@ -174,6 +174,9 @@ export class PiAdapter implements AgentAdapter {
           durationMs: Date.now() - t0,
         });
         if (sessionState) {
+          // v19（Layer 2）：注入量入汇总（system prompt 增量字符数 + 次数）
+          sessionState.summary.injectedChars += finalPrompt.length - event.systemPrompt.length;
+          sessionState.summary.injectedCount += 1;
           api.onInjected?.(finalPrompt);
           // 成功注入 → injected
           sessionState.injectionState = "injected";

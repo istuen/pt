@@ -16,7 +16,10 @@ export function registerTurnEvents(pi: ExtensionAPI): void {
   // ========== turn 级 trace（P2: 覆盖 turn 生命周期） ==========
   // 任何 turn 异常都能从日志反查；不写入主要因为 UI 噪音，只到 file log。
   pi.on("turn_start", async (_event, ctx) => {
-    slog(getSessionIdFromCtx(ctx), "debug", "turn:start");
+    const sessionId = getSessionIdFromCtx(ctx);
+    slog(sessionId, "debug", "turn:start");
+    // v19（Layer 2）：turn 计数（汇总用）
+    if (sessionId) getSessionById(sessionId).summary.turns += 1;
   });
   pi.on("turn_end", async (event, ctx) => {
     // v10.x：event 形态可能包含 token 用量，先取几个字段塞进 ctx
@@ -74,6 +77,25 @@ export function registerTurnEvents(pi: ExtensionAPI): void {
     );
     // v19：检查失败落 session JSONL → 下一轮回注给模型（让模型自我修正）。
     //   失败持续存在时，下一次 agent_settled 会重新记录 → 形成"检查→告知→重查"循环。
+    // v19（Layer 2）：检查结果入汇总（CI 判定用）
+    if (sessionId) {
+      const sum = getSessionById(sessionId).summary;
+      for (const r of results) {
+        const params = r.params ?? {};
+        const label =
+          Object.keys(params).length > 0
+            ? `${r.probe}(${Object.entries(params)
+                .map(([k, v]) => `${k}=${v}`)
+                .join(",")})`
+            : r.probe;
+        sum.checkResults.push({
+          probe: r.probe,
+          outcome: r.outcome,
+          message: r.message,
+          label,
+        });
+      }
+    }
     const failures = toCheckFailures(results);
     if (sessionId) {
       // v19（A3）：硬约束失败（on: block）单独留一份——回注后 checkFailures 会清空，
