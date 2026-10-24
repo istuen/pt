@@ -37,6 +37,7 @@ import {
   type Profile,
 } from "../schema.js";
 import { renderSessionInject } from "../render/session-inject.js";
+import { renderTurnOutputSegment } from "../turn-output.js";
 
 /** v12.x：从 handler 的 args[1] ctx 提取 sessionId。
  *  pi 的 `pi.on(event, handler)` 触发时传 `(event, ctx)` 两个参数；通过 AgentAPI 包装后
@@ -148,22 +149,30 @@ export class PiAdapter implements AgentAdapter {
           return undefined;
         }
         const final = `${event.systemPrompt}\n\n## 当前任务上下文\n\n${currentSegment}`;
+        // v19（issue pt-asset-verifiable-norm §三 B3）：回注上一轮产出——
+        //   "这一次的输出"成为"后续的输入"。只回注指针/名称（不膨 context），
+        //   无产出时零变化；开关 settings `pt.turn-output-inject`（默认 on）。
+        let finalPrompt = final;
+        if (sessionState?.turnOutputInject) {
+          const outSeg = renderTurnOutputSegment(sessionState.turnOutputs);
+          if (outSeg) finalPrompt = `${final}\n\n${outSeg}`;
+        }
         api.log?.debug("agent:before_agent_start ok", {
           originalLen: event.systemPrompt.length,
-          injectedLen: final.length,
-          deltaLen: final.length - event.systemPrompt.length,
+          injectedLen: finalPrompt.length,
+          deltaLen: finalPrompt.length - event.systemPrompt.length,
           durationMs: Date.now() - t0,
         });
         if (sessionState) {
-          api.onInjected?.(final);
+          api.onInjected?.(finalPrompt);
           // 成功注入 → injected
           sessionState.injectionState = "injected";
           sessionState.injectionError = null;
           if (api.ui) refreshInjectionFooter(api.ui, sessionState);
         } else {
-          api.onInjected?.(final);
+          api.onInjected?.(finalPrompt);
         }
-        return { systemPrompt: final };
+        return { systemPrompt: finalPrompt };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         api.log?.error("agent:before_agent_start failed", {

@@ -39,6 +39,7 @@ import type {
 import type { PtLogger } from "./log.js";
 import type { ManualProgress } from "./manual-track.js";
 import { DEFAULT_TOOL_INPUT_LOG_MODE, type ToolInputLogMode } from "./config.js";
+import type { TurnOutput } from "./turn-output.js";
 
 /** activeProfile 的来源（session_start fallback 命中点）。 */
 export type ProfileLoadSource =
@@ -90,6 +91,16 @@ export interface SessionState {
    *  理由：① 完整 id 是 Pi 持有的事实来源，短 id 让 `session:start` 日志与 `tool:call` / `turn:*`
    *  日志无法 join（per-session 聚合做不成）；② `/pt logs` 用它拼文件名会指向不存在的文件。 */
   sessionId: string;
+  /** v19（issue pt-asset-verifiable-norm §三 B3）：本 session 的历史轮次产出。
+   *  session_start 时从 session JSONL 回填（跨进程续跑可恢复），
+   *  turn_end 时追加并落盘（appendEntry）→ 下一轮 before_agent_start 回注到 systemPrompt。 */
+  turnOutputs: TurnOutput[];
+  /** v19（B3）：本轮（当前 turn）收集到的产出——改/建的文件 + 查过的 domain。
+   *  turn_end 时固化进 turnOutputs 并清空。 */
+  currentTurnFiles: string[];
+  currentTurnDomains: string[];
+  /** v19（B3）：是否把上一轮产出回注到 systemPrompt（settings `pt.turn-output-inject`，默认 on）。 */
+  turnOutputInject: boolean;
   /** v19（issue pt-adoption-observability Layer 1 F1.2）：tool:call 日志记 input 的范围。
    *  session_start 时读一次（env > settings `pt.log-tool-input` > 默认）。 */
   toolInputLogMode: ToolInputLogMode;
@@ -148,6 +159,10 @@ export function createSessionState(): SessionState {
     lastCacheHit: false,
     activeAdapter: null,
     sessionId: "",
+    turnOutputs: [],
+    currentTurnFiles: [],
+    currentTurnDomains: [],
+    turnOutputInject: true,
     toolInputLogMode: DEFAULT_TOOL_INPUT_LOG_MODE,
     logger: null,
     loadedFrom: null,
