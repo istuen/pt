@@ -41,6 +41,7 @@ import type { ManualProgress } from "./manual-track.js";
 import { DEFAULT_TOOL_INPUT_LOG_MODE, type ToolInputLogMode } from "./config.js";
 import type { TurnOutput } from "./turn-output.js";
 import type { CheckFailure } from "./checks.js";
+import { createSessionSummary, type SessionSummary } from "./summary.js";
 
 /** activeProfile 的来源（session_start fallback 命中点）。 */
 export type ProfileLoadSource =
@@ -108,6 +109,12 @@ export interface SessionState {
   checkFailures: CheckFailure[];
   /** v19：是否把检查失败回注给模型（settings `pt.check-feedback`，默认 on）。 */
   checkFeedbackInject: boolean;
+  /** v19（Layer 2）：session 内累积的汇总数据（per-session 汇总记录的数据源）。 */
+  summary: SessionSummary;
+  /** v19（Layer 2）：是否产出 per-session 汇总（`--pt-observe` flag / settings `pt.observe`，默认 off）。 */
+  observeEnabled: boolean;
+  /** v19（Layer 2）：session 开始时间（汇总用）。 */
+  startedAt: string | null;
   /** v19（A3）：待处理的**硬约束**失败（声明 on: block）——
    *  在被检查项修好前，阻断写操作（edit/write）。默认关（settings `pt.check-block`）。 */
   blockingFailures: CheckFailure[];
@@ -177,6 +184,9 @@ export function createSessionState(): SessionState {
     turnOutputInject: true,
     checkFailures: [],
     checkFeedbackInject: true,
+    summary: createSessionSummary(),
+    observeEnabled: false,
+    startedAt: null,
     blockingFailures: [],
     checkBlockEnabled: false,
     toolInputLogMode: DEFAULT_TOOL_INPUT_LOG_MODE,

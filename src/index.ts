@@ -37,6 +37,13 @@ export default function (pi: ExtensionAPI): void {
     description: "启动时激活的 Profile 名（编译成 AgentContext 注入 Session Inject）",
     type: "string",
   });
+  // v19（Layer 2，issue pt-adoption-observability）：per-session 汇总开关。
+  //   开启后每个 session 结束产出一条可分析的一行（查了 AND 改了 AND 改的是哪个文件）
+  //   + headless/CI 可读的结构化摘要（.pt/logs/summary.ndjson）。
+  pi.registerFlag("pt-observe", {
+    description: "产出 per-session 汇总记录（Layer 2）——CI / 漂移诊断用",
+    type: "boolean",
+  });
   registerSessionEvents(pi);
   registerTurnEvents(pi);
   registerToolEvents(pi);
