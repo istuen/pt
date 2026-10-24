@@ -38,6 +38,7 @@ import {
 } from "../schema.js";
 import { renderSessionInject } from "../render/session-inject.js";
 import { renderTurnOutputSegment } from "../turn-output.js";
+import { renderCheckFailureSegment } from "../checks.js";
 
 /** v12.x：从 handler 的 args[1] ctx 提取 sessionId。
  *  pi 的 `pi.on(event, handler)` 触发时传 `(event, ctx)` 两个参数；通过 AgentAPI 包装后
@@ -155,7 +156,16 @@ export class PiAdapter implements AgentAdapter {
         let finalPrompt = final;
         if (sessionState?.turnOutputInject) {
           const outSeg = renderTurnOutputSegment(sessionState.turnOutputs);
-          if (outSeg) finalPrompt = `${final}\n\n${outSeg}`;
+          if (outSeg) finalPrompt = `${finalPrompt}\n\n${outSeg}`;
+        }
+        // v19：回注检查失败 → 模型自我修正（闭环：检查失败 → 告知模型 → 下轮重查）。
+        //   注入后清空（失败持续存在时，下一次 agent_settled 会重新记录 → 形成循环）。
+        if (sessionState?.checkFeedbackInject && sessionState.checkFailures.length > 0) {
+          const failSeg = renderCheckFailureSegment(sessionState.checkFailures);
+          if (failSeg) {
+            finalPrompt = `${finalPrompt}\n\n${failSeg}`;
+            sessionState.checkFailures = [];
+          }
         }
         api.log?.debug("agent:before_agent_start ok", {
           originalLen: event.systemPrompt.length,

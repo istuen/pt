@@ -40,6 +40,7 @@ import type { PtLogger } from "./log.js";
 import type { ManualProgress } from "./manual-track.js";
 import { DEFAULT_TOOL_INPUT_LOG_MODE, type ToolInputLogMode } from "./config.js";
 import type { TurnOutput } from "./turn-output.js";
+import type { CheckFailure } from "./checks.js";
 
 /** activeProfile 的来源（session_start fallback 命中点）。 */
 export type ProfileLoadSource =
@@ -101,6 +102,12 @@ export interface SessionState {
   currentTurnDomains: string[];
   /** v19（B3）：是否把上一轮产出回注到 systemPrompt（settings `pt.turn-output-inject`，默认 on）。 */
   turnOutputInject: boolean;
+  /** v19：待回注给模型的检查失败项（DEVIATED）。
+   *  session_start 时从 session JSONL 回填（跨进程可恢复），
+   *  agent_settled 检查失败时更新，下一轮 before_agent_start 注入后清空。 */
+  checkFailures: CheckFailure[];
+  /** v19：是否把检查失败回注给模型（settings `pt.check-feedback`，默认 on）。 */
+  checkFeedbackInject: boolean;
   /** v19（issue pt-adoption-observability Layer 1 F1.2）：tool:call 日志记 input 的范围。
    *  session_start 时读一次（env > settings `pt.log-tool-input` > 默认）。 */
   toolInputLogMode: ToolInputLogMode;
@@ -163,6 +170,8 @@ export function createSessionState(): SessionState {
     currentTurnFiles: [],
     currentTurnDomains: [],
     turnOutputInject: true,
+    checkFailures: [],
+    checkFeedbackInject: true,
     toolInputLogMode: DEFAULT_TOOL_INPUT_LOG_MODE,
     logger: null,
     loadedFrom: null,

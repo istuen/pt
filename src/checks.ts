@@ -17,9 +17,11 @@
 //   - 显式声明才跑（没声明 = 零成本）；重探针（lint/tsc/test）代价由声明者承担。
 //   - 一次执行内同探针只跑一次（去重）。
 
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFile, writeFile } from "node:fs/promises";
 import { readProjectSetting } from "./config.js";
 import { MOD_CHECKLISTS, MOD_RULES } from "./constants.js";
+import type { MinimalSessionManager } from "./turn-output.js";
 import { runVerify } from "./verify/index.js";
 import { getSessionById } from "./session.js";
 import { writeProbeResult } from "./manual-writeback.js";
@@ -109,6 +111,106 @@ export interface CheckRunResult {
   outcome: ProbeOutcome["outcome"];
   message: string;
   actual?: string;
+}
+
+/** 检查失败回注给模型（v19，issue pt-asset-verifiable-norm）。
+ *
+ *  目的：把闭环从"通知人"扩到"**模型自己知道没通过**"——检查失败的信息进入下一轮的
+ *  systemPrompt，模型有机会自我修正（而不是等人来告诉它）。
+ *
+ *  数据流：
+ *   agent_settled 跑完检查 → DEVIATED 的失败项落 session JSONL（跨进程可恢复）
+ *   → 下一轮 before_agent_start 把失败摘要作为独立 H2 段注入 → 注入后清空
+ *   → 若模型修好了，下一次检查通过 → 失败列表空 → 不再注入
+ *   （失败持续存在 → 每轮都会重新检查、重新通知 → 形成自我修正循环，不是一锤子买卖）
+ */
+
+/** session JSONL 中持久化检查失败的 custom entry customType。 */
+export const PT_CHECK_FAILURES_ENTRY = "pt:check-failures";
+
+/** 单条检查失败。 */
+export interface CheckFailure {
+  probe: string;
+  message: string;
+  actual?: string;
+}
+
+/** 回注段最多列几条失败。 */
+export const MAX_CHECK_FAILURES = 3;
+/** 单条失败消息截断长度。 */
+export const MAX_FAILURE_MESSAGE = 200;
+
+/** 把检查结果里的 DEVIATED 转成失败项（INCONCLUSIVE 不算失败——无法判定 ≠ 违反）。 */
+export function toCheckFailures(results: CheckRunResult[]): CheckFailure[] {
+  return results
+    .filter((r) => r.outcome === "DEVIATED")
+    .map((r) => ({
+      probe: r.probe,
+      message: r.message.slice(0, MAX_FAILURE_MESSAGE),
+      actual: r.actual?.slice(0, MAX_FAILURE_MESSAGE),
+    }));
+}
+
+/** 读 session JSONL 里的待回注失败项。 */
+export function readCheckFailures(
+  sessionManager: MinimalSessionManager | undefined
+): CheckFailure[] {
+  if (!sessionManager) return [];
+  try {
+    const entries = sessionManager.getEntries();
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (e?.type !== "custom" || e.customType !== PT_CHECK_FAILURES_ENTRY) continue;
+      const data = (e as { data?: unknown }).data;
+      if (!data || typeof data !== "object") continue;
+      const list = (data as { failures?: unknown }).failures;
+      if (!Array.isArray(list)) continue;
+      return list
+        .filter((x): x is CheckFailure => !!x && typeof x === "object")
+        .map((x) => ({
+          probe: typeof x.probe === "string" ? x.probe : "",
+          message: typeof x.message === "string" ? x.message : "",
+          actual: typeof x.actual === "string" ? x.actual : undefined,
+        }))
+        .filter((x) => x.probe !== "");
+    }
+  } catch {
+    // SessionManager 异常 → 静默
+  }
+  return [];
+}
+
+/** 把待回注失败项写入 session JSONL（失败静默——不阻塞主流程）。 */
+export function persistCheckFailures(pi: ExtensionAPI, failures: CheckFailure[]): void {
+  try {
+    if (typeof pi.appendEntry !== "function") return;
+    pi.appendEntry(PT_CHECK_FAILURES_ENTRY, { failures });
+  } catch (e) {
+    console.warn(`[pt] persistCheckFailures failed:`, { err: errMsg(e) });
+  }
+}
+
+/** 渲染失败回注段（无失败 → undefined，调用方不注入）。
+ *
+ * ```
+ * ## 检查未通过（Pt 自动检查）
+ *
+ * - lint-check: lint 失败: npm run lint
+ *   修好后重跑（下次仍会检查）
+ * ```
+ */
+export function renderCheckFailureSegment(failures: CheckFailure[]): string | undefined {
+  if (failures.length === 0) return undefined;
+  const lines: string[] = ["## 检查未通过（Pt 自动检查）", ""];
+  for (const f of failures.slice(0, MAX_CHECK_FAILURES)) {
+    lines.push(`- ${f.probe}: ${f.message}`);
+    if (f.actual) lines.push(`  ${f.actual.split("\n")[0] ?? ""}`);
+  }
+  if (failures.length > MAX_CHECK_FAILURES) {
+    lines.push(`- …另有 ${failures.length - MAX_CHECK_FAILURES} 项未列出`);
+  }
+  lines.push("- 这些检查由 Pt 主动执行（不是模型自报）——修好后会自动重查");
+  return lines.join("\n");
 }
 
 /** 执行一组检查（去重：同探针 + 同参数只跑一次——不同参数的同名探针是不同检查）。
