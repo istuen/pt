@@ -287,8 +287,10 @@ function recordTrace(sessionId: string, trace: ProviderTrace, check: InjectionCh
   if (trace.systemSha && !sum.systemShas.includes(trace.systemSha)) {
     sum.systemShas.push(trace.systemSha);
   }
-  if (sum.lastSystemSha === null) sum.lastSystemSha = trace.systemSha;
-  // 一致性校验：记最严重的一次（mismatch > not-found > matched）
+  // lastSystemSha = 最近一次观测到的系统提示 hash（null = 还没观测到 / 形状不认识）
+  sum.lastSystemSha = trace.systemSha;
+  // 一致性校验：取**最严重**的一次结论（mismatch > not-found > matched）。
+  //   mismatch 一旦出现就不再被覆盖——注入被改写是硬信号，不能被后续的 matched 洗掉。
   if (check.status === "mismatch") {
     sum.injectionMatched = false;
     sum.injectionMismatchCount += 1;

@@ -162,6 +162,33 @@ describe("L3.2 采样参数：机会主义", () => {
   it("非数值 → 忽略", () => {
     expect(extractSampling({ temperature: "hot" })).toBeUndefined();
   });
+
+  it("「机会主义」语义：抽取器不按 provider 名分支，只看 payload 里有没有", () => {
+    // 当前 provider（baiduqianfan / openai-completions）不给 temperature → 留空
+    const blind = extractProviderTrace(payloadWithSystemRole("X"));
+    expect(blind.sampling).toBeUndefined();
+
+    // 换 provider（body 里带 temperature）→ 同一套抽取器能取到
+    const withTemp = extractProviderTrace({
+      model: "gpt-4o",
+      temperature: 0.3,
+      top_p: 0.8,
+      messages: [{ role: "system", content: "X" }],
+    });
+    expect(withTemp.sampling?.temperature).toBe(0.3);
+    expect(withTemp.sampling?.top_p).toBe(0.8);
+  });
+
+  it("机会主义路径下的完整 trace：model + systemSha + sampling 都在", () => {
+    const t = extractProviderTrace({
+      model: "gpt-4o",
+      temperature: 0.5,
+      messages: [{ role: "system", content: "SYS" }],
+    });
+    expect(t.model).toBe("gpt-4o");
+    expect(t.systemSha).toBe(sha256("SYS"));
+    expect(t.sampling).toEqual({ temperature: 0.5 });
+  });
 });
 
 describe("L3.3 抽取结果：只含 hash / 长度 / 键名", () => {
@@ -297,6 +324,57 @@ describe("L3.5 接入 Layer 2 汇总", () => {
     const sum = getSessionById(SESSION_ID).summary;
     expect(sum.injectionMatched).toBe(true);
     expect(sum.injectionMismatchCount).toBe(0);
+  });
+
+  it("不一致 → 后续的 matched 不得洗掉（取最严重结论）", async () => {
+    const { events, ctx } = makePi();
+    await events.get("session_start")?.[0]?.({ type: "session_start" }, ctx);
+    const bpr = events.get("before_provider_request")?.[0];
+
+    const seg = "### a\n\n规则";
+    getSessionById(SESSION_ID).lastInjectedSegment = seg;
+
+    // 先来一次坏的
+    await bpr?.(
+      {
+        type: "before_provider_request",
+        payload: payloadWithSystemRole(`${PT_INJECT_MARKER}\n\n### a\n\n被改坏`),
+      },
+      ctx
+    );
+    // 再来一次好的
+    await bpr?.(
+      {
+        type: "before_provider_request",
+        payload: payloadWithSystemRole(`${PT_INJECT_MARKER}\n\n${seg}`),
+      },
+      ctx
+    );
+
+    const sum = getSessionById(SESSION_ID).summary;
+    expect(sum.injectionMatched).toBe(false);
+    expect(sum.injectionMismatchCount).toBe(1);
+  });
+
+  it("lastSystemSha 跟最近一次观测（形状不认识时置 null）", async () => {
+    const { events, ctx } = makePi();
+    await events.get("session_start")?.[0]?.({ type: "session_start" }, ctx);
+    const bpr = events.get("before_provider_request")?.[0];
+
+    await bpr?.({ type: "before_provider_request", payload: payloadWithSystemRole("FIRST") }, ctx);
+    expect(getSessionById(SESSION_ID).summary.lastSystemSha).toBe(sha256("FIRST"));
+
+    await bpr?.({ type: "before_provider_request", payload: payloadWithSystemRole("SECOND") }, ctx);
+    expect(getSessionById(SESSION_ID).summary.lastSystemSha).toBe(sha256("SECOND"));
+    // 去重列表保留两个
+    expect(getSessionById(SESSION_ID).summary.systemShas).toEqual([
+      sha256("FIRST"),
+      sha256("SECOND"),
+    ]);
+
+    // 形状不认识 → lastSystemSha 变 null（不知道就是不知道）
+    await bpr?.({ type: "before_provider_request", payload: { nope: 1 } }, ctx);
+    expect(getSessionById(SESSION_ID).summary.lastSystemSha).toBeNull();
   });
 
   it("汇总文件里出现 Layer 3 字段", async () => {
