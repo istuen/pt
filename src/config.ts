@@ -38,6 +38,48 @@ function sortProfileMetasBySourceLite(
   return r !== 0 ? r : a.name.localeCompare(b.name);
 }
 
+// ======== tool:call 日志的 input 记录范围（issue pt-adoption-observability Layer 1 F1.2）========
+
+/** tool:call 日志记 input 的范围。
+ *  - "none"：一律不记 input（只记工具名）
+ *  - "pt-only"（默认/标准）：只记 Pt 自家工具（pt_*）的 input
+ *  - "all"：所有工具的 input 都记（开发/测试期用——write/edit 的 input 含完整文件内容，体积显著变大） */
+export type ToolInputLogMode = "none" | "pt-only" | "all";
+
+/** 默认档（标准行为）：只记 pt_* 工具的 input。 */
+export const DEFAULT_TOOL_INPUT_LOG_MODE: ToolInputLogMode = "pt-only";
+
+/** 环境变量名（最高优先级）——开发/测试期临时全量记，不必改 settings。 */
+export const TOOL_INPUT_LOG_MODE_ENV = "PT_LOG_TOOL_INPUT";
+
+/** 解析档位字符串（宽松别名）。非法值 → undefined（调用方回退默认档）。 */
+export function parseToolInputLogMode(raw: unknown): ToolInputLogMode | undefined {
+  if (typeof raw !== "string") return undefined;
+  const v = raw.trim().toLowerCase();
+  if (v === "none" || v === "false" || v === "off") return "none";
+  if (v === "all" || v === "true" || v === "on") return "all";
+  if (v === "pt-only" || v === "ptonly" || v === "pt_only" || v === "pt") return "pt-only";
+  return undefined;
+}
+
+/** 读当前生效档位：env > 项目 settings（`pt.log-tool-input`）> 默认档。
+ *  session_start 时读一次存进 SessionState（避免每次 tool_call 都读盘）。 */
+export async function readToolInputLogMode(cwd: string): Promise<ToolInputLogMode> {
+  const fromEnv = parseToolInputLogMode(process.env[TOOL_INPUT_LOG_MODE_ENV]);
+  if (fromEnv) return fromEnv;
+  const fromSettings = parseToolInputLogMode(
+    await readProjectSetting<string>(cwd, "pt.log-tool-input")
+  );
+  return fromSettings ?? DEFAULT_TOOL_INPUT_LOG_MODE;
+}
+
+/** 该档位下是否记录这个工具的 input。 */
+export function shouldLogToolInput(mode: ToolInputLogMode, toolName?: string): boolean {
+  if (mode === "all") return true;
+  if (mode === "none") return false;
+  return (toolName ?? "").startsWith("pt_");
+}
+
 /** 读项目 settings.json 的指定 dotted key。文件不存在/解析失败 → undefined */
 export async function readProjectSetting<T = unknown>(
   cwd: string,
