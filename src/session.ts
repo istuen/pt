@@ -108,6 +108,11 @@ export interface SessionState {
   checkFailures: CheckFailure[];
   /** v19：是否把检查失败回注给模型（settings `pt.check-feedback`，默认 on）。 */
   checkFeedbackInject: boolean;
+  /** v19（A3）：待处理的**硬约束**失败（声明 on: block）——
+   *  在被检查项修好前，阻断写操作（edit/write）。默认关（settings `pt.check-block`）。 */
+  blockingFailures: CheckFailure[];
+  /** v19（A3）：是否启用阻断（settings `pt.check-block`，默认 off）。 */
+  checkBlockEnabled: boolean;
   /** v19（issue pt-adoption-observability Layer 1 F1.2）：tool:call 日志记 input 的范围。
    *  session_start 时读一次（env > settings `pt.log-tool-input` > 默认）。 */
   toolInputLogMode: ToolInputLogMode;
@@ -172,6 +177,8 @@ export function createSessionState(): SessionState {
     turnOutputInject: true,
     checkFailures: [],
     checkFeedbackInject: true,
+    blockingFailures: [],
+    checkBlockEnabled: false,
     toolInputLogMode: DEFAULT_TOOL_INPUT_LOG_MODE,
     logger: null,
     loadedFrom: null,

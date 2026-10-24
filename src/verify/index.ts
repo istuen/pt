@@ -31,6 +31,23 @@ const registry: Record<string, VerifyFunction> = {
   "doc-structure-match": docStructureMatch,
 };
 
+/** 轻量探针（毫秒级、无外部进程）——可安全地"即时复核"。
+ *  重探针（lint-check / ts-compiles / test-pass）会起子进程（秒级~十秒级），
+ *  不适合在每次写操作前同步跑。 */
+const LIGHTWEIGHT_PROBES: ReadonlySet<string> = new Set([
+  "fs-content-match",
+  "fs-exists",
+  "fs-not-exists",
+  "file-hash",
+  "git-status-clean",
+  "doc-structure-match",
+]);
+
+/** 该探针是否轻量（可即时复核）。 */
+export function isLightweightProbe(name: string): boolean {
+  return LIGHTWEIGHT_PROBES.has(name);
+}
+
 /** 列出所有已注册的 probe 名（pt_doc {action: verify} tool 的错误提示用）。 */
 export function listProbes(): string[] {
   return Object.keys(registry);

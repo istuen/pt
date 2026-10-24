@@ -75,6 +75,12 @@ export function registerTurnEvents(pi: ExtensionAPI): void {
     // v19：检查失败落 session JSONL → 下一轮回注给模型（让模型自我修正）。
     //   失败持续存在时，下一次 agent_settled 会重新记录 → 形成"检查→告知→重查"循环。
     const failures = toCheckFailures(results);
+    if (sessionId) {
+      // v19（A3）：硬约束失败（on: block）单独留一份——回注后 checkFailures 会清空，
+      //   但阻断要一直有效到该项检查通过为止。
+      const s = getSessionById(sessionId);
+      s.blockingFailures = failures.filter((f) => f.blocking);
+    }
     if (failures.length > 0 && sessionId) {
       const s = getSessionById(sessionId);
       s.checkFailures = failures;

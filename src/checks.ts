@@ -39,6 +39,8 @@ export interface DeclaredCheck {
   params?: Record<string, string>;
   /** 何时跑（默认 agent_settled）。 */
   when?: CheckWhen;
+  /** 违反时处置：notify（默认，只通知 + 回注）| block（硬约束——可阻断写操作，A3）。 */
+  on?: "notify" | "block";
 }
 
 /** 检查执行模式。 */
@@ -73,7 +75,8 @@ export async function readDeclaredChecks(cwd: string): Promise<DeclaredCheck[]> 
       }
     }
     const when: CheckWhen = o.when === "session_end" ? "session_end" : "agent_settled";
-    out.push({ probe, params, when });
+    const on: "notify" | "block" = o.on === "block" ? "block" : "notify";
+    out.push({ probe, params, when, on });
   }
   return out;
 }
@@ -111,6 +114,10 @@ export interface CheckRunResult {
   outcome: ProbeOutcome["outcome"];
   message: string;
   actual?: string;
+  /** 探针参数——失败项要带着它，复核时才能用同样参数重跑。 */
+  params?: Record<string, string>;
+  /** 违反时处置（来自声明的 on 字段；默认 notify）。 */
+  on?: "notify" | "block";
 }
 
 /** 检查失败回注给模型（v19，issue pt-asset-verifiable-norm）。
@@ -133,6 +140,10 @@ export interface CheckFailure {
   probe: string;
   message: string;
   actual?: string;
+  /** 探针参数——阻断前"即时复核"要用同样的参数重跑（否则参数丢失 → 判定不成立 → 误放行）。 */
+  params?: Record<string, string>;
+  /** 是否是硬约束（声明 on: block）——硬约束失败可阻断写操作（A3）。 */
+  blocking?: boolean;
 }
 
 /** 回注段最多列几条失败。 */
@@ -148,6 +159,8 @@ export function toCheckFailures(results: CheckRunResult[]): CheckFailure[] {
       probe: r.probe,
       message: r.message.slice(0, MAX_FAILURE_MESSAGE),
       actual: r.actual?.slice(0, MAX_FAILURE_MESSAGE),
+      params: r.params,
+      blocking: r.on === "block",
     }));
 }
 
@@ -171,6 +184,15 @@ export function readCheckFailures(
           probe: typeof x.probe === "string" ? x.probe : "",
           message: typeof x.message === "string" ? x.message : "",
           actual: typeof x.actual === "string" ? x.actual : undefined,
+          params:
+            x.params && typeof x.params === "object"
+              ? (Object.fromEntries(
+                  Object.entries(x.params as Record<string, unknown>).filter(
+                    ([, v]) => typeof v === "string"
+                  )
+                ) as Record<string, string>)
+              : undefined,
+          blocking: x.blocking === true,
         }))
         .filter((x) => x.probe !== "");
     }
@@ -229,6 +251,8 @@ export async function runChecks(cwd: string, checks: DeclaredCheck[]): Promise<C
       outcome: r.outcome,
       message: r.message,
       actual: r.actual,
+      params: c.params,
+      on: c.on ?? "notify",
     });
   }
   return results;
@@ -253,8 +277,10 @@ export function collectDomainNormChecks(domain: Domain): DeclaredCheck[] {
     ? (modules[MOD_CHECKLISTS] as Checklist[])
     : [];
   for (const item of [...rules, ...checklists]) {
-    for (const probe of item.observe ?? []) push({ probe });
-    for (const c of item.checks ?? []) push({ probe: c.probe, params: c.params });
+    for (const probe of item.observe ?? []) push({ probe, on: "notify" });
+    for (const c of item.checks ?? []) {
+      push({ probe: c.probe, params: c.params, on: c.on === "block" ? "block" : "notify" });
+    }
   }
   return out;
 }

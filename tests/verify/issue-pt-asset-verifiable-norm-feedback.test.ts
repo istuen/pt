@@ -101,7 +101,9 @@ describe("回注.3 JSONL 往返（跨进程恢复）", () => {
     persistCheckFailures(pi as never, [{ probe: "lint-check", message: "boom" }]);
     expect(entries[0]?.customType).toBe(PT_CHECK_FAILURES_ENTRY);
     const got = readCheckFailures({ getEntries: () => entries });
-    expect(got).toEqual([{ probe: "lint-check", message: "boom", actual: undefined }]);
+    expect(got).toEqual([
+      { probe: "lint-check", message: "boom", actual: undefined, blocking: false },
+    ]);
   });
 
   it("无 entry / 坏 data → 空", () => {

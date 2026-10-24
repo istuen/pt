@@ -114,7 +114,7 @@ name: authoring
 
 ### norm-check-binding
 - desc: 规范项（`## Rules` / `## Checklists` 的 H3 项）可挂**自动验证绑定**，让"这条规范怎么自动验"写在规范旁边——Pt 在 agent 跑完一轮时自动跑对应探针（可用探针：fs-content-match / fs-exists / fs-not-exists / lint-check / ts-compiles / test-pass / git-status-clean / file-hash / doc-structure-match）。两种写法：(A) 无参探针 `observe: [lint-check]`；(B) 带参探针 `checks: { probe: lint-check, params: { cmd: npm run lint } }`（**行内对象，只能一行**）。规范不可机械验证时**不要挂**——挂不上不是缺陷，不挂检查才是真缺陷。⚠️ 探针名拼错 → 该检查静默不跑（假合规）→ `/pt check` 会告警
-- purpose: `observe` / `checks` 是执行侧数据——不写进上下文产物（省 context），Pt 侧主动执行：失败会通知并写回手册；只验**本 session 查过**的 domain（没查过的手册不用验）
+- purpose: `observe` / `checks` 是执行侧数据——不写进上下文产物（省 context），Pt 侧主动执行：失败会通知并写回手册，并回注给模型让它自我修正。`checks` 里可加 `on: block` 标为**硬约束**（失败时阻断写操作）——仅在项目 settings 开 `pt.check-block` 时生效（默认关），且只阻断 edit/write，bash/read 放行。
 
 ### trigger-desc-task-category
 - desc: Trigger H3 项 `desc` 的写法——**写"什么任务该查这本手册"（任务类别 + 命中信号），不写"这本手册讲什么领域"（领域边界）**。形态：`改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出前，先查规范（…）`。正例：改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出前，先查规范（modules-type-safety、no-duplicate-type、naming-consistency、parse-extension-registry）；反例：改 Pt 代码时参考；含 9 条技术规范（modules-type-safety 等）。领域边界式 desc 只覆盖字面撞词的明确场景，灰区任务（与领域结构相似但字面不匹配，如"给 schema 加可选字段"）几乎不触发（实测 16.4%）；改成任务类别式后同一任务触发率 98.4%——效应 82pp，Fisher p<0.0001（lab 交错 A/B n=181，曝光 100% 机械验证；见 issue pt-trigger-relevance-signal §七）
@@ -239,7 +239,7 @@ name: authoring
 
 ### norm-check-binding
 - check: 规范项挂自动验证时只用 `observe: [探针名]`（无参）或 `checks: { probe: X, params: { k: v } }`（带参，**必须写在一行**）——写成多行嵌套 YAML 会被静默降级（内层行变成同级字段），字段名拼错同样静默失效（`/pt check` 会告警，但别依赖它）
-- items: [observe=无参探针列表, checks=行内对象带参, 多行嵌套会被静默降级, 不可机械验证的规范不要挂, 探针名必须在注册表里]
+- items: [observe=无参探针列表, checks=行内对象带参, 多行嵌套会被静默降级, 不可机械验证的规范不要挂, 探针名必须在注册表里, 硬约束写 on:block（需项目开 pt.check-block）]
 
 ### trigger-desc-is-decision-input
 - check: Trigger H3 项的 `desc` 写"什么任务该查这本手册"（任务类别 + 命中信号），**不写"这本手册讲什么领域"（领域边界）**——领域边界式 desc 在灰区任务上几乎不触发（实测 16.4% vs 98.4%，Fisher p<0.0001）。理由：触发决策在 SessionContext 层完成，Agent 此刻只拿到 desc/hint/anti，规则正文要到决策之后才注入——desc 是决策输入本身，写成领域介绍等于把"该查吗"推回 Agent 的语义匹配

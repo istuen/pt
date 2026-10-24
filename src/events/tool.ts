@@ -8,6 +8,7 @@ import { getSessionById } from "../session.js";
 import { pathEquals, refreshInjectionFooter, refreshManualWidget } from "../manual-session.js";
 import { DEFAULT_TOOL_INPUT_LOG_MODE, shouldLogToolInput } from "../config.js";
 import { extractBashWritePaths } from "../turn-output.js";
+import { isLightweightProbe, runVerify } from "../verify/index.js";
 import { getSessionIdFromCtx } from "../shared/session-helpers.js";
 import type { PiToolCallEvent, PiToolResultEvent } from "../shared/pi-types.js";
 
@@ -17,6 +18,43 @@ export function registerToolEvents(pi: ExtensionAPI): void {
     const e = event as PiToolCallEvent;
     const sessionId = getSessionIdFromCtx(ctx);
     const name = e.name ?? e.toolName;
+    // v19（A3，issue pt-asset-verifiable-norm）：硬约束阻断——
+    //   有 `on: block` 的检查未通过时，阻断**写操作**（edit/write），让模型先修好再写。
+    //   安全边界：① 默认关（settings `pt.check-block`）② 只阻断写操作，bash/read 放行
+    //   （模型可能需要 bash 去修）③ reason 说清怎么解（否则模型会卡死）。
+    if (sessionId) {
+      const s = getSessionById(sessionId);
+      if (s.checkBlockEnabled && s.blockingFailures.length > 0) {
+        // v19（A3）：阻断前**即时复核**——失败项可能已被本轮修好（上轮记录的失败是陈旧的）。
+        //   只对轻量探针复核（毫秒级）；重探针（lint/tsc/test）用陈旧状态，避免写操作被拖慢。
+        const first = s.blockingFailures[0];
+        if (first && isLightweightProbe(first.probe)) {
+          // ⚠️ 必须用失败项自带的 params——丢了参数探针就判不出来（会误放行）
+          const re = await runVerify(ctx.cwd, first.probe, first.params ?? {});
+          s.logger?.info("check:revalidated", {
+            probe: first.probe,
+            outcome: re.outcome,
+          });
+          // ⚠️ 只有 COMPLETED 才解除阻断——INCONCLUSIVE 是"判不出来"（探针没参数/执行异常），
+          //   不能当作"已修好"（否则会误放行）。
+          if (re.outcome === "COMPLETED") {
+            s.blockingFailures = s.blockingFailures.filter((f) => f.probe !== first.probe);
+            s.checkFailures = s.checkFailures.filter((f) => f.probe !== first.probe);
+          }
+        }
+      }
+      if (s.checkBlockEnabled && s.blockingFailures.length > 0) {
+        if (name === "edit" || name === "write") {
+          const f = s.blockingFailures[0];
+          const reason =
+            `Pt 硬约束检查未通过，已阻断本次${name === "edit" ? "编辑" : "写入"}：` +
+            `${f?.probe} — ${f?.message}。先修复该问题（可读文件/跑命令）再重试；` +
+            `如需临时放行，把 settings 的 pt.check-block 设为 off。`;
+          s.logger?.info("check:blocked", { tool: name, probe: f?.probe });
+          return { block: true, reason };
+        }
+      }
+    }
     // v19（issue pt-adoption-observability Layer 1 F1.2）：按档位决定是否记 input。
     //   默认 "pt-only"——只记 Pt 自家工具（pt_inject / pt_doc / pt_info）的 input；
     //   其中 pt_inject 的 domain 参数是"查了哪本手册"的唯一信号（issue §根因 2）。

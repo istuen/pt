@@ -79,6 +79,9 @@ export function registerSessionEvents(pi: ExtensionAPI): void {
     s.checkFailures = readCheckFailures(ctx.sessionManager);
     s.checkFeedbackInject =
       (await readProjectSetting<string>(ctx.cwd, "pt.check-feedback")) !== "off";
+    // v19（A3）：阻断开关（默认关）+ 硬约束失败回填（跨进程）。
+    s.checkBlockEnabled = (await readProjectSetting<string>(ctx.cwd, "pt.check-block")) === "on";
+    s.blockingFailures = s.checkFailures.filter((f) => f.blocking);
     s.logger.info("session:turn-output hydrated", {
       count: s.turnOutputs.length,
       files: s.turnOutputs.flatMap((o) => o.files),
