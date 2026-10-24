@@ -38,7 +38,7 @@ import {
   transpileActive,
 } from "../shared/session-helpers.js";
 import { readTurnOutputs } from "../turn-output.js";
-import { runAutoChecks } from "../checks.js";
+import { readCheckFailures, runAutoChecks } from "../checks.js";
 
 /** 注册 session 生命周期事件 handler。从 index.ts 抽出，逻辑零变更。 */
 export function registerSessionEvents(pi: ExtensionAPI): void {
@@ -75,6 +75,13 @@ export function registerSessionEvents(pi: ExtensionAPI): void {
     //   完整 id 是 Pi 持有的事实来源，不再自造短 id。
     s.sessionId = sessionId;
     s.logger = new PtLogger(ctx.cwd, "", sessionId);
+    // v19：回填待回注的检查失败项（跨进程可恢复）+ 读回注开关。
+    s.checkFailures = readCheckFailures(ctx.sessionManager);
+    s.checkFeedbackInject =
+      (await readProjectSetting<string>(ctx.cwd, "pt.check-feedback")) !== "off";
+    // v19（A3）：阻断开关（默认关）+ 硬约束失败回填（跨进程）。
+    s.checkBlockEnabled = (await readProjectSetting<string>(ctx.cwd, "pt.check-block")) === "on";
+    s.blockingFailures = s.checkFailures.filter((f) => f.blocking);
     s.logger.info("session:turn-output hydrated", {
       count: s.turnOutputs.length,
       files: s.turnOutputs.flatMap((o) => o.files),
