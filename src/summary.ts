@@ -43,6 +43,28 @@ export interface SessionSummary {
   injectedCount: number;
   /** 会话状态（给 CI 判定用）。 */
   status: "ok" | "checks-failed" | "blocked" | "bypassed";
+
+  // ===== v19（Layer 3，issue pt-adoption-observability §五 Layer 3）=====
+  // 模型元数据 + 内容到场层证据 + 一致性校验结果。
+  // 隐私边界：只记 hash / 计数 / 模型 id，**绝不记 payload 内容**。
+
+  /** LLM 调用次数（每次 provider 请求 +1）。 */
+  providerCalls: number;
+  /** 本 session 用过的模型 id（去重，顺序 = 首次出现顺序）。 */
+  models: string[];
+  /** 每次调用观测到的系统提示 sha256（去重，顺序 = 首次出现顺序）。 */
+  systemShas: string[];
+  /** 最后一次观测到的系统提示 sha256（null = 还没观测到）。 */
+  lastSystemSha: string | null;
+  /** 注入一致性校验结论：
+   *  - true  = 至少校验过一次且一致
+   *  - false = 出现过不一致（注入被改写/截断）
+   *  - null  = 校验过但没定位到段（provider 形状不认识 / prompt 被改写） */
+  injectionMatched: boolean | null;
+  /** 不一致次数。 */
+  injectionMismatchCount: number;
+  /** 没定位到段的次数。 */
+  injectionNotFoundCount: number;
 }
 
 /** 新的空汇总。 */
@@ -59,6 +81,14 @@ export function createSessionSummary(): SessionSummary {
     injectedChars: 0,
     injectedCount: 0,
     status: "ok",
+    // v19（Layer 3）
+    providerCalls: 0,
+    models: [],
+    systemShas: [],
+    lastSystemSha: null,
+    injectionMatched: null,
+    injectionMismatchCount: 0,
+    injectionNotFoundCount: 0,
   };
 }
 

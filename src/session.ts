@@ -115,6 +115,11 @@ export interface SessionState {
   observeEnabled: boolean;
   /** v19（Layer 2）：session 开始时间（汇总用）。 */
   startedAt: string | null;
+  /** v19（Layer 3，issue pt-adoption-observability §五 Layer 3）：本轮实际注入的段文本。
+   *  PiAdapter 在 before_agent_start 写入——provider-trace 用它做**一致性校验**
+   *  （Pt 注入的段 vs provider 请求体里那段，sha 比对）。
+   *  null = 本轮没注入（无 Profile / 被 reset）。 */
+  lastInjectedSegment: string | null;
   /** v19（A3）：待处理的**硬约束**失败（声明 on: block）——
    *  在被检查项修好前，阻断写操作（edit/write）。默认关（settings `pt.check-block`）。 */
   blockingFailures: CheckFailure[];
@@ -187,6 +192,7 @@ export function createSessionState(): SessionState {
     summary: createSessionSummary(),
     observeEnabled: false,
     startedAt: null,
+    lastInjectedSegment: null,
     blockingFailures: [],
     checkBlockEnabled: false,
     toolInputLogMode: DEFAULT_TOOL_INPUT_LOG_MODE,
