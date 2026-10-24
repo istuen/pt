@@ -7,6 +7,7 @@ import { slog } from "../slog.js";
 import { getSessionById } from "../session.js";
 import { pathEquals, refreshInjectionFooter, refreshManualWidget } from "../manual-session.js";
 import { DEFAULT_TOOL_INPUT_LOG_MODE, shouldLogToolInput } from "../config.js";
+import { extractBashWritePaths } from "../turn-output.js";
 import { getSessionIdFromCtx } from "../shared/session-helpers.js";
 import type { PiToolCallEvent, PiToolResultEvent } from "../shared/pi-types.js";
 
@@ -24,6 +25,27 @@ export function registerToolEvents(pi: ExtensionAPI): void {
     const mode = sessionId
       ? getSessionById(sessionId).toolInputLogMode
       : DEFAULT_TOOL_INPUT_LOG_MODE;
+    // v19（issue pt-asset-verifiable-norm §三 B3）：收集本轮产出——
+    //   改/建的文件（edit/write 的 path） + 查过的手册（pt_inject 的 domain）。
+    //   这些不依赖日志档位（即使 input 不入日志也照收）——它服务"输出→下轮输入"回注。
+    if (sessionId) {
+      const s = getSessionById(sessionId);
+      const input = e.input ?? {};
+      if (name === "edit" || name === "write") {
+        const p = typeof input.path === "string" ? input.path : "";
+        if (p && !s.currentTurnFiles.includes(p)) s.currentTurnFiles.push(p);
+      } else if (name === "bash") {
+        // shell 写入（`> file` / `sed -i` / `tee`）——agent 常用 shell 改文件，
+        // 只跟 edit/write 会漏掉真实产出。启发式抽取（保守，见 turn-output.ts）。
+        const cmd = typeof input.command === "string" ? input.command : "";
+        for (const p of extractBashWritePaths(cmd)) {
+          if (!s.currentTurnFiles.includes(p)) s.currentTurnFiles.push(p);
+        }
+      } else if (name === "pt_inject") {
+        const d = typeof input.domain === "string" ? input.domain : "";
+        if (d && !s.currentTurnDomains.includes(d)) s.currentTurnDomains.push(d);
+      }
+    }
     slog(
       sessionId,
       "debug",

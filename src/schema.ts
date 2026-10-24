@@ -32,6 +32,24 @@ export interface Rule {
   check: string;
   /** ban 类型时列出具体禁止项。 */
   items?: string[];
+  /** v19（issue pt-asset-verifiable-norm A1）：可自动验证的探针名列表（无参形态）。
+   *  与 FlowTemplate.observe 同构——零参数探针（lint-check / git-status-clean 等）用这个。 */
+  observe?: string[];
+  /** v19（A1）：结构化检查绑定（探针 + 参数）——"这条规范怎么自动验"。 */
+  checks?: NormCheck[];
+  /** v19（A1）：该项里出现但本段解析器不消费的字段名（供体检告警）。
+   *  写错的字段会静默失效——这比没有字段更危险（以为带了检查 → 假合规）。 */
+  unknownFields?: string[];
+}
+
+/** 规范项的检查绑定（issue pt-asset-verifiable-norm A1）。
+ *  - probe：探针名（src/verify 注册表 key）
+ *  - params：探针参数（verify 函数的 params）
+ *  - on：违反时处置（notify 默认；block 预留给 A3 阻断层） */
+export interface NormCheck {
+  probe: string;
+  params?: Record<string, string>;
+  on?: "notify" | "block";
 }
 /** 手册步骤（workflow-Domain.## Flows 段内容）。 */
 export interface FlowStep {
@@ -72,6 +90,12 @@ export interface FlowTemplate {
 export interface Checklist {
   name: string;
   items: string[];
+  /** v19（A1）：可自动验证的探针名列表（无参形态）。 */
+  observe?: string[];
+  /** v19（A1）：结构化检查绑定（探针 + 参数）。 */
+  checks?: NormCheck[];
+  /** v19（A1）：该项里出现但本段解析器不消费的字段名（供体检告警）。 */
+  unknownFields?: string[];
 }
 
 // ==================== 结构层原子 ====================

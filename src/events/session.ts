@@ -37,6 +37,8 @@ import {
   registerInjectionIfReady,
   transpileActive,
 } from "../shared/session-helpers.js";
+import { readTurnOutputs } from "../turn-output.js";
+import { runAutoChecks } from "../checks.js";
 
 /** 注册 session 生命周期事件 handler。从 index.ts 抽出，逻辑零变更。 */
 export function registerSessionEvents(pi: ExtensionAPI): void {
@@ -61,6 +63,10 @@ export function registerSessionEvents(pi: ExtensionAPI): void {
     // SessionState 残留 stale lastFooterText。session_start 是 pt 唯一可靠的 session
     // 边界感知入口——重置缓存确保首次 refreshInjectionFooter 必写 setStatus。
     s.lastFooterText = null;
+    // v19（B3）：从 session JSONL 回填历史轮次产出（跨进程续跑可恢复）+ 读回注开关。
+    s.turnOutputs = readTurnOutputs(ctx.sessionManager);
+    s.turnOutputInject =
+      (await readProjectSetting<string>(ctx.cwd, "pt.turn-output-inject")) !== "off";
     // v19（issue pt-adoption-observability Layer 1 F1.1）：session id 统一用 Pi 的完整 id——
     //   旧实现自造 8-hex 短 id 并把它记进 session:start 日志，导致：
     //   ① session:start 与 tool:call / turn:* 日志的 ctx.sessionId 形态不同 → 无法 join
@@ -69,6 +75,12 @@ export function registerSessionEvents(pi: ExtensionAPI): void {
     //   完整 id 是 Pi 持有的事实来源，不再自造短 id。
     s.sessionId = sessionId;
     s.logger = new PtLogger(ctx.cwd, "", sessionId);
+    s.logger.info("session:turn-output hydrated", {
+      count: s.turnOutputs.length,
+      files: s.turnOutputs.flatMap((o) => o.files),
+      domains: s.turnOutputs.flatMap((o) => o.domains),
+      inject: s.turnOutputInject,
+    });
     // v19（Layer 1 F1.2）：tool:call 日志记 input 的范围（env > settings > 默认 pt-only）。
     s.toolInputLogMode = await readToolInputLogMode(ctx.cwd);
     s.logger.info("session:start", {
@@ -404,6 +416,11 @@ export function registerSessionEvents(pi: ExtensionAPI): void {
     const sessionId = getSessionIdFromCtx(ctx);
     if (!sessionId) return;
     const s = getSessionById(sessionId);
+    // v19（A2）：session 关闭时跑 session_end 检查（声明了才跑）——
+    //   放在 flush 之前，让 check:run 日志随 flush 落盘。
+    await runAutoChecks({ cwd: ctx.cwd, ui: ctx.ui }, sessionId, "session_end", (msg, c) =>
+      s.logger?.info(msg, c)
+    );
     if (s.logger) {
       s.logger.info("session:shutdown");
       await s.logger.flush();

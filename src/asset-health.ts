@@ -42,9 +42,18 @@ import { resolveAndDedupRefs, parseRef } from "./parse/ref-resolver.js";
 import type { AssetPack } from "./schema.js";
 import { checkAllRefs } from "./verify/ref-check.js";
 import { refName } from "./schema.js";
-import { PROFILES_DIR } from "./constants.js";
+import { MOD_CHECKLISTS, MOD_RULES, PROFILES_DIR } from "./constants.js";
 import { KNOWN_SECTION_NAMES } from "./parse/profile.js";
-import type { Blueprint, Domain, Profile, SourceAdapterContext, WorkingSet } from "./schema.js";
+import type {
+  Blueprint,
+  Checklist,
+  Domain,
+  Profile,
+  Rule,
+  SourceAdapterContext,
+  WorkingSet,
+} from "./schema.js";
+import { listProbes } from "./verify/index.js";
 
 // ==================== 公共类型 ====================
 
@@ -79,7 +88,9 @@ export type HealthRuleId =
   | "unknown-modname"
   | "optional-domain-no-matching-section" // v16+：可选 ref 加载但 H2 段全不匹配任一 bpGroup 的 modules（warning，per-domain 聚合）
   | "use-expansion-error" // v17+：use 链展开失败（UseTargetNotFound/UseChainCycle/BlueprintGroupOutOfScope）→ warning
-  | "dangling-domain-ref"; // v18+（issue pt-pack-ref-drift-detection 方案 A）：profile.domains / profile.groups[X].domains 引用悬空 Domain（settings pack 删 domain 后静默破坏）→ error
+  | "dangling-domain-ref" // v18+（issue pt-pack-ref-drift-detection 方案 A）：profile.domains / profile.groups[X].domains 引用悬空 Domain（settings pack 删 domain 后静默破坏）→ error
+  | "norm-check-unknown-probe" // v19+（A1）：规范项挂了注册表里没有的探针 → 检查静默不跑 = 假合规 → warning
+  | "norm-item-typo-field"; // v19+（A1）：规范项里疑似拼写错的字段（编辑距离 1）→ 字段静默失效 → warning
 
 /** 资产健康扫描结果（按 profile 聚合）。 */
 export interface AssetHealthReport {
@@ -560,6 +571,44 @@ export async function scanProjectHealth(
     // 其余错误（悬空 Blueprint / 聚合组名不在 Blueprint）已被规则 2/3 覆盖，忽略
   }
 
+  // ===== v19（A1，issue pt-asset-verifiable-norm）：domain 级规范检查 =====
+  //  1. norm-check-unknown-probe（warning）：规范项挂的探针名不在 src/verify 注册表
+  //     → 拼错的检查静默不跑 = 假合规（比没有检查更危险）
+  //  2. norm-item-typo-field（warning）：规范项里出现疑似拼写错的字段
+  //     （与已知字段编辑距离 1）→ 该字段静默失效，作者以为生效了
+  for (const d of domains) {
+    const modules = (d.modules ?? {}) as Record<string, unknown>;
+    const rules = Array.isArray(modules[MOD_RULES]) ? (modules[MOD_RULES] as Rule[]) : [];
+    const checklists = Array.isArray(modules[MOD_CHECKLISTS])
+      ? (modules[MOD_CHECKLISTS] as Checklist[])
+      : [];
+    for (const item of [...rules, ...checklists]) {
+      const probes = [...(item.observe ?? []), ...(item.checks ?? []).map((c) => c.probe)];
+      for (const probe of probes) {
+        if (listProbes().includes(probe)) continue;
+        issues.push({
+          severity: "warning",
+          scope: "domain",
+          name: d.name,
+          field: probe,
+          msg: `Domain「${d.name}」规范项「${item.name}」挂了未知探针「${probe}」——该检查不会执行（可用探针: ${listProbes().join(", ")}）`,
+          hint: `检查探针名拼写；或在 src/verify 注册新探针。挂了但跑不上的检查 = 假合规`,
+        });
+      }
+      for (const unknown of item.unknownFields ?? []) {
+        if (!isSuspectedTypo(unknown, KNOWN_NORM_ITEM_FIELDS)) continue;
+        issues.push({
+          severity: "warning",
+          scope: "domain",
+          name: d.name,
+          field: unknown,
+          msg: `Domain「${d.name}」规范项「${item.name}」里字段「${unknown}」疑似拼写错误——该字段不生效（规范项可用字段: ${[...KNOWN_NORM_ITEM_FIELDS].join(", ")}）`,
+          hint: `改成上列字段名；或若该字段本就不支持，先移除（静默失效的字段比没有更危险）`,
+        });
+      }
+    }
+  }
+
   const errors = issues.filter((i) => i.severity === "error").length;
   const warnings = issues.filter((i) => i.severity === "warning").length;
   const infos = issues.filter((i) => i.severity === "info").length;
@@ -645,4 +694,75 @@ function isKnownModName(raw: string): boolean {
     return KNOWN_SECTION_NAMES.has(section) && item.length > 0;
   }
   return KNOWN_SECTION_NAMES.has(trimmed);
+}
+
+// ==================== A1 辅助（issue pt-asset-verifiable-norm）====================
+
+/** 规范项（Rules / Checklists）里已知有效的字段名——用于"疑似拼写错误"判定。 */
+const KNOWN_NORM_ITEM_FIELDS: ReadonlySet<string> = new Set([
+  "check",
+  "items",
+  "slot",
+  "type",
+  "observe",
+  "checks",
+  "step",
+  "rationale",
+]);
+
+/** 编辑距离（Levenshtein）是否 ≤ 1——用于"疑似拼写错误"判定。
+ *  只对与已知字段距离 ≤1 的未知字段告警：作者主动使用但不生效的字段（如 rationale）
+ *  由 issue pt-asset-field-dropout 单独跟踪，不在这里刷屏。 */
+function isSuspectedTypo(field: string, known: ReadonlySet<string>): boolean {
+  const f = field.toLowerCase();
+  for (const k of known) {
+    if (k.toLowerCase() === f) return false;
+    if (editDistance(f, k.toLowerCase()) <= 1) return true;
+  }
+  return false;
+}
+
+/** Damerau-Levenshtein 编辑距离（OSA 变体）——**相邻换位算 1 次**。
+ *  用 OSA 而非普通 Levenshtein：最常见的打字错误是换位（chekc ↔ check），
+ *  普通 Levenshtein 判成 2 → 漏检。 */
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const d: number[][] = [];
+  for (let i = 0; i <= m; i++) {
+    const row: number[] = [];
+    for (let j = 0; j <= n; j++) row.push(0);
+    d.push(row);
+  }
+  for (let i = 0; i <= m; i++) {
+    const row = d[i] ?? [];
+    row[0] = i;
+  }
+  for (let j = 0; j <= n; j++) {
+    const row = d[0] ?? [];
+    row[j] = j;
+  }
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const prevRow = d[i - 1] ?? [];
+      const curRow = d[i] ?? [];
+      const prevPrevRow = d[i - 2] ?? [];
+      let best = Math.min(
+        (prevRow[j] ?? 0) + 1,
+        (curRow[j - 1] ?? 0) + 1,
+        (prevRow[j - 1] ?? 0) + cost
+      );
+      // 相邻换位：a[i-2]==b[j-1] && a[i-1]==b[j]
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        best = Math.min(best, (prevPrevRow[j - 2] ?? 0) + 1);
+      }
+      curRow[j] = best;
+    }
+  }
+  const lastRow = d[m] ?? [];
+  return lastRow[n] ?? Math.max(m, n);
 }
