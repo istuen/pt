@@ -6,7 +6,7 @@ name: authoring
 
 ## Trigger
 ### authoring-trigger
-- desc: 创作/修改 Pt 资产 md 时参考；含 Pt Domain/Blueprint/Pt Profile 格式（v9.1+） + 创建流程 + 角色隔离配置
+- desc: 写或改 Pt 资产 md（Domain / Blueprint / Profile）时——尤其新增 Trigger 触发项、写 desc/hint/anti、定 H2 聚合组与 ### Modules、配置角色隔离（User/Agent）前——先查创作手册
 - hint: 调 pt_inject tool domain=authoring 查看完整创作手册
 
 ## Scene
@@ -111,6 +111,10 @@ name: authoring
 - note: Phase B 已全链路落地——anti: 进 parse 输出（TriggerItem.anti）+ type guard 契约（isTriggerItemLike）+ renderTriggerModule 产物（`  anti: <负向条件>` 行），LLM 在 Turn Inject 触发判断时可见负向条件。落地路径见 issue pt-trigger-anti-field-phase-b。
 - example: '### pt-collab-trigger / - desc: 派任务/验收时参考 / - hint: /manual:pt-collab / - anti: 纯代码改动无任务派发/验收时（不触发 pt-collab 手册注入）'
 - rationale: 工业先例：三家厂商都有负向触发（Codex "Do not use when"；Sonnet "Do NOT apply if"；Claude Code "SKIP only when" / "Do NOT trigger when"）。减少误触发直接服务"减少认知负荷"原则。
+
+### trigger-desc-task-category
+- desc: Trigger H3 项 `desc` 的写法——**写"什么任务该查这本手册"（任务类别 + 命中信号），不写"这本手册讲什么领域"（领域边界）**。形态：`改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出前，先查规范（…）`。正例：改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出前，先查规范（modules-type-safety、no-duplicate-type、naming-consistency、parse-extension-registry）；反例：改 Pt 代码时参考；含 9 条技术规范（modules-type-safety 等）。领域边界式 desc 只覆盖字面撞词的明确场景，灰区任务（与领域结构相似但字面不匹配，如"给 schema 加可选字段"）几乎不触发（实测 16.4%）；改成任务类别式后同一任务触发率 98.4%——效应 82pp，Fisher p<0.0001（lab 交错 A/B n=181，曝光 100% 机械验证；见 issue pt-trigger-relevance-signal §七）
+- purpose: desc 与 `anti` 是"命中 / 不命中"两面——desc 给任务类别（何时该想起这本手册），anti 给排除条件（何时不该）。触发决策发生在 SessionContext 层：Agent 此刻只看到 desc/hint/anti，规则正文（TurnContext）要到决策之后才注入 → desc 是决策输入本身，不是介绍语。
 
 ### participant-domain-pattern
 - desc: 身份类 Domain 写法（v9.1+ 重命名）——user-info Domain 用 `## User` 段下 H3 角色项（who-am-i / preferences / goals / ...）；agent-info Domain 用 `## Agent` 段下 H3 角色项（role / collaboration / boundaries / ...）。**段名 = 命名空间**：`User` 限定 user-info、`Agent` 限定 agent-info。Profile 通过 `### Modules: [User]` 聚合 user-info 整段；通过 `### Modules: [Agent.role]` 精确选单角色——角色隔离的"开关"。多角色 agent-info（如 `Agent.agent-role-senior-developer`）需 fullstack pack 或自建扩展。
@@ -229,6 +233,10 @@ name: authoring
 ### when-add-module
 - check: 同主题扩内容加 Module（Domain 内加 ## 新 Module 名）；不同主题才新建 Domain
 
+### trigger-desc-is-decision-input
+- check: Trigger H3 项的 `desc` 写"什么任务该查这本手册"（任务类别 + 命中信号），**不写"这本手册讲什么领域"（领域边界）**——领域边界式 desc 在灰区任务上几乎不触发（实测 16.4% vs 98.4%，Fisher p<0.0001）。理由：触发决策在 SessionContext 层完成，Agent 此刻只拿到 desc/hint/anti，规则正文要到决策之后才注入——desc 是决策输入本身，写成领域介绍等于把"该查吗"推回 Agent 的语义匹配
+- items: [desc=命中条件（任务类别 + 命中信号）, 不写领域介绍, 正例：改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出前，先查规范（…）, 反例：改 Pt 代码时参考；含 9 条技术规范（…）, 配 anti 写排除条件]
+
 ### section-name-namespace
 - check: 段名是命名空间（v9.1+）——通用段（Scene/Trigger/Rules/Flows/Checklists）跨 domain 通用；专用段（User/Agent/...）限定到单 domain。加新专用段 = 同时改 Domain + KNOWN_SECTION_NAMES + moduleRenderers（详见 renderer-registration）
 
@@ -284,7 +292,7 @@ name: authoring
 ## Checklists
 
 ### domain-quality-checklist
-- items: [frontmatter name 对齐加载路径（多级目录用 path 形式）, H2 段名是标准段（Scene/Trigger/Rules/Flows/Checklists）或已注册专用段（User/Agent/...）, H3 项有 desc 字段, 同段内 H3 项名唯一（跨段可重名靠专用段名避免）, 无 type 字段]
+- items: [frontmatter name 对齐加载路径（多级目录用 path 形式）, H2 段名是标准段（Scene/Trigger/Rules/Flows/Checklists）或已注册专用段（User/Agent/...）, H3 项有 desc 字段, 同段内 H3 项名唯一（跨段可重名靠专用段名避免）, 无 type 字段, trigger desc 写任务类别 + 命中信号而非领域边界（见 trigger-desc-task-category；正例：改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出前，先查规范）]
 
 ### profile-quality-checklist
 - items: [blueprint 引用名存在（优先内建 pt-default）, domains 顺序合理（身份类前约束类后）, 聚合组段对齐 Blueprint groups（每个 group 一个 H2）, ### Modules 段存在且填了 modName（v9.1+ 必填）, modName 是合法 2 形态（段名 / 段.项），不含形态 3, 角色隔离正确：专用段（User/Agent）按设计填充，段.项精确选单角色, 无追加时保留 H2 段让配置入口可见, 多级目录引用用 path 形式（如 `workflow/dev-workflow`）]
