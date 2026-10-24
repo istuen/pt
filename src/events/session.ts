@@ -82,10 +82,16 @@ export function registerSessionEvents(pi: ExtensionAPI): void {
       (await readProjectSetting<string>(ctx.cwd, "pt.check-feedback")) !== "off";
     // v19（A3）：阻断开关（默认关）+ 硬约束失败回填（跨进程）。
     s.checkBlockEnabled = (await readProjectSetting<string>(ctx.cwd, "pt.check-block")) === "on";
-    // v19（Layer 2）：per-session 汇总开关（`--pt-observe` flag > settings `pt.observe` > off）。
+    // v19（Layer 2）：per-session 汇总开关——**默认开（always-on）**。
+    //   定夺 2026-06-24：一条汇总约数百字节/session，原"opt-in 因为体积成本"的理由已不成立
+    //   （实测：现有 session 日志 6.7KB/session，汇总 +655B ≈ +10%）；更重要的是——
+    //   **反馈闭环默认关闭 = 作者盲态继续**（这正是本 issue 的起因）。
+    //   显式 `pt.observe: "off"` 可关（敏感项目逃生阀）；`--pt-observe` 强制开（覆盖 off）。
     const observeFlag = pi.getFlag("pt-observe");
     const observeSetting = await readProjectSetting<string>(ctx.cwd, "pt.observe");
-    s.observeEnabled = observeFlag === true || observeSetting === "on" || observeSetting === "true";
+    s.observeEnabled =
+      observeFlag === true ||
+      (observeSetting !== "off" && observeSetting !== "false" && observeSetting !== "0");
     s.startedAt = new Date().toISOString();
     s.blockingFailures = s.checkFailures.filter((f) => f.blocking);
     s.logger.info("session:turn-output hydrated", {

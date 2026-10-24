@@ -124,7 +124,22 @@ describe("L2.2 状态判定", () => {
 });
 
 describe("L2.3 产出端 + 开关", () => {
-  it("开关关闭 → 不产出汇总文件", async () => {
+  it("默认 always-on → 无任何配置也产出汇总", async () => {
+    const { events, ctx } = makePi();
+    await events.get("session_start")?.[0]?.({ type: "session_start" }, ctx);
+    const shutdown = events.get("session_shutdown")?.[0];
+    await shutdown?.({ type: "session_shutdown" }, ctx);
+    expect(existsSync(join(cwd, ".pt/logs", SUMMARY_FILE))).toBe(true);
+  });
+
+  it("settings pt.observe=off → 不产出（敏感项目逃生阀）", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { observe: "off" } }),
+      "utf8"
+    );
     const { events, ctx } = makePi();
     await events.get("session_start")?.[0]?.({ type: "session_start" }, ctx);
     const shutdown = events.get("session_shutdown")?.[0];
@@ -132,7 +147,7 @@ describe("L2.3 产出端 + 开关", () => {
     expect(existsSync(join(cwd, ".pt/logs", SUMMARY_FILE))).toBe(false);
   });
 
-  it("settings pt.observe=on → session 结束产出汇总文件（一行 JSON）", async () => {
+  it("session 结束产出汇总文件（一行 JSON，含查阅与改动维度）", async () => {
     const { mkdtempSync: mk, writeFileSync, mkdirSync } = await import("node:fs");
     mkdirSync(join(cwd, ".pi"), { recursive: true });
     writeFileSync(
@@ -170,7 +185,14 @@ describe("L2.3 产出端 + 开关", () => {
     expect(rec.status).toBe("ok");
   });
 
-  it("--pt-observe flag 也能开（flag > settings）", async () => {
+  it("--pt-observe flag 强制开（覆盖 settings off）", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".pi/settings.json"),
+      JSON.stringify({ pt: { observe: "off" } }),
+      "utf8"
+    );
     const { events, ctx } = makePi({ "pt-observe": true });
     await events.get("session_start")?.[0]?.({ type: "session_start" }, ctx);
     const shutdown = events.get("session_shutdown")?.[0];

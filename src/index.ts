@@ -41,7 +41,8 @@ export default function (pi: ExtensionAPI): void {
   //   开启后每个 session 结束产出一条可分析的一行（查了 AND 改了 AND 改的是哪个文件）
   //   + headless/CI 可读的结构化摘要（.pt/logs/summary.ndjson）。
   pi.registerFlag("pt-observe", {
-    description: "产出 per-session 汇总记录（Layer 2）——CI / 漂移诊断用",
+    description:
+      "强制产出 per-session 汇总记录（Layer 2，默认已开）——CI / 漂移诊断用；关掉请用 settings pt.observe=off",
     type: "boolean",
   });
   registerSessionEvents(pi);
