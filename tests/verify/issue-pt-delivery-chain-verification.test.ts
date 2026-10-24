@@ -119,3 +119,74 @@ describe("D2 独立证人的可验证性（不共享 Pt 实现）", () => {
     expect(t.systemSha).toBe(sha256(PT_CLAIM));
   });
 });
+
+// ==================== D3 规范：观测点边界必须声明 ====================
+// 规范 `observation-boundary-declared`（pt-quality）：
+//   涉及"内容是否真的送达外部系统"的观测字段，必须在字段说明/注释里显式声明观测点边界。
+// 本测试把该规范**变成可执行的检查**——防止后人新增观测字段时忘了声明边界。
+
+describe("D3 规范落地：观测点边界必须声明", () => {
+  it("SessionSummary 的每个观测字段都带边界说明", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const { dirname, join } = await import("node:path");
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../src/summary.ts"),
+      "utf8"
+    );
+
+    // 涉及"送达外部系统"的观测字段——必须声明边界
+    const mustDeclare = [
+      "injectedChars",
+      "injectedCount",
+      "ptInjectCalls",
+      "filesRead",
+      "filesModified",
+      "models",
+      "systemShas",
+      "lastSystemSha",
+      "injectionMatched",
+    ];
+
+    for (const field of mustDeclare) {
+      // 字段声明点往前 700（doc comment）+ 往后 600（同行注释）内必须有边界措辞
+      const idx = src.indexOf(`${field}:`);
+      expect(idx, `字段 ${field} 未找到`).toBeGreaterThan(-1);
+      const window = src.slice(Math.max(0, idx - 700), idx + 600);
+      const declares =
+        window.includes("观测点") ||
+        window.includes("只证明") ||
+        window.includes("不证明") ||
+        window.includes("非端到端") ||
+        window.includes("≠ 终点");
+      expect(declares, `字段 ${field} 缺少观测点边界声明`).toBe(true);
+    }
+  });
+
+  it("SessionSummary 结构级注释含「观测点边界」表", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const { dirname, join } = await import("node:path");
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../src/summary.ts"),
+      "utf8"
+    );
+    expect(src).toContain("观测点边界");
+    expect(src).toContain("非端到端保证");
+    // 端到端验证的出路必须被指向
+    expect(src).toContain("verify-delivery-chain.sh");
+  });
+
+  it("provider-trace 的 handler 注释声明了「不是最终请求体」", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const { dirname, join } = await import("node:path");
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../src/provider-trace.ts"),
+      "utf8"
+    );
+    expect(src).toContain("观测点边界");
+    expect(src).toContain("不是 provider 最终收到的请求体");
+    expect(src).toContain("verify-delivery-chain.sh");
+  });
+});

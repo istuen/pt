@@ -316,7 +316,16 @@ function recordTrace(sessionId: string, trace: ProviderTrace, check: InjectionCh
 }
 
 /** 注册 provider 请求体观测 handler（Layer 3）。
- *  handler **返回 undefined**——绝不替换 payload（Pi runner 只在返回值 !== undefined 时才替换）。 */
+ *  handler **返回 undefined**——绝不替换 payload（Pi runner 只在返回值 !== undefined 时才替换）。
+ *
+ *  ⚠️ **观测点边界**（规范 `observation-boundary-declared`；issue pt-delivery-chain-verification §二）：
+ *  本 handler 观测的 payload **不是 provider 最终收到的请求体**——
+ *  Pi 的 `before_provider_request` handler 按扩展加载顺序串行执行
+ *  （`pi-coding-agent/dist/core/extensions/runner.js:1060`），
+ *  **后注册的 handler 能改写本 handler 已观测过的 payload**；
+ *  且 Pt **无法控制**自己在扩展序列中的位置。
+ *  → 本 handler 只能声称「观测点一致性」，**不能**声称端到端保证。
+ *  → 端到端验证需独立证人：`scripts/verify-delivery-chain.sh`。 */
 export function registerProviderTrace(pi: ExtensionAPI): void {
   pi.on("before_provider_request", async (event, ctx) => {
     try {
@@ -343,6 +352,8 @@ export function registerProviderTrace(pi: ExtensionAPI): void {
         // 采样参数（机会主义——provider 不给就不出现）
         ...(trace.sampling ? { sampling: trace.sampling } : {}),
         injection: check.status,
+        // 观测点标记（读日志的人必须知道这不是端到端保证）
+        observationPoint: "before_provider_request",
         // 不一致才告警（matched 是常态，不刷日志）
         ...(check.status === "mismatch" || check.status === "not-found"
           ? {

@@ -14,17 +14,37 @@
 
 import type { ProbeOutcomeKind } from "./schema.js";
 
-/** session 内累积的汇总数据。 */
+/** session 内累积的汇总数据。
+ *
+ *  ⚠️ **观测点边界**（规范 `observation-boundary-declared`；issue pt-delivery-chain-verification）：
+ *  本结构的每个字段都只是**在 Pt 的观测点**成立的断言，不是端到端事实。逐项边界：
+ *
+ *  | 字段 | 观测点 | 边界（不保证什么） |
+ *  |---|---|---|
+ *  | `turns` / `toolCalls` | Pi 事件 | Pi 漏发事件则少计 |
+ *  | `ptInjectCalls` | `tool_call` 事件 | 只证明"工具被调用"，**不证明**模型读懂了手册 |
+ *  | `filesRead` / `filesModified` | `tool_call` 事件 | 只证明"工具被调用"，不证明文件真被读/写 |
+ *  | `checkResults` | 探针进程 | 探针自报结论；不证明 LLM 会遵守它 |
+ *  | `injectedChars` / `injectedCount` | `before_agent_start` 返回值 | **只证明 Pt 返回了这个字符串**——不证明 Pi 拼进去、provider 收到 |
+ *  | `models` / `systemShas` / `lastSystemSha` | `before_provider_request` payload | **观测点 ≠ 终点**——后续 handler 可改写 payload（见 `injectionMatched` 说明） |
+ *  | `injectionMatched` | 同上 | 「观测点一致性」，**非端到端保证** |
+ *  | `status` | 上述各项的聚合 | CI 判定的只是**观测点**的健康度 |
+ *
+ *  端到端验证（"内容真的到了 LLM"）需独立证人：
+ *  `scripts/verify-delivery-chain.sh`（三方独立比对 + 物理证据）。 */
 export interface SessionSummary {
   /** turn 数（Pi 的 turn 粒度 = 每个工具调用一轮）。 */
   turns: number;
   /** 工具调用总数。 */
   toolCalls: number;
-  /** pt_inject 调用（domain + turn）——"查了哪本手册"。 */
+  /** pt_inject 调用（domain + turn）——"查了哪本手册"。
+   *  观测点 = `tool_call` 事件——只证明**工具被调用**，不证明模型读懂了手册内容。 */
   ptInjectCalls: Array<{ domain: string; turn: number }>;
-  /** 读过的文件（read 的 path）。 */
+  /** 读过的文件（read 的 path）。
+   *  观测点 = `tool_call` 事件——只证明**工具被调用**，不证明内容真被读。 */
   filesRead: string[];
-  /** 改动过的文件（edit/write 的 path + shell 写入路径）。 */
+  /** 改动过的文件（edit/write 的 path + shell 写入路径）。
+   *  观测点 = `tool_call` 事件——只证明**工具被调用**，不证明文件真被写入。 */
   filesModified: string[];
   /** 检查结果（探针 + 结论 + 参数摘要——CI 要能定位是哪条失败）。 */
   checkResults: Array<{
@@ -38,7 +58,9 @@ export interface SessionSummary {
   blockedCount: number;
   /** bash 绕过硬约束次数（A3 绕过可观测）。 */
   bypassCount: number;
-  /** 注入量（system prompt 增量字符数）累计 + 次数。 */
+  /** 注入量（system prompt 增量字符数）累计 + 次数。
+   *  观测点 = `before_agent_start` 的返回值——**只证明 Pt 返回了这个字符串**，
+   *  不证明 Pi 把它拼进 prompt、provider 收到（见结构级「观测点边界」表）。 */
   injectedChars: number;
   injectedCount: number;
   /** 会话状态（给 CI 判定用）。 */
@@ -48,13 +70,18 @@ export interface SessionSummary {
   // 模型元数据 + 内容到场层证据 + 一致性校验结果。
   // 隐私边界：只记 hash / 计数 / 模型 id，**绝不记 payload 内容**。
 
-  /** LLM 调用次数（每次 provider 请求 +1）。 */
+  /** LLM 调用次数（每次 provider 请求 +1）。
+   *  观测点 = `before_provider_request` 事件——只证明 Pi 走到了发请求这一步。 */
   providerCalls: number;
-  /** 本 session 用过的模型 id（去重，顺序 = 首次出现顺序）。 */
+  /** 本 session 用过的模型 id（去重，顺序 = 首次出现顺序）。
+   *  观测点 = `before_provider_request` payload 的 `model` 字段。 */
   models: string[];
-  /** 每次调用观测到的系统提示 sha256（去重，顺序 = 首次出现顺序）。 */
+  /** 每次调用观测到的系统提示 sha256（去重，顺序 = 首次出现顺序）。
+   *  观测点 = `before_provider_request` payload——**观测点 ≠ 终点**
+   *  （后续 handler 可改写 payload；provider 实际收到的可能不同）。 */
   systemShas: string[];
-  /** 最后一次观测到的系统提示 sha256（null = 还没观测到）。 */
+  /** 最后一次观测到的系统提示 sha256（null = 还没观测到 / 形状不认识）。
+   *  同上：**观测点 ≠ 终点**。 */
   lastSystemSha: string | null;
   /** 注入一致性校验结论（**观测点一致性**，非端到端保证）：
    *  - true  = 在 Pt 观测那一刻，请求体里的段与 Pt 注入的一致
