@@ -1,0 +1,12 @@
+{
+  "name": "pt-witness-probe",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pt 交付链路验证的独立证人：机械捕获真正发给 provider 的请求体（不 import Pt 任何代码）",
+  "pi": {
+    "extensions": [
+      "./witness-probe.ts"
+    ]
+  }
+}

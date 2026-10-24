@@ -56,10 +56,16 @@ export interface SessionSummary {
   systemShas: string[];
   /** 最后一次观测到的系统提示 sha256（null = 还没观测到）。 */
   lastSystemSha: string | null;
-  /** 注入一致性校验结论：
-   *  - true  = 至少校验过一次且一致
-   *  - false = 出现过不一致（注入被改写/截断）
-   *  - null  = 校验过但没定位到段（provider 形状不认识 / prompt 被改写） */
+  /** 注入一致性校验结论（**观测点一致性**，非端到端保证）：
+   *  - true  = 在 Pt 观测那一刻，请求体里的段与 Pt 注入的一致
+   *  - false = 出现过不一致（观测点看到的内容被改写/截断）
+   *  - null  = 校验过但没定位到段（provider 形状不认识 / prompt 被改写）
+   *
+   *  ⚠️ **不是端到端保证**（issue pt-delivery-chain-verification §三）：
+   *  Pi 的 `before_provider_request` handler 按扩展加载顺序串行执行，
+   *  **后注册的 handler 能改写 Pt 已经观测过的 payload** → 本字段只证明
+   *  「观测点那一刻一致」，**不能**证明 provider 最终收到的是这份内容。
+   *  端到端验证需独立证人（`scripts/verify-delivery-chain.sh`）。 */
   injectionMatched: boolean | null;
   /** 不一致次数。 */
   injectionMismatchCount: number;

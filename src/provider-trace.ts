@@ -236,6 +236,19 @@ export function locateInjectedSegment(systemText: string): string | null {
 
 // ==================== 一致性校验 ====================
 
+/**
+ * 一致性校验：Pt 注入的段 vs provider 请求体里那段。
+ *  - `no-expectation`：Pt 本轮没注入（无期望值）——不是错误
+ *  - `not-found`：请求体里没定位到段——可能是 provider 改写了 prompt（要报）
+ *  - `mismatch`：两段 sha 不同——注入链路被截断/改写（要报）
+ *  - `matched`：一致
+ *
+ * ⚠️ **语义边界（issue pt-delivery-chain-verification §三）**：
+ *  本校验发生在 Pi 的 `before_provider_request` 观测点。Pi 的 handler 按扩展加载顺序
+ *  串行执行，**后注册的 handler 能改写本 handler 已观测过的 payload** →
+ *  `matched` 只证明「观测点那一刻一致」，**不证明 provider 最终收到的是这份内容**。
+ *  端到端验证需独立证人：`scripts/verify-delivery-chain.sh`。
+ */
 /** 一致性校验结果。 */
 export interface InjectionCheck {
   /** 校验状态。 */
