@@ -1,0 +1,12 @@
+{
+  "name": "pt-tamper-probe",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "故障注入探针：故意改坏 Pt 注入的段，验证交付链路校验能报出不一致（默认不生效，需 PT_TAMPER=1）",
+  "pi": {
+    "extensions": [
+      "./tamper-probe.ts"
+    ]
+  }
+}

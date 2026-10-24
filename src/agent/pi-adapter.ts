@@ -39,6 +39,7 @@ import {
 import { renderSessionInject } from "../render/session-inject.js";
 import { renderTurnOutputSegment } from "../turn-output.js";
 import { renderCheckFailureSegment } from "../checks.js";
+import { extractInjectedSegment } from "../provider-trace.js";
 
 /** v12.x：从 handler 的 args[1] ctx 提取 sessionId。
  *  pi 的 `pi.on(event, handler)` 触发时传 `(event, ctx)` 两个参数；通过 AgentAPI 包装后
@@ -177,6 +178,11 @@ export class PiAdapter implements AgentAdapter {
           // v19（Layer 2）：注入量入汇总（system prompt 增量字符数 + 次数）
           sessionState.summary.injectedChars += finalPrompt.length - event.systemPrompt.length;
           sessionState.summary.injectedCount += 1;
+          // v19（Layer 3）：记下本轮实际注入的段——provider-trace 用它做一致性校验
+          //   （Pt 注入的段 vs provider 请求体里那段，sha 比对）。
+          //   记的是"当前任务上下文"标题之后、下一个 H2 之前的部分（与
+          //   provider-trace.locateInjectedSegment 的定位规则一致）。
+          sessionState.lastInjectedSegment = extractInjectedSegment(currentSegment);
           api.onInjected?.(finalPrompt);
           // 成功注入 → injected
           sessionState.injectionState = "injected";

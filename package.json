@@ -20,6 +20,8 @@
     "verify": "biome check && vitest run tests/verify/",
     "verify:phase9": "vitest run tests/verify/phase9.test.ts",
     "verify:flows": "vitest run tests/verify/flows.test.ts",
+    "verify:delivery": "bash scripts/verify-delivery-chain.sh",
+    "verify:tamper": "bash scripts/verify-tamper-detection.sh",
     "prebuild": "tsc --noEmit && biome check",
     "build": "tsup",
     "prepublishOnly": "npm run build && npm run verify"

@@ -24,6 +24,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerSessionEvents } from "./events/session.js";
 import { registerTurnEvents } from "./events/turn.js";
 import { registerToolEvents } from "./events/tool.js";
+import { registerProviderTrace } from "./provider-trace.js";
 import { registerPtProfileCommand } from "./commands/pt-profile.js";
 import { registerPtCommand } from "./commands/pt.js";
 import { registerAllTools } from "./tools/index.js";
@@ -48,6 +49,10 @@ export default function (pi: ExtensionAPI): void {
   registerSessionEvents(pi);
   registerTurnEvents(pi);
   registerToolEvents(pi);
+  // v19（Layer 3，issue pt-adoption-observability §五 Layer 3）：provider 请求体观测——
+  //   模型 id + 系统提示 hash + 注入一致性校验（唯一 ground truth = before_provider_request 的 payload）。
+  //   always-on（与 Layer 2 汇总同构）；handler 返回 undefined —— 绝不替换 payload。
+  registerProviderTrace(pi);
   registerPtProfileCommand(pi);
   registerPtCommand(pi);
   registerAllTools(pi);
