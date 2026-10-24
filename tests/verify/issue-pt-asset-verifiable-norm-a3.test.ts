@@ -202,6 +202,46 @@ describe("A3.2 阻断行为", () => {
     expect(r?.block).toBe(true);
   });
 
+  it("bash 绕过可观测：硬约束未过时 bash 写文件 → 记 check:bypassed（不阻断）", async () => {
+    const { handler, ctx } = makeToolCallHandler();
+    const s = getSessionById(SESSION_ID);
+    const logs: Array<{ msg: string; ctx?: Record<string, unknown> }> = [];
+    s.logger = {
+      info: (msg: string, c?: Record<string, unknown>) => logs.push({ msg, ctx: c }),
+      debug: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    } as unknown as typeof s.logger;
+    s.checkBlockEnabled = true;
+    s.blockingFailures = [{ probe: "fs-exists", message: "不存在: X.txt", blocking: true }];
+    const r = (await handler(
+      { type: "tool_call", toolName: "bash", input: { command: "printf 'x\n' >> OUT.txt" } },
+      ctx
+    )) as { block?: boolean } | undefined;
+    // bash 放行（不阻断）——但绕过要留下痕迹
+    expect(r?.block).toBeUndefined();
+    const logged = logs.find((l) => l.msg === "check:bypassed");
+    expect(logged).toBeDefined();
+    expect(logged?.ctx?.probe).toBe("fs-exists");
+    expect(JSON.stringify(logged?.ctx?.paths)).toContain("OUT.txt");
+  });
+
+  it("bash 不写文件（如 ls）→ 不记 bypass（不是绕过）", async () => {
+    const { handler, ctx } = makeToolCallHandler();
+    const s = getSessionById(SESSION_ID);
+    const logs: Array<{ msg: string; ctx?: Record<string, unknown> }> = [];
+    s.logger = {
+      info: (msg: string, c?: Record<string, unknown>) => logs.push({ msg, ctx: c }),
+      debug: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    } as unknown as typeof s.logger;
+    s.checkBlockEnabled = true;
+    s.blockingFailures = [{ probe: "fs-exists", message: "不存在: X.txt", blocking: true }];
+    await handler({ type: "tool_call", toolName: "bash", input: { command: "ls -la" } }, ctx);
+    expect(logs.find((l) => l.msg === "check:bypassed")).toBeUndefined();
+  });
+
   it("硬约束失败被清掉（检查已通过）→ 不再阻断", async () => {
     const { handler, ctx } = makeToolCallHandler();
     const s = getSessionById(SESSION_ID);

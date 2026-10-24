@@ -24,6 +24,19 @@ export function registerToolEvents(pi: ExtensionAPI): void {
     //   （模型可能需要 bash 去修）③ reason 说清怎么解（否则模型会卡死）。
     if (sessionId) {
       const s = getSessionById(sessionId);
+      // v19（A3）：绕过可观测——bash 放行是刻意的（模型可能需要 bash 去修），
+      //   但"模型用 bash 绕过硬约束"必须看得见（作者要知道这条规范被反复违反）。
+      if (s.checkBlockEnabled && s.blockingFailures.length > 0 && name === "bash") {
+        const cmd = typeof e.input?.command === "string" ? e.input.command : "";
+        const targets = extractBashWritePaths(cmd);
+        if (targets.length > 0) {
+          s.logger?.info("check:bypassed", {
+            probe: s.blockingFailures[0]?.probe,
+            paths: targets.slice(0, 3),
+            cmd: cmd.slice(0, 120),
+          });
+        }
+      }
       if (s.checkBlockEnabled && s.blockingFailures.length > 0) {
         // v19（A3）：阻断前**即时复核**——失败项可能已被本轮修好（上轮记录的失败是陈旧的）。
         //   只对轻量探针复核（毫秒级）；重探针（lint/tsc/test）用陈旧状态，避免写操作被拖慢。
