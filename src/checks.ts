@@ -19,11 +19,12 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { readProjectSetting } from "./config.js";
+import { MOD_CHECKLISTS, MOD_RULES } from "./constants.js";
 import { runVerify } from "./verify/index.js";
 import { getSessionById } from "./session.js";
 import { writeProbeResult } from "./manual-writeback.js";
 import { errMsg } from "./diagnostics.js";
-import type { ProbeOutcome } from "./schema.js";
+import type { Checklist, Domain, ProbeOutcome, Rule } from "./schema.js";
 
 /** 何时跑。 */
 export type CheckWhen = "agent_settled" | "session_end";
@@ -131,6 +132,31 @@ export async function runChecks(cwd: string, checks: DeclaredCheck[]): Promise<C
   return results;
 }
 
+/** 从 Domain IR 收集规范项的检查绑定（A1）。
+ *  - `observe: [probe…]` → 无参探针
+ *  - `checks: {probe, params}` → 带参探针
+ *  同一探针 + 同参数只保留一份。 */
+export function collectDomainNormChecks(domain: Domain): DeclaredCheck[] {
+  const out: DeclaredCheck[] = [];
+  const seen = new Set<string>();
+  const push = (c: DeclaredCheck) => {
+    const key = `${c.probe}::${JSON.stringify(c.params ?? {})}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(c);
+  };
+  const modules = (domain.modules ?? {}) as Record<string, unknown>;
+  const rules = Array.isArray(modules[MOD_RULES]) ? (modules[MOD_RULES] as Rule[]) : [];
+  const checklists = Array.isArray(modules[MOD_CHECKLISTS])
+    ? (modules[MOD_CHECKLISTS] as Checklist[])
+    : [];
+  for (const item of [...rules, ...checklists]) {
+    for (const probe of item.observe ?? []) push({ probe });
+    for (const c of item.checks ?? []) push({ probe: c.probe, params: c.params });
+  }
+  return out;
+}
+
 /** 主动检查需要的最小 ctx（不绑 Pi 完整 API，便于测试）。 */
 export interface AutoCheckCtx {
   cwd: string;
@@ -158,8 +184,19 @@ export async function runAutoChecks(
   const declared = await readDeclaredChecks(ctx.cwd);
   const checks: DeclaredCheck[] = declared.filter((c) => (c.when ?? "agent_settled") === when);
 
+  // v19（A1）：规范项自带的检查绑定（归属 S2）——
+  //   只验**本 session 已注入过**的 domain（没查过的手册不用验）。
+  //   domain 名来自 B3 记录的 pt_inject 调用；Domain IR 来自 active profile 的 cachedDomains。
+  const s = getSessionById(sessionId);
+  const injected = new Set(s.turnOutputs.flatMap((o) => o.domains));
+  for (const d of s.cachedDomains ?? []) {
+    if (!injected.has(d.name)) continue;
+    for (const c of collectDomainNormChecks(d)) {
+      if (!checks.some((x) => x.probe === c.probe)) checks.push({ ...c, when });
+    }
+  }
+
   if (mode === "on+manual") {
-    const s = getSessionById(sessionId);
     const manualPath = s.activeManual?.filePath;
     if (manualPath) {
       for (const probe of await readManualObserveProbes(manualPath)) {
@@ -173,7 +210,6 @@ export async function runAutoChecks(
   if (checks.length === 0) return [];
 
   const results = await runChecks(ctx.cwd, checks);
-  const s = getSessionById(sessionId);
   for (const r of results) {
     log?.("check:run", {
       probe: r.probe,

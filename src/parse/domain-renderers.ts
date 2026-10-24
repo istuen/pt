@@ -7,10 +7,64 @@
 // 替换 parse/domain.ts 中的 switch-case 主逻辑。switch-case 仅留兜底 default fallback。
 
 import { s, sArr, type Item } from "./shared.js";
-import type { ExternalRef, FlowStep } from "../schema.js";
+import type { Checklist, ExternalRef, FlowStep, NormCheck, Rule } from "../schema.js";
 
 /** 单个 H2 段内容解析器。 */
 export type DomainSectionParser = (items: Item[], sectionRaw: string) => unknown;
+
+/** 各段解析器消费的字段名（白名单）——不在白名单里的字段会被静默丢弃。
+ *  v19（A1）：据此收集 unknownFields 交体检告警（写错的字段静默失效 = 假合规）。 */
+const SECTION_KNOWN_FIELDS: Record<string, ReadonlySet<string>> = {
+  Scene: new Set(["desc", "description", "role", "path", "fields", "purpose", "rule"]),
+  Trigger: new Set(["desc", "description", "hint", "anti"]),
+  Rules: new Set(["check", "items", "slot", "type", "observe", "checks"]),
+  Checklists: new Set(["items", "check", "step", "rationale", "observe", "checks"]),
+};
+
+/** 取该项里不被本段消费的字段名。 */
+function unknownFieldsOf(section: string, it: Item): string[] {
+  const known = SECTION_KNOWN_FIELDS[section];
+  if (!known) return [];
+  return Object.keys(it.fields ?? {}).filter((k) => !known.has(k));
+}
+
+/** 宽松解析检查绑定（issue pt-asset-verifiable-norm A1）。
+ *  接受三种写法（坏数据丢弃，不抛）：
+ *   - 对象 `{ probe: X, params: { k: v }, on: notify }` → 单个
+ *   - 数组 → 逐项（元素是对象/字符串才收）
+ *   - 字符串 → 视作 `{ probe: <str> }`（等价 observe 单值）
+ */
+export function parseNormChecks(v: unknown): NormCheck[] {
+  const out: NormCheck[] = [];
+  const one = (raw: unknown): void => {
+    if (typeof raw === "string") {
+      const probe = raw.trim();
+      if (probe) out.push({ probe });
+      return;
+    }
+    if (!raw || typeof raw !== "object") return;
+    const o = raw as Record<string, unknown>;
+    const probe = typeof o.probe === "string" ? o.probe.trim() : "";
+    if (!probe) return;
+    const check: NormCheck = { probe };
+    if (o.params && typeof o.params === "object") {
+      const params: Record<string, string> = {};
+      for (const [k, pv] of Object.entries(o.params as Record<string, unknown>)) {
+        if (typeof pv === "string") params[k] = pv;
+        else if (typeof pv === "number" || typeof pv === "boolean") params[k] = String(pv);
+      }
+      if (Object.keys(params).length > 0) check.params = params;
+    }
+    if (o.on === "block" || o.on === "notify") check.on = o.on;
+    out.push(check);
+  };
+  if (Array.isArray(v)) {
+    for (const item of v) one(item);
+  } else if (v !== undefined && v !== null && v !== "") {
+    one(v);
+  }
+  return out;
+}
 
 /** 注册表：H2段名 → parser。Phase term-P9.3：删 type 维度。 */
 const domainSectionRenderers: Record<string, DomainSectionParser> = {
@@ -21,13 +75,21 @@ const domainSectionRenderers: Record<string, DomainSectionParser> = {
       const path = s(it.fields.path);
       const fields = sArr(it.fields.fields);
       const note = s(it.fields.purpose) || s(it.fields.rule);
-      const term: { name: string; desc?: string; fields?: string[]; note?: string; path?: string } =
-        {
-          name: it.name,
-        };
+      const term: {
+        name: string;
+        desc?: string;
+        fields?: string[];
+        note?: string;
+        path?: string;
+        unknownFields?: string[];
+      } = {
+        name: it.name,
+      };
       if (desc) term.desc = desc;
       if (path) term.path = path;
       if (fields.length > 0) term.fields = fields;
+      const unknown = unknownFieldsOf("Scene", it);
+      if (unknown.length > 0) term.unknownFields = unknown;
       if (note) term.note = note;
       return term;
     }),
@@ -41,12 +103,20 @@ const domainSectionRenderers: Record<string, DomainSectionParser> = {
       const desc = s(it.fields.desc) || s(it.fields.description) || "";
       const hint = s(it.fields.hint);
       const anti = s(it.fields.anti);
-      const trigger: { name: string; desc?: string; hint?: string; anti?: string } = {
+      const trigger: {
+        name: string;
+        desc?: string;
+        hint?: string;
+        anti?: string;
+        unknownFields?: string[];
+      } = {
         name: it.name,
       };
       if (desc) trigger.desc = desc;
       if (hint) trigger.hint = hint;
       if (anti) trigger.anti = anti;
+      const unknown = unknownFieldsOf("Trigger", it);
+      if (unknown.length > 0) trigger.unknownFields = unknown;
       return trigger;
     }),
   // H2="Rules"（Phase term-P9.2：从 Manual.term 拆出）—— Rule[]
@@ -59,10 +129,21 @@ const domainSectionRenderers: Record<string, DomainSectionParser> = {
         s(it.fields.value) ||
         s(it.fields.description) ||
         "";
-      if (itemsArr.length > 0) {
-        return { name: it.name, slot: "global", type: "ban", check, items: itemsArr };
-      }
-      return { name: it.name, slot: "global", type: "invariant", check };
+      // v19（A1）：可自动验证的探针绑定——observe（无参形态）/ checks（带参结构化）
+      const observe = sArr(it.fields.observe);
+      const checks = parseNormChecks(it.fields.checks);
+      const unknown = unknownFieldsOf("Rules", it);
+      const rule: Rule = {
+        name: it.name,
+        slot: "global",
+        type: itemsArr.length > 0 ? "ban" : "invariant",
+        check,
+      };
+      if (itemsArr.length > 0) rule.items = itemsArr;
+      if (observe.length > 0) rule.observe = observe;
+      if (checks.length > 0) rule.checks = checks;
+      if (unknown.length > 0) rule.unknownFields = unknown;
+      return rule;
     }),
   // H2="Flows"（Phase term-P9.2：从 Manual.workflow 拆出）—— FlowTemplate[]
   Flows: (items, sectionRaw) =>
@@ -79,10 +160,16 @@ const domainSectionRenderers: Record<string, DomainSectionParser> = {
     }),
   // H2="Checklists"（Phase term-P9.2：新增）—— Checklist[]
   Checklists: (items) =>
-    items.map((it) => ({
-      name: it.name,
-      items: sArr(it.fields.items),
-    })),
+    items.map((it) => {
+      const observe = sArr(it.fields.observe);
+      const checks = parseNormChecks(it.fields.checks);
+      const unknown = unknownFieldsOf("Checklists", it);
+      const checklist: Checklist = { name: it.name, items: sArr(it.fields.items) };
+      if (observe.length > 0) checklist.observe = observe;
+      if (checks.length > 0) checklist.checks = checks;
+      if (unknown.length > 0) checklist.unknownFields = unknown;
+      return checklist;
+    }),
 };
 
 /** 加新 H2 段名 = 调 registerDomainSectionRenderer 加一行注册 + 一个 parser 函数。
