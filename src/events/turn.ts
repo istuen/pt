@@ -8,6 +8,7 @@ import { getSessionById } from "../session.js";
 import { refreshInjectionFooter, refreshManualWidget } from "../manual-session.js";
 import { getSessionIdFromCtx } from "../shared/session-helpers.js";
 import { persistTurnOutput, type TurnOutput } from "../turn-output.js";
+import { runAutoChecks } from "../checks.js";
 import type { PiTurnEndEvent } from "../shared/pi-types.js";
 
 /** 注册 turn 生命周期事件 handler。从 index.ts 抽出，逻辑零变更。 */
@@ -60,6 +61,13 @@ export function registerTurnEvents(pi: ExtensionAPI): void {
     }
   });
   pi.on("agent_settled", async (_event, ctx) => {
-    slog(getSessionIdFromCtx(ctx), "debug", "agent:settled");
+    const sessionId = getSessionIdFromCtx(ctx);
+    slog(sessionId, "debug", "agent:settled");
+    // v19（issue pt-asset-verifiable-norm §三 A2）：主动检查——
+    //   agent 跑完一轮时自己跑声明的探针（不靠模型主动调 pt_doc verify）。
+    //   DEVIATED → notify + 日志；命中 activeManual 的 observe → 写回 manual。
+    await runAutoChecks({ cwd: ctx.cwd, ui: ctx.ui }, sessionId, "agent_settled", (msg, c) =>
+      slog(sessionId, "debug", msg, c)
+    );
   });
 }

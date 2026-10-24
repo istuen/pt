@@ -38,6 +38,7 @@ import {
   transpileActive,
 } from "../shared/session-helpers.js";
 import { readTurnOutputs } from "../turn-output.js";
+import { runAutoChecks } from "../checks.js";
 
 /** 注册 session 生命周期事件 handler。从 index.ts 抽出，逻辑零变更。 */
 export function registerSessionEvents(pi: ExtensionAPI): void {
@@ -415,6 +416,11 @@ export function registerSessionEvents(pi: ExtensionAPI): void {
     const sessionId = getSessionIdFromCtx(ctx);
     if (!sessionId) return;
     const s = getSessionById(sessionId);
+    // v19（A2）：session 关闭时跑 session_end 检查（声明了才跑）——
+    //   放在 flush 之前，让 check:run 日志随 flush 落盘。
+    await runAutoChecks({ cwd: ctx.cwd, ui: ctx.ui }, sessionId, "session_end", (msg, c) =>
+      s.logger?.info(msg, c)
+    );
     if (s.logger) {
       s.logger.info("session:shutdown");
       await s.logger.flush();
