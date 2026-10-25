@@ -109,7 +109,7 @@ name: authoring
 - desc: Trigger H3 项可写可选 `anti:` 字段——负向触发条件（"什么情况不触发"），与正向 `desc` / `hint` 互补，减少误触发注入
 - fields: [anti]
 - note: Phase B 已全链路落地——anti: 进 parse 输出（TriggerItem.anti）+ type guard 契约（isTriggerItemLike）+ renderTriggerModule 产物（`  anti: <负向条件>` 行），LLM 在 Turn Inject 触发判断时可见负向条件。落地路径见 issue pt-trigger-anti-field-phase-b。
-- example: '### pt-collab-trigger / - desc: 派任务/验收时参考 / - hint: /manual:pt-collab / - anti: 纯代码改动无任务派发/验收时（不触发 pt-collab 手册注入）'
+- example: '### pt-collab-trigger / - desc: 派任务/验收时参考 / - hint: 调 pt_inject tool domain=pt-collab 查看完整手册 / - anti: 纯代码改动无任务派发/验收时（不触发 pt-collab 手册注入）'
 - rationale: 工业先例：三家厂商都有负向触发（Codex "Do not use when"；Sonnet "Do NOT apply if"；Claude Code "SKIP only when" / "Do NOT trigger when"）。减少误触发直接服务"减少认知负荷"原则。
 
 ### norm-check-binding
