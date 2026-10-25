@@ -4,13 +4,14 @@
 //
 // 纯函数测试——不依赖 scanProjectHealth 的副作用（不碰文件/缓存）。
 //
-// 3 条规则：
+// 4 条规则：
 //   1. desc-domain-boundary  —— desc 是领域边界式（灰区任务实测 16.4% vs 98.4%）
 //   2. desc-task-signal-weak —— desc 是任务类别式但没点名本 Domain 的项（信号对不上灰区任务）
 //   3. desc-rule-name-drift  —— desc 点名的规则名不存在（写进 desc 的信号是死的）
+//   4. desc-length-over      —— desc 超长（任务书 trigger-desc-cost-and-regression 步骤 2：风格问题 info 级）
 
 import { describe, it, expect } from "vitest";
-import { checkTriggerDescQuality } from "../../src/verify/trigger-desc-quality.js";
+import { checkTriggerDescQuality, DESC_LENGTH_BUDGET } from "../../src/verify/trigger-desc-quality.js";
 import type { Domain } from "../../src/schema.js";
 
 /** 造一个最小 Domain（Trigger + 可选 Scene/Rules 项）。 */
@@ -144,6 +145,46 @@ describe("checkTriggerDescQuality · 规则 3 desc-rule-name-drift", () => {
       })
     );
     expect(issues.find((i) => i.rule === "desc-rule-name-drift")).toBeUndefined();
+  });
+});
+
+describe("checkTriggerDescQuality · 规则 4 desc-length-over", () => {
+  it("desc 超过预算 → 报 info（含实际长度和预算值）", () => {
+    const long = "改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出 / 加新 modName / 挂检查探针 / 写断言 / 改 render / 改 compile / 改 parse / 改 asset / 改 verify 前，先查规范（modules-type-safety、no-duplicate-type、parse-extension-registry、module-name-constant、naming-consistency、npm-scripts、test-framework）";
+    expect(long.length).toBeGreaterThan(DESC_LENGTH_BUDGET);
+    const issues = checkTriggerDescQuality(mkDomain({ desc: long }));
+    const d = issues.find((i) => i.rule === "desc-length-over");
+    expect(d).toBeDefined();
+    expect(d?.msg).toContain(`${long.length} 字`);
+    expect(d?.msg).toContain(`≤${DESC_LENGTH_BUDGET}`);
+    expect(d?.hint).toContain("精简");
+  });
+
+  it("超长且写法也坏（领域边界式）→ 双报（长度独立于写法规则）", () => {
+    const long = "技术规范参考手册；" + "条目索引与使用说明。".repeat(24);
+    expect(long.length).toBeGreaterThan(DESC_LENGTH_BUDGET);
+    const issues = checkTriggerDescQuality(mkDomain({ desc: long }));
+    expect(issues.some((i) => i.rule === "desc-domain-boundary")).toBe(true);
+    expect(issues.some((i) => i.rule === "desc-length-over")).toBe(true);
+  });
+
+  it("预算内（如 G3b V2 ~100 字）→ 不报", () => {
+    const mid =
+      "改 Pt 源码 / 改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出 / 加新 modName / 挂检查探针 / 写断言 前，先查规范（modules-type-safety、no-duplicate-type）";
+    expect(mid.length).toBeLessThanOrEqual(DESC_LENGTH_BUDGET);
+    const issues = checkTriggerDescQuality(mkDomain({ desc: mid }));
+    expect(issues.find((i) => i.rule === "desc-length-over")).toBeUndefined();
+  });
+
+  it("恰好等于预算 → 不报（闭区间，超出才提示）", () => {
+    // 造一个正好卡在预算上的 desc（保留任务信号词避免落到规则 2 的干扰断言）
+    const desc = ("改 schema 契约 前，先查规范（rule-a）" + "x".repeat(DESC_LENGTH_BUDGET)).slice(
+      0,
+      DESC_LENGTH_BUDGET
+    );
+    expect(desc.length).toBe(DESC_LENGTH_BUDGET);
+    const issues = checkTriggerDescQuality(mkDomain({ desc }));
+    expect(issues.find((i) => i.rule === "desc-length-over")).toBeUndefined();
   });
 });
 

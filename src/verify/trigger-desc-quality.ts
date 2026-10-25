@@ -13,7 +13,7 @@
 //   任务不属 desc 覆盖的类别 → 效应为 0（issue §7.8.1 G2：三种写法全 100%）。
 //   → 体检不能只看"是不是任务类别式"，还要看"**任务词是否具体到能对上**"。
 //
-// 本模块做**纯静态启发式**检查（无 LLM 参与），3 条可机械判定的规则：
+// 本模块做**纯静态启发式**检查（无 LLM 参与），4 条可机械判定的规则：
 //
 //   1. desc-domain-boundary（warning）—— desc 是"领域边界式"形态
 //      判据：首个分句形如「X 参考 / 索引 / 手册 / 指南 / 配置」且全句无任务信号词
@@ -27,6 +27,10 @@
 //      判据：desc 的括号内枚举项（如「（modules-type-safety、…）」）里，
 //      有名字**不匹配**本 Domain 任何 H3 项名 → 写进 desc 的信号是死的
 //
+//   4. desc-length-over（info）—— desc 超长（任务书 trigger-desc-cost-and-regression 步骤 2）
+//      判据：desc 字符数 > DESC_LENGTH_BUDGET（预算值，依据见常量注释）
+//      → 长度不是正确性问题是风格问题：info 级只提示不硬截断；超出 ≠ 错，是"该精简了"
+//
 // 边界纪律：
 //   - **只检测 + 报告，不改资产**（与 asset-health 其它规则一致；修复走作者手改）
 //   - **启发式，非判据**：命中 = 值得看一眼；不命中 ≠ 一定好（避免假阴性的误导）
@@ -39,7 +43,11 @@ import { isTriggerItemArray } from "../compile/type-guards.js";
 /** 体检发现的问题。 */
 export interface TriggerDescIssue {
   /** 规则 id。 */
-  rule: "desc-domain-boundary" | "desc-task-signal-weak" | "desc-rule-name-drift";
+  rule:
+    | "desc-domain-boundary"
+    | "desc-task-signal-weak"
+    | "desc-rule-name-drift"
+    | "desc-length-over";
   /** Domain 名。 */
   domainName: string;
   /** Trigger 项名。 */
@@ -49,6 +57,16 @@ export interface TriggerDescIssue {
   /** 修复建议。 */
   hint?: string;
 }
+
+/** desc 长度预算（字符，含标点/英文——与 G4 实验变体同口径）。
+ *
+ *  依据（任务书 trigger-desc-cost-and-regression 步骤 1：先测成本再定预算）：
+ *  - 成本侧：desc 逐字进 trigger-index，注入字符按 ~1:1 线性传导（G4 冒烟验证）
+ *  - 效果侧：G3b V2（~100 字）为实测最优区间；任务词对齐才有效应，长度不叠加收益
+ *  - 存量：现役 desc 最长 ~157 字（TASK max 152 / DOMAIN max 157）
+ *  ⚠️ 暂定值 150——G4 正式数据（n=20/组）落地后复核并同步 authoring 手册预算段。
+ */
+export const DESC_LENGTH_BUDGET = 150;
 
 /** 领域边界式 desc 的"领域介绍"形态——首个分句是"X 参考/索引/手册/指南/配置/方法/体系"。
  *  （对齐 issue §7.7.1 的机械判据） */
@@ -145,6 +163,17 @@ export function checkTriggerDescQuality(domain: Domain): TriggerDescIssue[] {
   for (const item of items) {
     const desc = (item.desc ?? "").trim();
     if (!desc) continue;
+
+    // ---- 规则 4：超长（info，风格提示——独立于写法规则，超长 desc 也可能是好写法）----
+    if (desc.length > DESC_LENGTH_BUDGET) {
+      issues.push({
+        rule: "desc-length-over",
+        domainName: domain.name,
+        itemName: item.name,
+        msg: `Domain「${domain.name}」Trigger 项「${item.name}」的 desc 长 ${desc.length} 字（预算 ≤${DESC_LENGTH_BUDGET}）——超出不等于错，是该精简了：任务词对齐才有效应，长度不叠加收益，长 desc 稀释命中信号`,
+        hint: `精简到预算内：保留任务类别词 + 点名 1-3 个代表项；背景/动机/领域介绍类内容移到 hint 或正文（不属于 desc）`,
+      });
+    }
 
     // ---- 规则 1：领域边界式 ----
     if (looksDomainBoundary(desc)) {
