@@ -193,7 +193,8 @@ domain_consulted_sessions() {
   echo ""
   echo "> SessionContext 注入让 systemPrompt 增加了多少字符 = Pt 占用了 LLM 多少 context budget。"
   echo ""
-  STATS=$(jqf 'select(.msg=="agent:before_agent_start ok") | [.ctx.originalLen, .ctx.injectedLen, .ctx.deltaLen] | @tsv' | grep -v '^$')
+  # 注意：管道为空时 pipefail 会让整个赋值失败（set -e）→ 用 `|| true` 吃掉退出码
+  STATS=$(jqf 'select(.msg=="agent:before_agent_start ok") | [.ctx.originalLen, .ctx.injectedLen, .ctx.deltaLen] | @tsv' | grep -v '^$' || true)
   INJECT_SAMPLES=$(echo "$STATS" | wc -l | tr -d ' ')
   if [ "$INJECT_SAMPLES" -gt 0 ]; then
     AVG_ORIG=$(echo "$STATS" | awk -F'\t' '{s+=$1; n++} END {printf "%.0f", s/n}')
