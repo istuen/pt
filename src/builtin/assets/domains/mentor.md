@@ -12,7 +12,7 @@ builtin profile `mentor` 引用本 domain 做主线，深度参考通过调 pt_i
 ## Trigger
 
 ### mentor-trigger
-- desc: 想一步步学 Pt 时参考；含 7 步从零到可用配置的引导路径，每步带深度参考指引
+- desc: 想一步步从零学 Pt / 不知道从哪下手 / 第一次配资产 / 要一份引导路径时，先查规范（7 步引导：理解概念 → 启用 → 识别知识结构 → 建 Domain → 建 Profile → 编译验证 → 迭代）
 - hint: 深度创作参考 调 pt_inject tool domain=authoring；命令查询参考 调 pt_inject tool domain=usage；概念模型参考 调 pt_inject tool domain=project-analysis
 
 ## Scene

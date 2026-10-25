@@ -6,7 +6,7 @@ name: usage
 
 ## Trigger
 ### usage-trigger
-- desc: 操作 Pt 时参考；含 /pt 命令族（含 /pt doc start 实例化手册）+ --pt-profile flag（--pt-context 为旧 flag，backward-compat 保留）+ /pt-profile 切换
+- desc: 要用 /pt 命令族 / 切 profile / 手动触发 TurnContext / 实例化手册 / 查命令参数时，先查规范（pt-commands、pt-profile-command、manual-trigger、pt-profile-flag、pt-doc-tool、pt-inject-tool）
 - hint: 调 pt_inject tool domain=usage 查看完整命令列表
 
 ## Scene

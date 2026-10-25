@@ -54,6 +54,7 @@ import type {
   WorkingSet,
 } from "./schema.js";
 import { listProbes } from "./verify/index.js";
+import { checkTriggerDescQuality } from "./verify/trigger-desc-quality.js";
 
 // ==================== 公共类型 ====================
 
@@ -90,7 +91,10 @@ export type HealthRuleId =
   | "use-expansion-error" // v17+：use 链展开失败（UseTargetNotFound/UseChainCycle/BlueprintGroupOutOfScope）→ warning
   | "dangling-domain-ref" // v18+（issue pt-pack-ref-drift-detection 方案 A）：profile.domains / profile.groups[X].domains 引用悬空 Domain（settings pack 删 domain 后静默破坏）→ error
   | "norm-check-unknown-probe" // v19+（A1）：规范项挂了注册表里没有的探针 → 检查静默不跑 = 假合规 → warning
-  | "norm-item-typo-field"; // v19+（A1）：规范项里疑似拼写错的字段（编辑距离 1）→ 字段静默失效 → warning
+  | "norm-item-typo-field" // v19+（A1）：规范项里疑似拼写错的字段（编辑距离 1）→ 字段静默失效 → warning
+  | "desc-domain-boundary" // v19+（issue pt-trigger-relevance-signal §八.3）：Trigger desc 是领域边界式 → 灰区任务几乎不触发（实测 16.4%）→ warning
+  | "desc-task-signal-weak" // v19+（同上）：desc 声称任务类别式但没点名本 Domain 的项 → 命中信号对不上灰区任务 → warning
+  | "desc-rule-name-drift"; // v19+（同上）：desc 点名的规则名不存在 → 写进 desc 的信号是死的 → warning
 
 /** 资产健康扫描结果（按 profile 聚合）。 */
 export interface AssetHealthReport {
@@ -582,6 +586,8 @@ export async function scanProjectHealth(
     const checklists = Array.isArray(modules[MOD_CHECKLISTS])
       ? (modules[MOD_CHECKLISTS] as Checklist[])
       : [];
+    // v19+：Trigger desc 写法体检（issue pt-trigger-relevance-signal §八.3）
+    const descIssues = checkTriggerDescQuality(d);
     for (const item of [...rules, ...checklists]) {
       const probes = [...(item.observe ?? []), ...(item.checks ?? []).map((c) => c.probe)];
       for (const probe of probes) {
@@ -606,6 +612,20 @@ export async function scanProjectHealth(
           hint: `改成上列字段名；或若该字段本就不支持，先移除（静默失效的字段比没有更危险）`,
         });
       }
+    }
+
+    // ===== v19+（issue pt-trigger-relevance-signal §八.3）：Trigger desc 写法体检 =====
+    //  desc 是**触发决策的输入本身**（决策在 SessionContext 层发生，规则正文决策后才注入）
+    //  → desc 写成领域介绍 = 把"该查吗"推回 Agent 的语义匹配（灰区任务实测 16.4% vs 98.4%）
+    for (const d of descIssues) {
+      issues.push({
+        severity: d.rule === "desc-rule-name-drift" ? "warning" : "warning",
+        scope: "domain",
+        name: d.domainName,
+        field: `Trigger.${d.itemName}.desc`,
+        msg: d.msg,
+        hint: d.hint,
+      });
     }
   }
 
