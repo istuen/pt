@@ -226,7 +226,7 @@ name: authoring
 - vars: []
 - step: 用 read 工具读目标 .md（Pt Domain/Blueprint/Pt Profile）
 - step: 用 edit 工具改内容（或 write 整体重写）—— Profile 改 ### Modules 时保持 modName 2 形态
-- step: 删 .pt/cache/agent-contexts/*.agent-context.md（强制重编译）
+- step: 删 .pt/cache/agent-contexts/*.agent-context.md（强制重装配）
 - step: /pt-profile <profile> 重载验证
 - step: 检查产物：/pt raw 看 segment，确认角色隔离生效（pt-dev 不含 architect / devops-engineer，pt-arch 不含 senior+qa+cr+devops 等）
 

@@ -335,7 +335,7 @@ describe("compileAgentContext H3 项粒度（v9.1+ modules-to-profile-complete�
         modules: {
           User: [
             { name: "user-profile", desc: "Pt 项目作者与架构师" },
-            { name: "pt-goal", desc: "Pt 要成为异构上下文编译器" },
+            { name: "pt-goal", desc: "Pt 要成为异构上下文配置器" },
           ],
         },
       }),

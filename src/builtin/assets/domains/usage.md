@@ -56,10 +56,10 @@ name: usage
 
 ### switch_profile
 - argument-hint: <profile-name>
-- intent: 切换到指定 Profile 并重编译
+- intent: 切换到指定 Profile 并重装配
 - vars: [profile-name]
 - step: /pt-profile {{profile-name}}
-- step: Pt 删该 profile 的 cache（强制重编译）
+- step: Pt 删该 profile 的 cache（强制重装配）
 - step: 下一轮 Pi 事件自动加载新 profile 的 segment
 
 ### dump_segment
@@ -67,12 +67,12 @@ name: usage
 - intent: 把当前 session 的 segment（Pt 注入的 Session Context）dump 到文件
 - vars: []
 - step: /pt info raw → 写入 .pt/cache/raws/segment-<timestamp>.md
-- step: 用于检查 Pt 编译产物是否正确
+- step: 用于检查 Pt 装配产物是否正确
 
 ## Rules
 
 ### cache-invalidation-rule
-- check: 改资产后必删 .pt/cache/agent-contexts/*.agent-context.md 强制重编译；sourceHash 会自动失效，但手动删 cache 是最直接的验证方式
+- check: 改资产后必删 .pt/cache/agent-contexts/*.agent-context.md 强制重装配；sourceHash 会自动失效，但手动删 cache 是最直接的验证方式
 
 ### profile-switch-next-turn
 - check: /pt-profile <name> 切换后下一轮才生效（before_agent_start 事件重注入）；当前轮不受影响

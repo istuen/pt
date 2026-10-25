@@ -35,7 +35,7 @@ export default function (pi: ExtensionAPI): void {
   //   向后兼容：--pt-context（flag）和 pt.pt-context/au.pt-context（settings key）作为 fallback 保留——
   //   用户升级 Pt 后旧配置仍能工作，新配置优先。
   pi.registerFlag("pt-profile", {
-    description: "启动时激活的 Profile 名（编译成 AgentContext 注入 Session Inject）",
+    description: "启动时激活的 Profile 名（装配成 AgentContext 注入 Session Inject）",
     type: "string",
   });
   // v19（Layer 2，issue pt-adoption-observability）：per-session 汇总开关。
