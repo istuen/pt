@@ -15,12 +15,17 @@
 #
 # 用法：bash scripts/log-stats.sh [日志目录，默认 .pt/logs]
 #       bash scripts/log-stats.sh .pt/logs .pt/cache/agent-contexts   # 显式指定缓存目录
+#       bash scripts/log-stats.sh .pt/logs .pt/cache/agent-contexts docs   # 显式指定输出目录
+#
+# 输出目录默认为 `docs/`——报告是**资产**（可 git 追踪 + 人读 + Agent 读），
+# 而 `.pt/` 在多数项目里被 gitignore（pt-internal 就是）→ 写 .pt/docs/ 会丢。
 
 set -euo pipefail
 
 LOG_DIR="${1:-.pt/logs}"
 CACHE_DIR="${2:-.pt/cache/agent-contexts}"
-OUT_FILE=".pt/docs/log-stats-$(date +%Y%m%d).md"
+OUT_DIR="${3:-docs}"
+OUT_FILE="$OUT_DIR/log-stats-$(date +%Y%m%d).md"
 
 if [ ! -d "$LOG_DIR" ]; then
   echo "Error: $LOG_DIR not found" >&2
