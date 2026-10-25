@@ -11,7 +11,10 @@
 //   4. desc-length-over      —— desc 超长（任务书 trigger-desc-cost-and-regression 步骤 2：风格问题 info 级）
 
 import { describe, it, expect } from "vitest";
-import { checkTriggerDescQuality, DESC_LENGTH_BUDGET } from "../../src/verify/trigger-desc-quality.js";
+import {
+  checkTriggerDescQuality,
+  DESC_LENGTH_BUDGET,
+} from "../../src/verify/trigger-desc-quality.js";
 import type { Domain } from "../../src/schema.js";
 
 /** 造一个最小 Domain（Trigger + 可选 Scene/Rules 项）。 */
@@ -150,7 +153,8 @@ describe("checkTriggerDescQuality · 规则 3 desc-rule-name-drift", () => {
 
 describe("checkTriggerDescQuality · 规则 4 desc-length-over", () => {
   it("desc 超过预算 → 报 info（含实际长度和预算值）", () => {
-    const long = "改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出 / 加新 modName / 挂检查探针 / 写断言 / 改 render / 改 compile / 改 parse / 改 asset / 改 verify 前，先查规范（modules-type-safety、no-duplicate-type、parse-extension-registry、module-name-constant、naming-consistency、npm-scripts、test-framework）";
+    const long =
+      "改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出 / 加新 modName / 挂检查探针 / 写断言 / 改 render / 改 compile / 改 parse / 改 asset / 改 verify 前，先查规范（modules-type-safety、no-duplicate-type、parse-extension-registry、module-name-constant、naming-consistency、npm-scripts、test-framework）";
     expect(long.length).toBeGreaterThan(DESC_LENGTH_BUDGET);
     const issues = checkTriggerDescQuality(mkDomain({ desc: long }));
     const d = issues.find((i) => i.rule === "desc-length-over");

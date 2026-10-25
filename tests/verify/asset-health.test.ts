@@ -809,7 +809,12 @@ describe("scanProjectHealth · desc-length-over（info 接线）", () => {
         Rules: [{ name: "rule-a", check: "x" }],
       },
     });
-    const r = await scan(cwd, [makeProfile({ domains: ["long-desc"] })], [makeBlueprint()], [domain]);
+    const r = await scan(
+      cwd,
+      [makeProfile({ domains: ["long-desc"] })],
+      [makeBlueprint()],
+      [domain]
+    );
     // 双报：长 desc 同时是领域边界式 → 规则 1 warning + 规则 4 info（同 field 不同 severity，验证分流）
     const hit = r.issues.filter(
       (i) => i.scope === "domain" && i.field === "Trigger.long-trigger.desc"
@@ -818,7 +823,9 @@ describe("scanProjectHealth · desc-length-over（info 接线）", () => {
     expect(hit.some((i) => i.severity === "info" && i.msg.includes("desc 长"))).toBe(true);
     expect(hit.some((i) => i.severity === "warning" && i.msg.includes("领域边界式"))).toBe(true);
     // desc-length-over 不计入 warnings（风格问题 ≠ 正确性问题）
-    expect(r.issues.filter((i) => i.msg.includes("desc 长")).every((i) => i.severity === "info")).toBe(true);
+    expect(
+      r.issues.filter((i) => i.msg.includes("desc 长")).every((i) => i.severity === "info")
+    ).toBe(true);
     expect(r.infos ?? 0).toBeGreaterThanOrEqual(1);
   });
 
