@@ -32,3 +32,4 @@ dist/
 # 本地 runtime 兼容性验证工具（依赖本地 oMLX，非项目部署用，不入 git）
 Dockerfile.verify
 scripts/verify-runtime.sh
+docs/archify/
