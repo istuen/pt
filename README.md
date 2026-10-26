@@ -1,6 +1,6 @@
 # Pt
 
-可配置的上下文编译器。
+可配置的上下文配置器。
 
 > 名字取自铂（Platinum，元素符号 Pt）——经典的催化剂，本身不参与反应，却让反应高效发生；
 > Pt 做同样的事，把领域知识催化成 Agent 可用的上下文。
@@ -9,7 +9,7 @@
 
 ## Pt 是什么
 
-Pt 把领域知识编译成可配置的 AgentContext。其可以把用户的领域知识异构成 Pt Domain，再通过 Pt Profile 场景配置编译成 AgentContext，Pi 会获取 SessionContext 作为固定注入，而 TurnContext 则是推理时按需注入。
+Pt 把领域知识装配成可配置的 AgentContext。其可以把用户的领域知识异构成 Pt Domain，再通过 Pt Profile 场景配置装配成 AgentContext，Pi 会获取 SessionContext 作为固定注入，而 TurnContext 则是推理时按需注入。
 
 ```mermaid
 flowchart LR
@@ -165,9 +165,9 @@ groups:
     modules: [Rules, Flows, Checklists]
 ```
 
-### AgentContext 编译注入
+### AgentContext 装配注入
 
-Pt Profile + Pt Blueprint + Pt Domain 编译后的 AgentContext。
+Pt Profile + Pt Blueprint + Pt Domain 装配后的 AgentContext。
 SessionContext 每轮固定注入，LLM 保持上下文稳定。
 TurnContext 推理时按需触发注入，LLM 可选择参考。
 

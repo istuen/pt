@@ -94,7 +94,8 @@ export type HealthRuleId =
   | "norm-item-typo-field" // v19+（A1）：规范项里疑似拼写错的字段（编辑距离 1）→ 字段静默失效 → warning
   | "desc-domain-boundary" // v19+（issue pt-trigger-relevance-signal §八.3）：Trigger desc 是领域边界式 → 灰区任务几乎不触发（实测 16.4%）→ warning
   | "desc-task-signal-weak" // v19+（同上）：desc 声称任务类别式但没点名本 Domain 的项 → 命中信号对不上灰区任务 → warning
-  | "desc-rule-name-drift"; // v19+（同上）：desc 点名的规则名不存在 → 写进 desc 的信号是死的 → warning
+  | "desc-rule-name-drift" // v19+（同上）：desc 点名的规则名不存在 → 写进 desc 的信号是死的 → warning
+  | "desc-length-over"; // v20+（任务书 trigger-desc-cost-and-regression 步骤 2）：desc 超长 → 风格问题非正确性问题 → info（只提示不硬截断）
 
 /** 资产健康扫描结果（按 profile 聚合）。 */
 export interface AssetHealthReport {
@@ -619,7 +620,7 @@ export async function scanProjectHealth(
     //  → desc 写成领域介绍 = 把"该查吗"推回 Agent 的语义匹配（灰区任务实测 16.4% vs 98.4%）
     for (const d of descIssues) {
       issues.push({
-        severity: d.rule === "desc-rule-name-drift" ? "warning" : "warning",
+        severity: d.rule === "desc-length-over" ? "info" : "warning",
         scope: "domain",
         name: d.domainName,
         field: `Trigger.${d.itemName}.desc`,

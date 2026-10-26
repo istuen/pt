@@ -117,8 +117,12 @@ name: authoring
 - purpose: `observe` / `checks` 是执行侧数据——不写进上下文产物（省 context），Pt 侧主动执行：失败会通知并写回手册，并回注给模型让它自我修正。`checks` 里可加 `on: block` 标为**硬约束**（失败时阻断写操作）——仅在项目 settings 开 `pt.check-block` 时生效（默认关），且只阻断 edit/write，bash/read 放行。
 
 ### trigger-desc-task-category
-- desc: Trigger H3 项 `desc` 的写法——**写"什么任务该查这本手册"（任务类别 + 命中信号），不写"这本手册讲什么领域"（领域边界）**。形态：`改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出前，先查规范（…）`。正例：改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出前，先查规范（modules-type-safety、no-duplicate-type、naming-consistency、parse-extension-registry）；反例：改 Pt 代码时参考；含 9 条技术规范（modules-type-safety 等）。领域边界式 desc 只覆盖字面撞词的明确场景，灰区任务（与领域结构相似但字面不匹配，如"给 schema 加可选字段"）几乎不触发（实测 16.4%）；改成任务类别式后同一任务触发率 98.4%——效应 82pp，Fisher p<0.0001（lab 交错 A/B n=181，曝光 100% 机械验证；见 issue pt-trigger-relevance-signal §七）
+- desc: Trigger H3 项 `desc` 的写法——**写"什么任务该查这本手册"（任务类别 + 命中信号），不写"这本手册讲什么领域"（领域边界）**。形态：`改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出前，先查规范（…）`。正例：改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出前，先查规范（modules-type-safety、no-duplicate-type、naming-consistency、parse-extension-registry）；反例：改 Pt 代码时参考；含 9 条技术规范（modules-type-safety 等）。领域边界式 desc 只覆盖字面撞词的明确场景，灰区任务（与领域结构相似但字面不匹配，如"给 schema 加可选字段"）几乎不触发（实测 16.4%）；改成任务类别式后同一任务触发率 98.4%——效应 82pp，Fisher p<0.0001（lab 交错 A/B n=181，曝光 100% 机械验证；见 issue pt-trigger-relevance-signal §七）。**长度预算见 trigger-desc-length-budget**
 - purpose: desc 与 `anti` 是"命中 / 不命中"两面——desc 给任务类别（何时该想起这本手册），anti 给排除条件（何时不该）。触发决策发生在 SessionContext 层：Agent 此刻只看到 desc/hint/anti，规则正文（TurnContext）要到决策之后才注入 → desc 是决策输入本身，不是介绍语。
+
+### trigger-desc-length-budget
+- desc: Trigger H3 项 `desc` 的**长度预算**——推荐 **60~150 字**（含任务类别词 + 点名 1-3 个代表项）；**超过 150 字会被体检提示（info 级，不截断）**，该精简了。依据：G4 成本实验（lab 交错 A/B，n=20/组，同一任务同一口径；desc 长度 0/30/85/200 字四档）——① **成本**：注入量随 desc ~1:1 线性传导（+30 字 → +32 字符），但耗时/turn **无单调上升**（0 字档反而最慢，IQR 高度重叠）→ desc 长度不是耗时主因，200 字也无成本惩罚；② **效果**：≥85 字档 CI 产出率 95% vs ≤30 字档 80~85%（方向一致但 Fisher 不显著，p≥0.34）；③ **饱和**：本任务形态下查阅率各档均 100%——**决定是否查阅的是"写法"不是"长度"**（见 trigger-desc-task-category）。⚠️ 该 null 受**天花板效应**限制：实验配置里 hint 行已兑底（空 desc 也 100% 查阅），故「长度不影响查阅」只在 hint 强的 domain 上成立，hint 弱时长度/存在性作用未测；预算 150 是**保守选择**（200 档无退化、但无收益证据，取更早提示的治理姿态）。单任务 + 代理指标 → 预算给区间不给硬真理；改 desc 后跑 `desc-ab-regress.sh` 自验（pt-lab），换任务需重跑。
+- purpose: 长度不是正确性问题是风格问题——体检用 info 级提示，**不硬截断、不改资产**；超长通常意味着 desc 里混进了"背景/动机/领域介绍"类内容（那些属于 hint 或手册正文），精简掉它们通常还能顺带提升命中信号密度。
 
 ### participant-domain-pattern
 - desc: 身份类 Domain 写法（v9.1+ 重命名）——user-info Domain 用 `## User` 段下 H3 角色项（who-am-i / preferences / goals / ...）；agent-info Domain 用 `## Agent` 段下 H3 角色项（role / collaboration / boundaries / ...）。**段名 = 命名空间**：`User` 限定 user-info、`Agent` 限定 agent-info。Profile 通过 `### Modules: [User]` 聚合 user-info 整段；通过 `### Modules: [Agent.role]` 精确选单角色——角色隔离的"开关"。多角色 agent-info（如 `Agent.agent-role-senior-developer`）需 fullstack pack 或自建扩展。
@@ -222,7 +226,7 @@ name: authoring
 - vars: []
 - step: 用 read 工具读目标 .md（Pt Domain/Blueprint/Pt Profile）
 - step: 用 edit 工具改内容（或 write 整体重写）—— Profile 改 ### Modules 时保持 modName 2 形态
-- step: 删 .pt/cache/agent-contexts/*.agent-context.md（强制重编译）
+- step: 删 .pt/cache/agent-contexts/*.agent-context.md（强制重装配）
 - step: /pt-profile <profile> 重载验证
 - step: 检查产物：/pt raw 看 segment，确认角色隔离生效（pt-dev 不含 architect / devops-engineer，pt-arch 不含 senior+qa+cr+devops 等）
 

@@ -7,10 +7,10 @@ name: project-analysis
 ## Scene
 
 ### what-is-pt
-- desc: Pt 是异构上下文编译器——把领域知识按配置编译成 Agent 上下文并注入。你写 .pt/assets/ 下的 Pt Domain（知识原料）和 Pt Profile（配置），Pt 编译成 Agent Context（Session Context 固定注入面 + Turn Context 按需触发面），注入 Agent。
+- desc: Pt 是异构上下文配置器——把领域知识按配置装配成 Agent 上下文并注入。你写 .pt/assets/ 下的 Pt Domain（知识原料）和 Pt Profile（配置），Pt 装配成 Agent Context（Session Context 固定注入面 + Turn Context 按需触发面），注入 Agent。
 
 ### four-layer-model
-- desc: Pt Domain（内容层——一个 md = 一个知识单元，Module/H2 段名即 schema 选择器）+ Blueprint（结构层——聚合组插槽契约 name + inject + mode，跨项目复用，YAML 载体）+ Pt Profile（配置层——引用 Blueprint + 选 Domains + 填 modules，项目级）+ Agent Context（产物层——编译输出，Session Context + Turn Context 两面，带 sourceHash 缓存）。**v9.1+：Blueprint 不带 modules（退化为插槽契约）——modules 由 Profile 的 H2 段下 ### Modules 列表提供。**
+- desc: Pt Domain（内容层——一个 md = 一个知识单元，Module/H2 段名即 schema 选择器）+ Blueprint（结构层——聚合组插槽契约 name + inject + mode，跨项目复用，YAML 载体）+ Pt Profile（配置层——引用 Blueprint + 选 Domains + 填 modules，项目级）+ Agent Context（产物层——配置输出，Session Context + Turn Context 两面，带 sourceHash 缓存）。**v9.1+：Blueprint 不带 modules（退化为插槽契约）——modules 由 Profile 的 H2 段下 ### Modules 列表提供。**
 
 ### analyze-steps
 - desc: 识别项目知识结构的三步法：（1）列举项目里的领域概念/术语 → Domain 用 Scene + Rules Module；（2）列举项目里的操作流程/开发手册 → Domain 用 Scene + Flows Module；（3）列举项目用的技术栈/工具 → Domain 用 Scene Module（带 path 字段引用外部资源）。一个 Domain 可混装多种 Module，不必按类型拆分。

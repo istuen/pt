@@ -795,3 +795,56 @@ describe("v17.1：scan 接收 workingSet 保留 pack identity", () => {
     expect(drift[0]?.msg).toContain("fullstack");
   });
 });
+
+// ==================== v20：Trigger desc 长度预算（任务书 trigger-desc-cost-and-regression 步骤 2） ====================
+
+describe("scanProjectHealth · desc-length-over（info 接线）", () => {
+  it("超长 desc 经 scan 接线 → severity=info（pt_info lint / /pt check 同链路）", async () => {
+    const cwd = await makeCwd();
+    const longDesc = "技术规范参考手册；" + "条目索引与使用说明。".repeat(24);
+    const domain = makeDomain({
+      name: "long-desc",
+      modules: {
+        Trigger: [{ name: "long-trigger", desc: longDesc }],
+        Rules: [{ name: "rule-a", check: "x" }],
+      },
+    });
+    const r = await scan(
+      cwd,
+      [makeProfile({ domains: ["long-desc"] })],
+      [makeBlueprint()],
+      [domain]
+    );
+    // 双报：长 desc 同时是领域边界式 → 规则 1 warning + 规则 4 info（同 field 不同 severity，验证分流）
+    const hit = r.issues.filter(
+      (i) => i.scope === "domain" && i.field === "Trigger.long-trigger.desc"
+    );
+    expect(hit.length).toBe(2);
+    expect(hit.some((i) => i.severity === "info" && i.msg.includes("desc 长"))).toBe(true);
+    expect(hit.some((i) => i.severity === "warning" && i.msg.includes("领域边界式"))).toBe(true);
+    // desc-length-over 不计入 warnings（风格问题 ≠ 正确性问题）
+    expect(
+      r.issues.filter((i) => i.msg.includes("desc 长")).every((i) => i.severity === "info")
+    ).toBe(true);
+    expect(r.infos ?? 0).toBeGreaterThanOrEqual(1);
+  });
+
+  it("预算内的任务类别式 desc → 无 desc-length-over issue（不误报）", async () => {
+    const cwd = await makeCwd();
+    const okDesc =
+      "改 schema 契约 / 增删字段或类型 / 改签名 / 重命名导出 / 加新 modName 前，先查规范（rule-a）";
+    const domain = makeDomain({
+      name: "ok-desc",
+      modules: {
+        Trigger: [{ name: "ok-trigger", desc: okDesc }],
+        Rules: [{ name: "rule-a", check: "x" }],
+      },
+    });
+    const r = await scan(cwd, [makeProfile({ domains: ["ok-desc"] })], [makeBlueprint()], [domain]);
+    expect(
+      r.issues.filter(
+        (i) => i.scope === "domain" && i.field?.startsWith("Trigger.") && i.msg.includes("desc 长")
+      )
+    ).toEqual([]);
+  });
+});

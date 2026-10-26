@@ -13,7 +13,7 @@
 //   任务不属 desc 覆盖的类别 → 效应为 0（issue §7.8.1 G2：三种写法全 100%）。
 //   → 体检不能只看"是不是任务类别式"，还要看"**任务词是否具体到能对上**"。
 //
-// 本模块做**纯静态启发式**检查（无 LLM 参与），3 条可机械判定的规则：
+// 本模块做**纯静态启发式**检查（无 LLM 参与），4 条可机械判定的规则：
 //
 //   1. desc-domain-boundary（warning）—— desc 是"领域边界式"形态
 //      判据：首个分句形如「X 参考 / 索引 / 手册 / 指南 / 配置」且全句无任务信号词
@@ -27,6 +27,10 @@
 //      判据：desc 的括号内枚举项（如「（modules-type-safety、…）」）里，
 //      有名字**不匹配**本 Domain 任何 H3 项名 → 写进 desc 的信号是死的
 //
+//   4. desc-length-over（info）—— desc 超长（任务书 trigger-desc-cost-and-regression 步骤 2）
+//      判据：desc 字符数 > DESC_LENGTH_BUDGET（预算值，依据见常量注释）
+//      → 长度不是正确性问题是风格问题：info 级只提示不硬截断；超出 ≠ 错，是"该精简了"
+//
 // 边界纪律：
 //   - **只检测 + 报告，不改资产**（与 asset-health 其它规则一致；修复走作者手改）
 //   - **启发式，非判据**：命中 = 值得看一眼；不命中 ≠ 一定好（避免假阴性的误导）
@@ -39,7 +43,11 @@ import { isTriggerItemArray } from "../compile/type-guards.js";
 /** 体检发现的问题。 */
 export interface TriggerDescIssue {
   /** 规则 id。 */
-  rule: "desc-domain-boundary" | "desc-task-signal-weak" | "desc-rule-name-drift";
+  rule:
+    | "desc-domain-boundary"
+    | "desc-task-signal-weak"
+    | "desc-rule-name-drift"
+    | "desc-length-over";
   /** Domain 名。 */
   domainName: string;
   /** Trigger 项名。 */
@@ -49,6 +57,32 @@ export interface TriggerDescIssue {
   /** 修复建议。 */
   hint?: string;
 }
+
+/** desc 长度预算（字符，含标点/英文——与 G4 实验变体同口径）。
+ *
+ *  依据（任务书 trigger-desc-cost-and-regression 步骤 1：先测成本再定预算）：
+ *  G4 实验（lab 交错 A/B，n=20/组×4 档，同一 G3b 任务、同一指标口径）：
+ *
+ *  | desc 字数 | 查阅率 | CI 产出率(代理) | turn | 耗时中位 | 注入Δ |
+ *  |---|---|---|---|---|---|
+ *  | 0   | 100% | 85% | 13.6 | 160s | 118 |
+ *  | 30  | 100% | 80% | 15.3 | 133s | 150 |
+ *  | 85  | 100% | 95% | 15.7 | 140s | 205 |
+ *  | 200 | 100% | 95% | 14.9 | 124s | 320 |
+ *
+ *  - **成本**：注入量随 desc **~1:1 线性**传导（+30→+32、+85→+87、+200→+202 字符）；
+ *    耗时/turn **无单调上升**（0 字档反而最慢，IQR 高度重叠）→ desc 长度不是耗时主因。
+ *  - **效果**：≥85 字档 CI 产出率 95% vs ≤30 字档 80~85%（方向一致但 Fisher 不显著，p≥0.34）。
+ *  - **饱和**：本任务形态下查阅率各档均 100%（长度不决定是否查阅；写法才决定——见 §7.8.3）。
+ *    ⚠️ null 受天花板效应限制：实验配置里 hint 已兑底（空 desc 也 100% 查阅），
+ *    「长度不影响查阅」只在 hint 强的 domain 上成立。
+ *
+ *  → **预算 150 字**：60~150 字为推荐区间（信号词 + 点名 1-3 项）；
+ *    >150 字 info 提示精简（**不等于错**，是"该精简了"）；>200 字无额外收益证据 → 无需鼓励更长。
+ *    ⚠️ 150 是保守选择而非数据直接指示（数据落在「200 档无退化」分支，见 design 文档 §4/§6 审计记录）。
+ *  ⚠️ 单任务（CI 诊断形态）+ 代理指标 → **预算给区间不给硬真理**；换任务需重跑 A/B（desc-ab-regress.sh）。
+ */
+export const DESC_LENGTH_BUDGET = 150;
 
 /** 领域边界式 desc 的"领域介绍"形态——首个分句是"X 参考/索引/手册/指南/配置/方法/体系"。
  *  （对齐 issue §7.7.1 的机械判据） */
@@ -145,6 +179,17 @@ export function checkTriggerDescQuality(domain: Domain): TriggerDescIssue[] {
   for (const item of items) {
     const desc = (item.desc ?? "").trim();
     if (!desc) continue;
+
+    // ---- 规则 4：超长（info，风格提示——独立于写法规则，超长 desc 也可能是好写法）----
+    if (desc.length > DESC_LENGTH_BUDGET) {
+      issues.push({
+        rule: "desc-length-over",
+        domainName: domain.name,
+        itemName: item.name,
+        msg: `Domain「${domain.name}」Trigger 项「${item.name}」的 desc 长 ${desc.length} 字（预算 ≤${DESC_LENGTH_BUDGET}）——超出不等于错，是该精简了：任务词对齐才有效应，长度不叠加收益，长 desc 稀释命中信号`,
+        hint: `精简到预算内：保留任务类别词 + 点名 1-3 个代表项；背景/动机/领域介绍类内容移到 hint 或正文（不属于 desc）`,
+      });
+    }
 
     // ---- 规则 1：领域边界式 ----
     if (looksDomainBoundary(desc)) {

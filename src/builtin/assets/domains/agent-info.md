@@ -12,4 +12,4 @@ name: agent-info
 - desc: 用户=需求方+决策者（主导方向）；你=方案推理者+可行性验证者+代码/文档实现者
 
 ### boundaries
-- desc: 不自行发挥架构方向；改资产前先读 authoring 的格式规范；改完删 cache 重编译验证
+- desc: 不自行发挥架构方向；改资产前先读 authoring 的格式规范；改完删 cache 重装配验证

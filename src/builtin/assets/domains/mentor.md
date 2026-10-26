@@ -12,17 +12,17 @@ builtin profile `mentor` 引用本 domain 做主线，深度参考通过调 pt_i
 ## Trigger
 
 ### mentor-trigger
-- desc: 想一步步从零学 Pt / 不知道从哪下手 / 第一次配资产 / 要一份引导路径时，先查规范（7 步引导：理解概念 → 启用 → 识别知识结构 → 建 Domain → 建 Profile → 编译验证 → 迭代）
+- desc: 想一步步从零学 Pt / 不知道从哪下手 / 第一次配资产 / 要一份引导路径时，先查规范（7 步引导：理解概念 → 启用 → 识别知识结构 → 建 Domain → 建 Profile → 装配验证 → 迭代）
 - hint: 深度创作参考 调 pt_inject tool domain=authoring；命令查询参考 调 pt_inject tool domain=usage；概念模型参考 调 pt_inject tool domain=project-analysis
 
 ## Scene
 
 ### step-1-understand-pt
-- desc: 第 1 步——理解 Pt 是什么。Pt 是异构上下文编译器：你写 .pt/assets/ 下的 Domain（知识原料，md 文件）和 Profile（配置，md 文件），Pt 编译成 Agent Context 注入 Agent。四层模型：Domain（内容层，一个 md = 一个知识单元，H2 段名即 schema 选择器）→ Blueprint（结构层，聚合组插槽契约 name+inject+mode，可复用内建 pt-default）→ Profile（配置层，引用 Blueprint + 选 Domains + 填 modules）→ Agent Context（产物层，Session Context 每轮固定注入 + Turn Context 按需触发，带 sourceHash 缓存）。
+- desc: 第 1 步——理解 Pt 是什么。Pt 是异构上下文配置器：你写 .pt/assets/ 下的 Domain（知识原料，md 文件）和 Profile（配置，md 文件），Pt 装配成 Agent Context 注入 Agent。四层模型：Domain（内容层，一个 md = 一个知识单元，H2 段名即 schema 选择器）→ Blueprint（结构层，聚合组插槽契约 name+inject+mode，可复用内建 pt-default）→ Profile（配置层，引用 Blueprint + 选 Domains + 填 modules）→ Agent Context（产物层，Session Context 每轮固定注入 + Turn Context 按需触发，带 sourceHash 缓存）。
 - depth: 概念深度参考 调 pt_inject tool domain=project-analysis（what-is-pt / four-layer-model）
 
 ### step-2-setup
-- desc: 第 2 步——启用 Pt 并切换到 mentor。CLI 启动用 `--pt-profile mentor` 指定 profile；会话中用 `/pt-profile mentor` 切换（下一轮生效）；`/pt` 查看当前状态（profile + segment 长度 + cache hit）。第一次可先 `/pt-profile guide` 看 Pt 自描述全貌，再切 mentor 跟着学。**启用后立刻个性化 user-info**——builtin `user-info.md` 三个 H3（who-am-i / preferences / goals）都是占位符"修改为你的真实身份/偏好/目标"，不改的话 Agent 上下文是字面量提示，Session Context 注入的是占位符。改法：编辑 `.pt/assets/domains/user-info.md` 把 desc 文本改成自己的内容，删 cache 重编译即可生效。mentor profile `### Modules: [User]` 整段聚合 user-info，所以改这一处就够。
+- desc: 第 2 步——启用 Pt 并切换到 mentor。CLI 启动用 `--pt-profile mentor` 指定 profile；会话中用 `/pt-profile mentor` 切换（下一轮生效）；`/pt` 查看当前状态（profile + segment 长度 + cache hit）。第一次可先 `/pt-profile guide` 看 Pt 自描述全貌，再切 mentor 跟着学。**启用后立刻个性化 user-info**——builtin `user-info.md` 三个 H3（who-am-i / preferences / goals）都是占位符"修改为你的真实身份/偏好/目标"，不改的话 Agent 上下文是字面量提示，Session Context 注入的是占位符。改法：编辑 `.pt/assets/domains/user-info.md` 把 desc 文本改成自己的内容，删 cache 重装配即可生效。mentor profile `### Modules: [User]` 整段聚合 user-info，所以改这一处就够。
 - depth: 命令深度参考 调 pt_inject tool domain=usage（pt-commands / pt-profile-command）
 
 ### step-3-analyze-project
@@ -38,11 +38,11 @@ builtin profile `mentor` 引用本 domain 做主线，深度参考通过调 pt_i
 - depth: 格式深度参考 调 pt_inject tool domain=authoring（profile-format + profile-modules-section）
 
 ### step-6-compile-verify
-- desc: 第 6 步——编译并验证。改完资产后：(1) 删 .pt/cache/agent-contexts/*.agent-context.md 强制重编译；(2) `/pt-profile <你的profile>` 激活；(3) `/pt` 看 cache miss + segment 长度变化；(4) `/pt raw` dump segment 到 .pt/cache/raws/ 看实际聚合内容；(5) `/pt full` dump 完整 Session Inject 到 .pt/cache/fulls/ 看 Agent 实际收到的上下文。
+- desc: 第 6 步——装配并验证。改完资产后：(1) 删 .pt/cache/agent-contexts/*.agent-context.md 强制重装配；(2) `/pt-profile <你的profile>` 激活；(3) `/pt` 看 cache miss + segment 长度变化；(4) `/pt raw` dump segment 到 .pt/cache/raws/ 看实际聚合内容；(5) `/pt full` dump 完整 Session Inject 到 .pt/cache/fulls/ 看 Agent 实际收到的上下文。
 - depth: 命令深度参考 调 pt_inject tool domain=usage（pt-commands / cache-invalidation-rule）
 
 ### step-7-iterate
-- desc: 第 7 步——迭代。加/改资产的标准循环：改 .md → 删 cache → /pt 验证 → 不满意再改。资产变了 sourceHash 自然不同，cache miss 自动重编译。每个阶段一个 git commit（baseline 可回退，搞砸了 git revert）。进阶后可学 pack-management 组织多项目复用的资产包。
+- desc: 第 7 步——迭代。加/改资产的标准循环：改 .md → 删 cache → /pt 验证 → 不满意再改。资产变了 sourceHash 自然不同，cache miss 自动重装配。每个阶段一个 git commit（baseline 可回退，搞砸了 git revert）。进阶后可学 pack-management 组织多项目复用的资产包。
 - depth: 流程深度参考 调 pt_inject tool domain=authoring（modify-asset-procedure）；pack 组织参考 调 pt_inject tool domain=pack-management
 
 ## Flows

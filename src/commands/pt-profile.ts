@@ -14,7 +14,7 @@ export function registerPtProfileCommand(pi: ExtensionAPI): void {
   // Phase term-P2：/pt-context → /pt-profile（命令参数是 Profile 名，名该匹配操作目标）。
   pi.registerCommand("pt-profile", {
     description:
-      "切换当前 Profile（编译成 AgentContext 注入 Session Inject），即时重转译（无参则弹出选择器）",
+      "切换当前 Profile（装配成 AgentContext 注入 Session Inject），即时重转译（无参则弹出选择器）",
     getArgumentCompletions: async (prefix) => {
       const sessionId = getSessionIdFromCtx({
         sessionManager: undefined,
