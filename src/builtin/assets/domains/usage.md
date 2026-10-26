@@ -72,7 +72,8 @@ name: usage
 ## Rules
 
 ### cache-invalidation-rule
-- check: 改资产后必删 .pt/cache/agent-contexts/*.agent-context.md 强制重装配；sourceHash 会自动失效，但手动删 cache 是最直接的验证方式
+- check: 改资产后必删 .pt/cache/agent-contexts/*.agent-context.md 强制重装配；sourceHash 会自动失效，但手动删 cache 是最直接的验证方式。机器可验证底线：重装配后产物目录 .pt/cache/agent-contexts/ 必须存在（缺失 = 转译未落盘，注入可能未生效）
+- checks: { probe: fs-exists, params: { path: .pt/cache/agent-contexts } }
 
 ### profile-switch-next-turn
 - check: /pt-profile <name> 切换后下一轮才生效（before_agent_start 事件重注入）；当前轮不受影响
