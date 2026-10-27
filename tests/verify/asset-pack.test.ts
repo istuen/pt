@@ -1585,7 +1585,24 @@ describe("M2 PR4 session_start settings pack 校验预警（§6.7.5）", () => {
   beforeEach(() => {
     tmpCwd = mkdtempSync(join(tmpdir(), "pt-pr4-validate-"));
   });
-  afterEach(() => {
+  afterEach(async () => {
+    // 本组的集成用例会调 session_start → 它在 tmpCwd 下建 logger 并发起
+    // fire-and-forget 的异步写（mkdir + appendFile 到 .pt/logs/）。
+    // afterEach 的 rmSync 与那只在飞的写竞争 → Linux 上偶发 ENOTEMPTY
+    // （rm 遍历到 .pt 时 logger 正好建了新目录）。
+    // 处置：ENOTEMPTY/EBUSY 时有界重试（最多 5 次 × 50ms）——
+    // 不吞真实失败（其他 errno 立即抛）。
+    for (let i = 0; i < 5; i++) {
+      try {
+        rmSync(tmpCwd, { recursive: true, force: true });
+        return;
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if (code !== "ENOTEMPTY" && code !== "EBUSY") throw e;
+        // 重试需串行等在飞的写落地
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
     rmSync(tmpCwd, { recursive: true, force: true });
   });
 

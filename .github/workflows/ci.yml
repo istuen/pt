@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # dev 也要跑 CI：dev 是开发主线（feature 合入目标）——PR #8 发现
+    # 「目标是 dev 的 PR 从不跑 CI」= 触发缺口。
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   verify:

@@ -12,7 +12,10 @@ name: usage
 ## Scene
 
 ### pt-commands
-- desc: /pt（查看当前状态）+ /pt info status（profile + segment 长度 + cache hit）+ /pt doc list flows（列出可触发手册，即 Turn Context 内容索引）+ /pt info raw（dump segment 到 .pt/cache/raws/）+ /pt info full（dump 完整 Session Inject 到 .pt/cache/fulls/）
+- desc: /pt（查看当前状态）+ /pt info status（profile + segment 长度 + cache hit）+ /pt doc list flows（列出可触发手册，即 Turn Context 内容索引）+ /pt info raw（dump segment 到 .pt/cache/raws/）+ /pt info full（dump 完整 Session Inject 到 .pt/cache/fulls/）+ /pt stats（作者采用反馈报告：Profile 效果 / Domain 采用 / 注入成本 / 检查值班）
+
+### pt-stats-command
+- desc: /pt stats（顶级命令，与 /pt info / /pt doc 同级）——**资产作者视角的采用反馈报告**：五块 = Profile 效果表（sessions/turns/查阅/segment/零查阅数）/ Domain 采用排行（曝光 vs 被查 + 采用率）/ 零查阅诊断（给证据 + 两个假设分支，不判死刑）/ 注入成本（三段字符占比 + 重建频率）/ 检查值班（checkResults outcome 分布 + 阻断绕过 + manual 启动数）。与 /pt info status 分工：info status = 本 session 实时态，stats = 跨 session 历史。改资产 → /pt stats 看反馈 → 再改
 
 ### pt-profile-command
 - desc: /pt-profile（列出所有可用 Profile）+ /pt-profile <name>（切换到指定 Profile，下一轮生效）。旧命令 /pt-context 保留为 backward-compat fallback。
@@ -82,3 +85,6 @@ name: usage
 
 ### builtin-override
 - check: 项目 .pt/assets/ 下同名资产覆盖内建（dedupByName 项目优先）；内建 guide 被项目 guide 覆盖时 /pt status 仍显示 guide 名但内容是项目版
+
+### observe-perception-entry
+- check: 感知 Pt 的观测/检查能力有三个入口——(1) /pt stats 看作者采用反馈（Profile 效果 / Domain 采用 / 注入成本 / 检查值班）；(2) --pt-observe 开启 Layer 3 内容到场观测（观测点一致性，非端到端保证）；(3) settings pt.check-block 开 A3 硬约束阻断。资产作者工作循环：改资产 → /pt stats 看反馈 → 再改

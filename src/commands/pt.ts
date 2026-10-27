@@ -43,7 +43,7 @@ export function registerPtCommand(pi: ExtensionAPI): void {
   //   - /pt 无参行为不变（statusText + cachedSegment）
   pi.registerCommand("pt", {
     description:
-      "查看 Pt 转译产物 / 管理项目文档（无参=status + segment；子命令 info/doc；旧命令别名兼容）",
+      "查看 Pt 转译产物 / 管理项目文档 / 看作者采用反馈（无参=status + segment；子命令 info/doc/stats；旧命令别名兼容）",
     handler: async (args, ctx) => {
       // v11.x 修复：sub = 第一词，subArgs = 剩余。兼容 logs:clear / status / flows 等单子命令。
       const firstSpace = args.indexOf(" ");
@@ -334,6 +334,17 @@ export function registerPtCommand(pi: ExtensionAPI): void {
         return;
       }
 
+      // ==================== /pt stats ====================
+      // 顶级命令（与 info/doc 同级）——issue pt-observability-read-gap §五 定夺 1：
+      //   info  = 「Pt 自身状态自省」（配置/产物/日志，本 session 实时态）
+      //   stats = 「我的内容表现如何」（跨 session 历史 + 资产作者视角）
+      // 放在旧命令别名区之前（stats 是新顶级命令，不是别名）。
+      if (sub === "stats") {
+        const { buildStatsText } = await import("../stats-text.js");
+        ctx.ui.notify(await buildStatsText(ctx.cwd), "info");
+        return;
+      }
+
       // ==================== 旧命令别名（back-compat 转发） ====================
       // 等价 /pt info status
       if (sub === "status") {
@@ -559,7 +570,7 @@ export function registerPtCommand(pi: ExtensionAPI): void {
       }
 
       ctx.ui.notify(
-        "用法: /pt [info <kind>|doc <action>] （旧命令 status/packs/check/logs/logs:clear/sessions/raw/full/flows/issues/manuals/designs/check-docs/make-manual 仍兼容）",
+        "用法: /pt [stats|info <kind>|doc <action>] （旧命令 status/packs/check/logs/logs:clear/sessions/raw/full/flows/issues/manuals/designs/check-docs/make-manual 仍兼容）",
         "warning"
       );
     },

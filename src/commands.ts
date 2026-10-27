@@ -88,6 +88,16 @@ export function statusText(session: SessionState): string {
   // v14.x（tagline）：statusText 显式展开 tagline（不受 footer 35 字符限制）
   const tagline = session.cachedProfile?.tagline;
   const taglineLine = tagline ? `pt tagline: ${tagline}` : "pt tagline: (none)";
+  // issue pt-observability-read-gap §五 B：补「本 session」视角一行。
+  //   分工边界：**status = 本 session 实时态，stats = 跨 session 历史**（不重复展示）。
+  //   数据全在 session 内存态（observeEnabled + summary.checkResults），零额外读取。
+  const checkTotal = session.summary?.checkResults?.length ?? 0;
+  const checkFailed = (session.summary?.checkResults ?? []).filter(
+    (c) => c.outcome === "DEVIATED"
+  ).length;
+  const observeLine =
+    `pt observe: ${session.observeEnabled ? "on" : "off"}` +
+    ` | pt 本 session 检查: ${checkTotal} 项 / 失败 ${checkFailed}`;
   return [
     `pt profile: ${session.activeProfile ?? "(未激活)"}`,
     `pt loadedFrom: ${session.loadedFrom ?? "(none)"}`, // v10.x：可观测性（issue pt-context-persist-lost）
@@ -101,6 +111,7 @@ export function statusText(session: SessionState): string {
     `pt state: ${session.injectionState}${session.injectionError ? `: ${session.injectionError.slice(0, 40)}` : ""}`,
     healthLine,
     packLine,
+    observeLine,
     `pt cwd: ${session.lastCwd}`,
   ].join(" | ");
 }
